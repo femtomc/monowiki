@@ -45,9 +45,13 @@
       {% for item in items %}
       <li class="note-list-item">
         <span class="note-tag">{{ item.note_type }}</span>
-        <a href="{{ item.url }}">{{ item.title }}</a>
-        {% match item.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
-        {% match item.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
+        <div class="note-body">
+          <div class="note-heading">
+            <a href="{{ item.url }}">{{ item.title }}</a>
+            {% match item.date %}{% when Some with (date) %}<span>— {{ date }}</span>{% when None %}{% endmatch %}
+          </div>
+          {% match item.description %}{% when Some with (desc) %}<div class="note-description">{{ desc }}</div>{% when None %}{% endmatch %}
+        </div>
       </li>
       {% endfor %}
     </ul>

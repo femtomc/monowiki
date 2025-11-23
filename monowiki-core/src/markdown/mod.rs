@@ -44,8 +44,8 @@ impl MarkdownProcessor {
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-        options.insert(Options::ENABLE_MATH);
-        // Math is parsed into InlineMath/DisplayMath and rendered via Typst
+        // Note: ENABLE_MATH is NOT enabled - we handle all math delimiters
+        // ourselves in MathTransformer to support \[...\], \(...\), $$, and $
 
         Self { options }
     }
@@ -67,12 +67,19 @@ impl MarkdownProcessor {
         // Collect headings for TOC and later ID injection
         let headings = collect_headings(&events);
 
-        // Fix math block wrapping first
+        // Transform math delimiters first ($$, $, etc.)
         let math_transformer = MathTransformer::new();
         let events = math_transformer.transform(events);
+
+        // Apply nota blocks (needs paragraph structure intact)
         let nota_transformer = NotaBlockTransformer::new();
         let events = nota_transformer.transform(events);
+
+        // Render math to SVG
         let events = MATH_RENDERER.render_math(events, typst_preamble);
+
+        // Unwrap paragraphs with display math (must be after nota blocks)
+        let events = math_transformer.unwrap_display_math_paragraphs(events);
 
         // Apply sidenote transform
         let sidenote_transformer = SidenoteTransformer::new();

@@ -20,12 +20,6 @@ export function initMathCopy() {
       copyText(mathSource).then();
     };
 
-    const mathSource = mathEl.getAttribute('data-math') || '';
-    if (mathSource) {
-      const button = createCopyButton(mathEl, mathSource);
-      mathEl.appendChild(button);
-    }
-
     mathEl.addEventListener('copy', handleCopy);
   };
 
@@ -57,30 +51,6 @@ export function initMathCopy() {
   });
 }
 
-function createCopyButton(mathEl: HTMLElement, mathSource: string): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'math-copy-btn';
-  if (mathEl.classList.contains('typst-inline')) {
-    button.classList.add('math-copy-inline');
-  } else {
-    button.classList.add('math-copy-display');
-  }
-  const defaultLabel = 'Copy';
-  button.textContent = defaultLabel;
-  button.title = 'Copy math';
-  button.setAttribute('aria-label', 'Copy math');
-
-  button.addEventListener('click', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const success = await copyText(mathSource);
-    showStatus(button, success ? 'Copied' : 'Failed', defaultLabel);
-  });
-
-  return button;
-}
-
 async function copyText(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -109,16 +79,6 @@ async function copyText(text: string): Promise<boolean> {
   }
 
   return success;
-}
-
-function showStatus(button: HTMLButtonElement, status: string, defaultLabel: string) {
-  const prev = button.textContent || defaultLabel;
-  button.textContent = status;
-  button.dataset.state = status === 'Copied' ? 'copied' : 'error';
-  setTimeout(() => {
-    button.textContent = prev;
-    button.dataset.state = '';
-  }, 1200);
 }
 
 function selectionIntersects(el: HTMLElement): boolean {

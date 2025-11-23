@@ -29,7 +29,7 @@
 
 :root {
   --font-family: "Berkeley Mono", "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
-  --line-height: 1.25rem;
+  --line-height: 1.4rem;
   --border-thickness: 2px;
 
   /* Light mode with subtle accents */
@@ -664,41 +664,6 @@ label input {
   overflow: visible;
 }
 
-.math-copy-btn {
-  border: var(--border-thickness) solid var(--border-color);
-  background: var(--background-color);
-  color: inherit;
-  cursor: pointer;
-  font-size: 0.8em;
-  padding: 0.1rem 0.5rem;
-  border-radius: 6px;
-  opacity: 0;
-  transition: opacity 150ms ease, transform 150ms ease, border-color 150ms ease;
-  pointer-events: none;
-}
-
-.math-copy-display {
-  position: absolute;
-  top: -0.9em;
-  right: -0.2em;
-}
-
-.math-copy-inline {
-  margin-left: 0.35em;
-}
-
-.typst-math:hover .math-copy-btn,
-.typst-math:focus-within .math-copy-btn {
-  opacity: 1;
-  transform: translateY(-1px);
-  pointer-events: auto;
-}
-
-.math-copy-btn[data-state="copied"] {
-  border-color: var(--accent-color);
-  color: var(--accent-color);
-}
-
 .typst-math svg [fill]:not([fill="none"]) {
   fill: currentColor;
 }
@@ -708,23 +673,22 @@ label input {
 }
 
 .typst-inline {
-  display: inline-flex;
-  align-items: center;
-  vertical-align: -0.2ex;
-  gap: 0.1ch;
+  display: inline;
+  vertical-align: -0.15ex;
 }
 
 .typst-inline svg {
-  display: inline-block;
+  display: inline;
   height: 1em;
   width: auto;
+  vertical-align: baseline;
 }
 
 .typst-display {
   display: flex;
   justify-content: center;
   align-items: center;
-  margin: calc(var(--line-height) * 1.5) 0;
+  margin: 0.75rem 0;
   overflow-x: auto;
 }
 
@@ -996,9 +960,8 @@ h2 {
 
 .note-list-item {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.8ch;
-  align-items: baseline;
+  gap: 0.9ch;
+  align-items: flex-start;
   margin-top: var(--line-height);
 }
 
@@ -1013,6 +976,23 @@ h2 {
   text-transform: uppercase;
   background: var(--background-color-alt);
   color: var(--text-color-alt);
+}
+
+.note-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.note-heading {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6ch;
+}
+
+.note-description {
+  color: var(--text-color-alt);
+  margin-top: 0.15rem;
 }
 
 /* Code highlighting - removed duplicate, see above */

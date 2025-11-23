@@ -33,6 +33,8 @@ $$
 #typeOf($e$, $τ$)
 $$
 
+Use `$$...$$` for display math (shown above). Single `$...$` works for inline math like $x + y = z$ or $alpha arrow.r beta$ (Typst uses words for Greek letters and symbols).
+
 ## Nota-like blocks
 
 Start a paragraph with `@Kind[label]{Title}: ...` to wrap it in a styled block. The label becomes the `id` (defaults to a slug of the title). Wikilinks, math, and typst macros still work inside the body.

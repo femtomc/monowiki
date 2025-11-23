@@ -87,8 +87,9 @@ impl TypstMathRenderer {
             .output
             .map_err(|err| anyhow!("Typst math compilation failed: {err}"))?;
 
-        // Provide a small padding so strokes aren't clipped at the edges
-        let svg = typst_svg::svg_merged(&doc, Abs::pt(2.0));
+        // Provide minimal padding so strokes aren't clipped at the edges
+        // Reduced from 2pt to 0.5pt for tighter inline math rendering
+        let svg = typst_svg::svg_merged(&doc, Abs::pt(0.5));
         let svg = normalize_svg(&svg);
 
         self.cache.lock().unwrap().put(key, svg.clone());
@@ -161,7 +162,75 @@ fn log_warnings(warnings: &[SourceDiagnostic]) {
 
 fn normalize_svg(svg: &str) -> String {
     let svg = normalize_svg_colors(svg);
+    let svg = trim_svg_viewbox(&svg);
     ensure_svg_is_hidden_from_a11y(&svg)
+}
+
+fn trim_svg_viewbox(svg: &str) -> String {
+    // Extract current viewBox
+    static VIEWBOX_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"viewBox="([^"]+)""#).expect("valid viewBox regex")
+    });
+
+    let Some(caps) = VIEWBOX_RE.captures(svg) else {
+        return svg.to_string();
+    };
+
+    let viewbox_str = &caps[1];
+    let parts: Vec<&str> = viewbox_str.split_whitespace().collect();
+    if parts.len() != 4 {
+        return svg.to_string();
+    }
+
+    let Ok(orig_width) = parts[2].parse::<f64>() else { return svg.to_string(); };
+    let Ok(orig_height) = parts[3].parse::<f64>() else { return svg.to_string(); };
+
+    // Find all text transform matrices to get content bounds
+    // Typst uses: <g class="typst-text" transform="matrix(1 0 0 -1 x y)">
+    // The y value is the baseline position in the flipped coordinate system
+    static TEXT_TRANSFORM_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"class="typst-text"[^>]+transform="matrix\([^)]+\s+([0-9.]+)\)""#)
+            .expect("valid text transform regex")
+    });
+
+    let mut baseline_y: Option<f64> = None;
+    for cap in TEXT_TRANSFORM_RE.captures_iter(svg) {
+        if let Some(y_str) = cap.get(1) {
+            if let Ok(y) = y_str.as_str().parse::<f64>() {
+                baseline_y = Some(baseline_y.map_or(y, |current| current.max(y)));
+            }
+        }
+    }
+
+    let (new_min_y, new_height) = if let Some(baseline) = baseline_y {
+        // With 15pt font: cap height ≈ 11pt, descender ≈ 3pt
+        // Content spans from (baseline - 11) to (baseline + 3)
+        let cap_height = 11.0;
+        let descender_depth = 3.0;
+        let padding = 1.0;
+
+        let content_top = (baseline - cap_height - padding).max(0.0);
+        let content_bottom = baseline + descender_depth + padding;
+        let content_height = content_bottom - content_top;
+
+        (content_top, content_height.min(orig_height))
+    } else {
+        // Fallback: reduce by 40% if we can't find text bounds, keep origin
+        (0.0, orig_height * 0.6)
+    };
+
+    let new_viewbox = format!("0 {} {} {}", new_min_y, orig_width, new_height);
+
+    // Update viewBox
+    let result = VIEWBOX_RE.replace(svg, format!(r#"viewBox="{}""#, new_viewbox));
+
+    // Update height attribute
+    static HEIGHT_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"height="[^"]+""#).expect("valid height regex")
+    });
+    let result = HEIGHT_RE.replace(&result, format!(r#"height="{}pt""#, new_height));
+
+    result.into_owned()
 }
 
 fn normalize_svg_colors(svg: &str) -> String {
