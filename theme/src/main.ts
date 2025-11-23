@@ -1,5 +1,5 @@
 /**
- * Femtowiki Theme
+ * Monowiki Theme
  *
  * Main entry point for all frontend components
  */
