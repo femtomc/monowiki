@@ -1,5 +1,6 @@
 ///! Search command implementation
 
+use crate::agent;
 use anyhow::{Context, Result};
 use monowiki_core::{Config, SearchEntry};
 use serde::Deserialize;
@@ -47,25 +48,36 @@ pub fn search_site(config_path: &Path, query: &str, opts: SearchOptions) -> Resu
     if opts.json {
         let mut json_results = Vec::new();
         for (entry, score) in results.iter().take(opts.limit) {
-            let slug = slug_from_entry(entry);
+            let slug = agent::search_entry_slug(entry);
             let outgoing = graph.outgoing.get(&slug).cloned().unwrap_or_default();
             let backlinks = graph.incoming.get(&slug).cloned().unwrap_or_default();
 
-            json_results.push(serde_json::json!({
-                "id": entry.id,
-                "url": entry.url,
-                "title": entry.title,
-                "section_title": entry.section_title,
-                "snippet": entry.snippet,
-                "tags": entry.tags,
-                "type": entry.doc_type,
-                "score": score,
-                "outgoing": if opts.with_links { Some(outgoing) } else { None },
-                "backlinks": if opts.with_links { Some(backlinks) } else { None },
-            }));
+            json_results.push(agent::SearchResult {
+                id: entry.id.clone(),
+                slug,
+                url: entry.url.clone(),
+                title: entry.title.clone(),
+                section_title: entry.section_title.clone(),
+                snippet: entry.snippet.clone(),
+                tags: entry.tags.clone(),
+                note_type: entry.doc_type.clone(),
+                score: *score,
+                outgoing: if opts.with_links { outgoing } else { Vec::new() },
+                backlinks: if opts.with_links { backlinks } else { Vec::new() },
+            });
         }
 
-        let json = serde_json::to_string_pretty(&json_results)?;
+        let payload = agent::envelope(
+            "search.results",
+            agent::SearchData {
+                query: query.to_string(),
+                limit: opts.limit,
+                total: results.len(),
+                results: json_results,
+            },
+        );
+
+        let json = serde_json::to_string_pretty(&payload)?;
         println!("{json}");
     } else {
         println!("\n🔍 Found {} results for '{}':\n", results.len(), query);
@@ -202,13 +214,4 @@ fn load_graph(config: &Config) -> Result<GraphInfo> {
     }
 
     Ok(GraphInfo { outgoing, incoming })
-}
-
-fn slug_from_entry(entry: &SearchEntry) -> String {
-    entry
-        .id
-        .split('#')
-        .next()
-        .unwrap_or(&entry.id)
-        .to_string()
 }

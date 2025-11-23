@@ -796,82 +796,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "monowiki-adapters"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "monowiki-core",
- "insta",
- "serde",
- "thiserror",
-]
-
-[[package]]
-name = "monowiki-cli"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "askama",
- "assert_cmd",
- "axum",
- "chrono",
- "clap",
- "monowiki-adapters",
- "monowiki-core",
- "monowiki-render",
- "notify",
- "predicates",
- "serde",
- "serde_json",
- "serde_yaml",
- "tempfile",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "walkdir",
-]
-
-[[package]]
-name = "monowiki-core"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "chrono",
- "insta",
- "lru",
- "once_cell",
- "pulldown-cmark",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "syntect",
- "thiserror",
- "tracing",
- "typst",
- "typst-as-lib",
- "typst-assets",
- "typst-svg",
- "unicode-segmentation",
- "walkdir",
-]
-
-[[package]]
-name = "monowiki-render"
-version = "0.2.0"
-dependencies = [
- "askama",
- "monowiki-core",
- "insta",
- "serde",
- "serde_json",
- "syntect",
- "thiserror",
-]
-
-[[package]]
 name = "find-msvc-tools"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1821,6 +1745,82 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "monowiki-adapters"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "insta",
+ "monowiki-core",
+ "serde",
+ "thiserror",
+]
+
+[[package]]
+name = "monowiki-cli"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "askama",
+ "assert_cmd",
+ "axum",
+ "chrono",
+ "clap",
+ "monowiki-adapters",
+ "monowiki-core",
+ "monowiki-render",
+ "notify",
+ "predicates",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "walkdir",
+]
+
+[[package]]
+name = "monowiki-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "insta",
+ "lru",
+ "once_cell",
+ "pulldown-cmark",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "syntect",
+ "thiserror",
+ "tracing",
+ "typst",
+ "typst-as-lib",
+ "typst-assets",
+ "typst-svg",
+ "unicode-segmentation",
+ "walkdir",
+]
+
+[[package]]
+name = "monowiki-render"
+version = "0.2.0"
+dependencies = [
+ "askama",
+ "insta",
+ "monowiki-core",
+ "serde",
+ "serde_json",
+ "syntect",
+ "thiserror",
 ]
 
 [[package]]

@@ -65,12 +65,13 @@ server:
 ```
 
 ## Agent/automation features
-- Structured search: `monowiki search "<query>" --json --limit 10 --types essay,thought --tags rust --with-links`.
-- Single-note fetch: `monowiki note <slug> --format json --with-links` (returns frontmatter, rendered HTML, raw markdown, toc, outgoing/backlinks).
-- Graph queries: `monowiki graph neighbors --slug <slug> --depth 2 --direction both --json` and `monowiki graph path --from a --to b --json`.
+- Structured search: `monowiki search "<query>" --json --limit 10 --types essay,thought --tags rust --with-links`. JSON is wrapped in `{schema_version:"2024-11-llm-v1", kind:"search.results", data:{...}}` with slugs, outgoing, backlinks.
+- Single-note fetch: `monowiki note <slug> --format json --with-links` (enveloped JSON with frontmatter, rendered HTML, raw markdown, toc, outgoing/backlinks).
+- Graph queries: `monowiki graph neighbors --slug <slug> --depth 2 --direction both --json` and `monowiki graph path --from a --to b --json` return the same envelope the dev server uses.
 - Embedding/export: `monowiki export sections --format jsonl --with-links` emits section-level chunks ready for vector stores.
 - Watch mode: `monowiki watch` streams JSON change events from `vault/`.
 - `monowiki init` now drops `vault/AGENT.md` summarizing these workflows for LLM agents.
+- Cached site index: builds/dev write `docs/.site_index.json`; `note`, `graph`, and `export` reuse it to avoid a rebuild when querying.
 
 ### Dev server JSON API
 - Start with `monowiki dev` then call:

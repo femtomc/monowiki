@@ -1,8 +1,8 @@
 //! Export section-level content for embeddings/agents.
 
-use crate::ExportFormat;
+use crate::{cache::load_or_build_site_index, ExportFormat};
 use anyhow::{Context, Result};
-use monowiki_core::{build_search_index, Config, SiteBuilder};
+use monowiki_core::build_search_index;
 use std::fs::File;
 use std::io::{stdout, BufWriter, Write};
 use std::path::Path;
@@ -15,11 +15,8 @@ pub fn export_sections(
     with_links: bool,
     pretty: bool,
 ) -> Result<()> {
-    let config = Config::from_file(config_path).context("Failed to load configuration")?;
+    let (config, site_index) = load_or_build_site_index(config_path)?;
     let base_url = config.normalized_base_url();
-
-    let builder = SiteBuilder::new(config.clone());
-    let site_index = builder.build().context("Failed to build site index")?;
 
     let mut records = Vec::new();
     for note in &site_index.notes {

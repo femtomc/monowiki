@@ -1,5 +1,6 @@
 //! Build command implementation.
 
+use crate::cache;
 use anyhow::{Context, Result};
 use askama::Template;
 use chrono::{Datelike, NaiveDate};
@@ -85,6 +86,10 @@ pub fn build_site_with_config(
 
     tracing::info!("✓ Built {} pages", non_draft_count);
     tracing::info!("✓ Output written to {:?}", output_dir);
+
+    if let Err(err) = cache::write_site_index_cache(&config, &site_index) {
+        tracing::warn!("Failed to write site index cache: {}", err);
+    }
 
     Ok((config, site_index))
 }

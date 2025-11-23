@@ -70,10 +70,13 @@ enable_backlinks: true
 
     let stdout = String::from_utf8(assert.get_output().stdout.clone())?;
     let value: Value = serde_json::from_str(&stdout)?;
-    let arr = value.as_array().expect("json array");
-    assert_eq!(arr.len(), 1);
-    let first = &arr[0];
+    assert_eq!(value["schema_version"], "2024-11-llm-v1");
+    let data = value.get("data").expect("data field");
+    let results = data["results"].as_array().expect("results array");
+    assert_eq!(results.len(), 1);
+    let first = &results[0];
     assert_eq!(first["id"], "rust#intro");
+    assert_eq!(first["slug"], "rust");
     assert!(first["outgoing"]
         .as_array()
         .expect("outgoing array")

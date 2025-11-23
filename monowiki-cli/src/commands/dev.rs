@@ -2,7 +2,7 @@
 
 use super::build::build_site_with_index;
 use super::search::{perform_search, SearchOptions};
-use crate::GraphDirection;
+use crate::{agent, GraphDirection};
 use anyhow::{Context, Result};
 use axum::{
     body::Body,
@@ -209,28 +209,38 @@ async fn api_search(
 
     let data = state.data.read().await;
     let results = perform_search(&data.search_entries, &query, &opts);
+    let total = results.len();
 
-    let payload: Vec<_> = results
-        .into_iter()
-        .take(limit)
-        .map(|(entry, score)| {
-            let slug = entry_slug(entry);
-            let outgoing = data.site_index.graph.outgoing(&slug);
-            let backlinks = data.site_index.graph.backlinks(&slug);
-            serde_json::json!({
-                "id": entry.id,
-                "url": entry.url,
-                "title": entry.title,
-                "section_title": entry.section_title,
-                "snippet": entry.snippet,
-                "tags": entry.tags,
-                "type": entry.doc_type,
-                "score": score,
-                "outgoing": outgoing,
-                "backlinks": backlinks,
-            })
-        })
-        .collect();
+    let mut payload_results = Vec::new();
+    for (entry, score) in results.into_iter().take(limit) {
+        let slug = agent::search_entry_slug(entry);
+        let outgoing = data.site_index.graph.outgoing(&slug);
+        let backlinks = data.site_index.graph.backlinks(&slug);
+
+        payload_results.push(agent::SearchResult {
+            id: entry.id.clone(),
+            slug,
+            url: entry.url.clone(),
+            title: entry.title.clone(),
+            section_title: entry.section_title.clone(),
+            snippet: entry.snippet.clone(),
+            tags: entry.tags.clone(),
+            note_type: entry.doc_type.clone(),
+            score,
+            outgoing,
+            backlinks,
+        });
+    }
+
+    let payload = agent::envelope(
+        "search.results",
+        agent::SearchData {
+            query: query.clone(),
+            limit,
+            total,
+            results: payload_results,
+        },
+    );
 
     Json(payload).into_response()
 }
@@ -274,11 +284,13 @@ async fn api_graph_neighbors(
         .iter()
         .map(|slug| {
             let meta = data.site_index.find_by_slug(slug);
-            serde_json::json!({
-                "slug": slug,
-                "title": meta.map(|n| n.title.clone()),
-                "url": meta.map(|n| n.url_with_base(&data.base_url)),
-            })
+            agent::GraphNode {
+                slug: slug.clone(),
+                title: meta.map(|n| n.title.clone()),
+                url: meta.map(|n| n.url_with_base(&data.base_url)),
+                tags: meta.map(|n| n.tags.clone()),
+                note_type: meta.map(|n| n.note_type.as_str().to_string()),
+            }
         })
         .collect();
 
@@ -287,19 +299,24 @@ async fn api_graph_neighbors(
         let outgoing = data.site_index.graph.outgoing(src);
         for tgt in outgoing {
             if neighbors.contains(&tgt) {
-                edges.push(serde_json::json!({
-                    "source": src,
-                    "target": tgt,
-                }));
+                edges.push(agent::GraphEdge {
+                    source: src.clone(),
+                    target: tgt,
+                });
             }
         }
     }
 
-    Json(serde_json::json!({
-        "root": normalized,
-        "nodes": nodes,
-        "edges": edges,
-    }))
+    Json(agent::envelope(
+        "graph.neighbors",
+        agent::GraphNeighborsData {
+            root: normalized,
+            depth,
+            direction: direction_label(direction).to_string(),
+            nodes,
+            edges,
+        },
+    ))
     .into_response()
 }
 
@@ -331,11 +348,14 @@ async fn api_graph_path(
     let goal = normalize_slugish(&to);
 
     let path = shortest_path(&data.site_index.graph, &start, &goal, max_depth);
-    Json(serde_json::json!({
-        "from": start,
-        "to": goal,
-        "path": path,
-    }))
+    Json(agent::envelope(
+        "graph.path",
+        agent::GraphPathData {
+            from: start,
+            to: goal,
+            path,
+        },
+    ))
     .into_response()
 }
 
@@ -354,22 +374,10 @@ async fn api_note(
 
     if let Some(note) = note {
         let backlinks = data.site_index.graph.backlinks(&note.slug);
-        let payload = serde_json::json!({
-            "slug": note.slug,
-            "title": note.title,
-            "url": note.url_with_base(&data.base_url),
-            "type": note.note_type.as_str(),
-            "tags": note.tags,
-            "date": note.date.map(|d| d.format("%Y-%m-%d").to_string()),
-            "updated": note.updated.map(|d| d.format("%Y-%m-%d").to_string()),
-            "frontmatter": note.frontmatter,
-            "content_html": note.content_html,
-            "toc_html": note.toc_html,
-            "raw_body": note.raw_body,
-            "preview": note.preview,
-            "outgoing": note.outgoing_links,
-            "backlinks": backlinks,
-        });
+        let payload = agent::envelope(
+            "note.full",
+            agent::note_to_payload(note, &data.base_url, backlinks),
+        );
 
         Json(payload).into_response()
     } else {
@@ -440,19 +448,18 @@ fn content_type_for_path(path: &str) -> &'static str {
     }
 }
 
-fn entry_slug(entry: &SearchEntry) -> String {
-    entry
-        .id
-        .split('#')
-        .next()
-        .unwrap_or(&entry.id)
-        .to_string()
-}
-
 fn normalize_slugish(s: &str) -> String {
     let trimmed = s.trim().trim_matches('/');
     let without_html = trimmed.strip_suffix(".html").unwrap_or(trimmed);
     slugify(without_html)
+}
+
+fn direction_label(direction: GraphDirection) -> &'static str {
+    match direction {
+        GraphDirection::Outgoing => "outgoing",
+        GraphDirection::Incoming => "incoming",
+        GraphDirection::Both => "both",
+    }
 }
 
 fn split_csv(input: Option<String>) -> Vec<String> {
@@ -686,10 +693,11 @@ enable_backlinks: true
             .await
             .unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let arr = value.as_array().expect("array");
-        assert!(!arr.is_empty());
-        assert_eq!(arr[0]["title"], "Note A");
-        assert!(arr[0]["outgoing"]
+        assert_eq!(value["schema_version"], "2024-11-llm-v1");
+        let results = value["data"]["results"].as_array().expect("results array");
+        assert!(!results.is_empty());
+        assert_eq!(results[0]["title"], "Note A");
+        assert!(results[0]["outgoing"]
             .as_array()
             .unwrap()
             .contains(&serde_json::json!("note-b")));
@@ -710,7 +718,8 @@ enable_backlinks: true
             .await
             .unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        let nodes = value["nodes"].as_array().expect("nodes array");
+        assert_eq!(value["schema_version"], "2024-11-llm-v1");
+        let nodes = value["data"]["nodes"].as_array().expect("nodes array");
         assert!(nodes.iter().any(|n| n["slug"] == "note-b"));
     }
 }

@@ -1,8 +1,8 @@
 //! Graph queries for neighbors and paths.
 
-use crate::GraphDirection;
-use anyhow::{Context, Result};
-use monowiki_core::{slugify, Config, SiteBuilder};
+use crate::{agent, cache::load_or_build_site_index, GraphDirection};
+use anyhow::Result;
+use monowiki_core::slugify;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
@@ -13,12 +13,9 @@ pub fn graph_neighbors(
     direction: GraphDirection,
     json: bool,
 ) -> Result<()> {
-    let config = Config::from_file(config_path).context("Failed to load configuration")?;
+    let (config, site_index) = load_or_build_site_index(config_path)?;
     let base_url = config.normalized_base_url();
     let normalized = normalize_slug(slug);
-
-    let builder = SiteBuilder::new(config.clone());
-    let site_index = builder.build().context("Failed to build site index")?;
 
     if !site_index.graph.outgoing.contains_key(&normalized)
         && !site_index.graph.incoming.contains_key(&normalized)
@@ -33,11 +30,13 @@ pub fn graph_neighbors(
             .iter()
             .map(|slug| {
                 let meta = site_index.find_by_slug(slug);
-                serde_json::json!({
-                    "slug": slug,
-                    "title": meta.map(|n| n.title.clone()),
-                    "url": meta.map(|n| n.url_with_base(&base_url)),
-                })
+                agent::GraphNode {
+                    slug: slug.clone(),
+                    title: meta.map(|n| n.title.clone()),
+                    url: meta.map(|n| n.url_with_base(&base_url)),
+                    tags: meta.map(|n| n.tags.clone()),
+                    note_type: meta.map(|n| n.note_type.as_str().to_string()),
+                }
             })
             .collect();
 
@@ -46,19 +45,24 @@ pub fn graph_neighbors(
             let outgoing = site_index.graph.outgoing(src);
             for tgt in outgoing {
                 if neighbors.contains(&tgt) {
-                    edges.push(serde_json::json!({
-                        "source": src,
-                        "target": tgt,
-                    }));
+                    edges.push(agent::GraphEdge {
+                        source: src.clone(),
+                        target: tgt,
+                    });
                 }
             }
         }
 
-        let payload = serde_json::json!({
-            "root": normalized,
-            "nodes": nodes,
-            "edges": edges,
-        });
+        let payload = agent::envelope(
+            "graph.neighbors",
+            agent::GraphNeighborsData {
+                root: normalized.clone(),
+                depth,
+                direction: direction_label(direction).to_string(),
+                nodes,
+                edges,
+            },
+        );
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         println!("Neighbors of '{}' (depth={}):", normalized, depth);
@@ -81,11 +85,8 @@ pub fn graph_path(
     max_depth: u8,
     json: bool,
 ) -> Result<()> {
-    let config = Config::from_file(config_path).context("Failed to load configuration")?;
+    let (config, site_index) = load_or_build_site_index(config_path)?;
     let base_url = config.normalized_base_url();
-
-    let builder = SiteBuilder::new(config.clone());
-    let site_index = builder.build().context("Failed to build site index")?;
 
     let start = normalize_slug(from);
     let goal = normalize_slug(to);
@@ -93,11 +94,14 @@ pub fn graph_path(
     let path = shortest_path(&site_index.graph, &start, &goal, max_depth);
 
     if json {
-        let payload = serde_json::json!({
-            "from": start,
-            "to": goal,
-            "path": path,
-        });
+        let payload = agent::envelope(
+            "graph.path",
+            agent::GraphPathData {
+                from: start.clone(),
+                to: goal.clone(),
+                path: path.clone(),
+            },
+        );
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else if let Some(path) = path {
         let rendered: Vec<String> = path
@@ -121,6 +125,14 @@ fn normalize_slug(input: &str) -> String {
     let trimmed = input.trim().trim_matches('/');
     let without_html = trimmed.strip_suffix(".html").unwrap_or(trimmed);
     slugify(without_html)
+}
+
+fn direction_label(direction: GraphDirection) -> &'static str {
+    match direction {
+        GraphDirection::Outgoing => "outgoing",
+        GraphDirection::Incoming => "incoming",
+        GraphDirection::Both => "both",
+    }
 }
 
 fn crawl_neighbors(

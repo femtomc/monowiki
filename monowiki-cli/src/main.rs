@@ -2,6 +2,8 @@
 //!
 //! Command-line interface for the monowiki static site generator.
 
+mod agent;
+mod cache;
 mod commands;
 
 use clap::{Parser, Subcommand, ValueEnum};

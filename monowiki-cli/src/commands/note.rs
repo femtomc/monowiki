@@ -1,18 +1,14 @@
 //! Fetch a single note in structured form.
 
-use crate::NoteFormat;
+use crate::{agent, cache::load_or_build_site_index, NoteFormat};
 use anyhow::{Context, Result};
-use monowiki_core::{slugify, Config, SiteBuilder};
-use serde_json::json;
+use monowiki_core::slugify;
 use std::path::Path;
 
 /// Fetch a single note and render it in the requested format.
 pub fn show_note(config_path: &Path, slug: &str, format: NoteFormat, with_links: bool) -> Result<()> {
-    let config = Config::from_file(config_path).context("Failed to load configuration")?;
+    let (config, site_index) = load_or_build_site_index(config_path)?;
     let base_url = config.normalized_base_url();
-
-    let builder = SiteBuilder::new(config.clone());
-    let site_index = builder.build().context("Failed to build site index")?;
 
     let note = find_note(&site_index, slug)
         .with_context(|| format!("Note '{}' not found (slug, alias, or permalink)", slug))?;
@@ -25,22 +21,10 @@ pub fn show_note(config_path: &Path, slug: &str, format: NoteFormat, with_links:
 
     match format {
         NoteFormat::Json => {
-            let payload = json!({
-                "slug": note.slug,
-                "title": note.title,
-                "url": note.url_with_base(&base_url),
-                "type": note.note_type.as_str(),
-                "tags": note.tags,
-                "date": note.date.map(|d| d.format("%Y-%m-%d").to_string()),
-                "updated": note.updated.map(|d| d.format("%Y-%m-%d").to_string()),
-                "frontmatter": note.frontmatter,
-                "content_html": note.content_html,
-                "toc_html": note.toc_html,
-                "raw_body": note.raw_body,
-                "preview": note.preview,
-                "outgoing": note.outgoing_links,
-                "backlinks": backlinks,
-            });
+            let payload = agent::envelope(
+                "note.full",
+                agent::note_to_payload(note, &base_url, backlinks),
+            );
             println!("{}", serde_json::to_string_pretty(&payload)?);
         }
         NoteFormat::Markdown => {
