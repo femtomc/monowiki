@@ -1,7 +1,10 @@
 //! Integration tests for markdown processing
 
 use super::*;
+use crate::bibliography::BibliographyStore;
 use std::collections::HashMap;
+use std::io::Write;
+use tempfile::NamedTempFile;
 
 #[test]
 fn test_full_pipeline_with_wikilinks() {
@@ -10,7 +13,7 @@ fn test_full_pipeline_with_wikilinks() {
     slug_map.insert("rust-safety".to_string(), "Rust Safety".to_string());
 
     let processor = MarkdownProcessor::new();
-    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None);
+    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None, None);
 
     println!("Input: {}", markdown);
     println!("Output: {}", html);
@@ -30,7 +33,7 @@ fn test_wikilink_in_paragraph() {
     let slug_map = HashMap::new();
 
     let processor = MarkdownProcessor::new();
-    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None);
+    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None, None);
 
     println!("HTML: {}", html);
     println!("Links: {:?}", links);
@@ -46,12 +49,8 @@ fn test_typst_preamble_applied() {
     let markdown = "$$ #foo $$";
     let slug_map = HashMap::new();
     let processor = MarkdownProcessor::new();
-    let (html, _links, _toc) = processor.convert(
-        markdown,
-        &slug_map,
-        "/",
-        Some("#let foo = 42"),
-    );
+    let (html, _links, _toc) =
+        processor.convert(markdown, &slug_map, "/", Some("#let foo = 42"), None);
 
     assert!(
         html.contains("typst-display"),
@@ -65,7 +64,7 @@ fn test_nota_block_transformer_wraps_paragraph() {
     let mut slug_map = HashMap::new();
     slug_map.insert("eval".to_string(), "/eval".to_string());
     let processor = MarkdownProcessor::new();
-    let (html, links, _toc) = processor.convert(markdown, &slug_map, "/", None);
+    let (html, links, _toc) = processor.convert(markdown, &slug_map, "/", None, None);
 
     assert!(
         html.contains("nota-block nota-definition"),
@@ -75,5 +74,47 @@ fn test_nota_block_transformer_wraps_paragraph() {
     assert!(
         links.contains(&"eval".to_string()),
         "Wikilinks inside custom blocks should still be resolved"
+    );
+}
+
+#[test]
+fn test_citations_render_references() {
+    let bibtex = r#"
+@article{knuth1990,
+  title = {Literate Programming},
+  author = {Knuth, Donald E.},
+  date = {1990},
+  url = {https://example.com}
+}
+"#;
+
+    let mut tmp = NamedTempFile::new().unwrap();
+    write!(tmp, "{}", bibtex).unwrap();
+
+    let mut store = BibliographyStore::new();
+    let bibliography = store.collect(&vec![tmp.path().to_path_buf()]);
+    let ctx = citations::CitationContext {
+        bibliography: &bibliography,
+    };
+
+    let slug_map = HashMap::new();
+    let processor = MarkdownProcessor::new();
+    let (html, _links, _toc) = processor.convert(
+        "See [@knuth1990] for details.",
+        &slug_map,
+        "/",
+        None,
+        Some(&ctx),
+    );
+
+    assert!(
+        html.contains("References"),
+        "Should append a reference list when citations exist"
+    );
+    assert!(html.contains("cite-1"), "Inline citation anchor rendered");
+    assert!(html.contains("ref-1"), "Reference target rendered");
+    assert!(
+        html.contains("Knuth"),
+        "Reference entry should include author information"
     );
 }

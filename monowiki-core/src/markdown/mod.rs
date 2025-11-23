@@ -1,5 +1,6 @@
 //! Markdown processing pipeline with custom extensions.
 
+pub mod citations;
 pub mod highlight;
 pub mod math;
 pub mod nota_blocks;
@@ -14,6 +15,7 @@ mod test_integration;
 mod debug_events;
 
 use crate::slug::slugify;
+use citations::{render_references, CitationContext, CitationTransformer};
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
 use std::collections::HashMap;
 
@@ -59,6 +61,7 @@ impl MarkdownProcessor {
         slug_map: &HashMap<String, String>,
         base_url: &str,
         typst_preamble: Option<&str>,
+        citation_context: Option<&CitationContext>,
     ) -> (String, Vec<String>, Option<String>) {
         // Parse markdown into events
         let parser = Parser::new_ext(markdown, self.options);
@@ -89,6 +92,17 @@ impl MarkdownProcessor {
         let wikilink_transformer = WikilinkTransformer::new(slug_map, base_url);
         let (events, outgoing_links) = wikilink_transformer.transform(events);
 
+        // Apply citation transform
+        let mut citation_references = Vec::new();
+        let events = if let Some(ctx) = citation_context {
+            let transformer = CitationTransformer::new(ctx);
+            let (events, refs) = transformer.transform(events);
+            citation_references = refs;
+            events
+        } else {
+            events
+        };
+
         // Inject heading ids to match TOC anchors
         let events = attach_heading_ids(events, &headings);
         let events = add_heading_anchors(events);
@@ -100,6 +114,11 @@ impl MarkdownProcessor {
         // Convert events to HTML
         let mut html_output = String::new();
         html::push_html(&mut html_output, events.into_iter());
+
+        if let Some(refs_html) = render_references(&citation_references) {
+            html_output.push('\n');
+            html_output.push_str(&refs_html);
+        }
 
         let toc_html = if headings.is_empty() {
             None
@@ -113,7 +132,7 @@ impl MarkdownProcessor {
     /// Convert markdown to HTML without link tracking
     pub fn convert_simple(&self, markdown: &str) -> String {
         let slug_map = HashMap::new();
-        let (html, _, _) = self.convert(markdown, &slug_map, "/", None);
+        let (html, _, _) = self.convert(markdown, &slug_map, "/", None, None);
         html
     }
 }

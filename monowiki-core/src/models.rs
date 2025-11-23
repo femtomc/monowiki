@@ -73,6 +73,9 @@ pub struct Frontmatter {
 
     #[serde(default)]
     pub typst_preamble: Option<String>,
+
+    #[serde(default)]
+    pub bibliography: Vec<String>,
 }
 
 /// A single note/post in the site

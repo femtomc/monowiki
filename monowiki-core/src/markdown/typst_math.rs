@@ -105,7 +105,7 @@ impl Default for TypstMathRenderer {
 }
 
 fn build_source(math: &CowStr<'_>, display: bool, preamble: Option<&str>) -> String {
-    let delimiter = if display { "$$" } else { "$" };
+    let delimiter = if display { "$" } else { "$" };
     // Use 15pt to match MathJax's typical 1.2-1.3x scaling relative to 15px body text
     // Use medium weight (500) for slightly bolder appearance
     let preamble = preamble.unwrap_or_default();
@@ -168,9 +168,8 @@ fn normalize_svg(svg: &str) -> String {
 
 fn trim_svg_viewbox(svg: &str) -> String {
     // Extract current viewBox
-    static VIEWBOX_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"viewBox="([^"]+)""#).expect("valid viewBox regex")
-    });
+    static VIEWBOX_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"viewBox="([^"]+)""#).expect("valid viewBox regex"));
 
     let Some(caps) = VIEWBOX_RE.captures(svg) else {
         return svg.to_string();
@@ -182,8 +181,12 @@ fn trim_svg_viewbox(svg: &str) -> String {
         return svg.to_string();
     }
 
-    let Ok(orig_width) = parts[2].parse::<f64>() else { return svg.to_string(); };
-    let Ok(orig_height) = parts[3].parse::<f64>() else { return svg.to_string(); };
+    let Ok(orig_width) = parts[2].parse::<f64>() else {
+        return svg.to_string();
+    };
+    let Ok(orig_height) = parts[3].parse::<f64>() else {
+        return svg.to_string();
+    };
 
     // Find all text transform matrices to get content bounds
     // Typst uses: <g class="typst-text" transform="matrix(1 0 0 -1 x y)">
@@ -225,9 +228,8 @@ fn trim_svg_viewbox(svg: &str) -> String {
     let result = VIEWBOX_RE.replace(svg, format!(r#"viewBox="{}""#, new_viewbox));
 
     // Update height attribute
-    static HEIGHT_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(r#"height="[^"]+""#).expect("valid height regex")
-    });
+    static HEIGHT_RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r#"height="[^"]+""#).expect("valid height regex"));
     let result = HEIGHT_RE.replace(&result, format!(r#"height="{}pt""#, new_height));
 
     result.into_owned()
@@ -240,10 +242,8 @@ fn normalize_svg_colors(svg: &str) -> String {
             .expect("valid color attribute regex")
     });
     static STYLE_RE: Lazy<Regex> = Lazy::new(|| {
-        Regex::new(
-            r#"(?i)(fill|stroke)\s*:\s*(black|#000(?:000)?|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))"#,
-        )
-        .expect("valid color style regex")
+        Regex::new(r#"(?i)(fill|stroke)\s*:\s*(black|#000(?:000)?|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))"#)
+            .expect("valid color style regex")
     });
 
     let replaced_attrs = ATTR_RE.replace_all(svg, r#"$1="currentColor""#);

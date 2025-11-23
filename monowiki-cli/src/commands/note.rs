@@ -6,7 +6,12 @@ use monowiki_core::slugify;
 use std::path::Path;
 
 /// Fetch a single note and render it in the requested format.
-pub fn show_note(config_path: &Path, slug: &str, format: NoteFormat, with_links: bool) -> Result<()> {
+pub fn show_note(
+    config_path: &Path,
+    slug: &str,
+    format: NoteFormat,
+    with_links: bool,
+) -> Result<()> {
     let (config, site_index) = load_or_build_site_index(config_path)?;
     let base_url = config.normalized_base_url();
 

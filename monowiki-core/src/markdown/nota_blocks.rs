@@ -105,9 +105,7 @@ impl NotaBlockTransformer {
                         continue;
                     }
                     let new_text = text[remaining..].to_string();
-                    body_events.push(Event::Text(CowStr::Boxed(
-                        new_text.into_boxed_str(),
-                    )));
+                    body_events.push(Event::Text(CowStr::Boxed(new_text.into_boxed_str())));
                     remaining = 0;
                 }
                 Event::SoftBreak => {

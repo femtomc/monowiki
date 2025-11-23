@@ -117,12 +117,7 @@ pub fn note_to_payload(note: &Note, base_url: &str, backlinks: Vec<String>) -> N
 }
 
 pub fn search_entry_slug(entry: &SearchEntry) -> String {
-    entry
-        .id
-        .split('#')
-        .next()
-        .unwrap_or(&entry.id)
-        .to_string()
+    entry.id.split('#').next().unwrap_or(&entry.id).to_string()
 }
 
 fn format_date(date: Option<NaiveDate>) -> Option<String> {

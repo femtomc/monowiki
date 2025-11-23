@@ -115,7 +115,10 @@ pub fn graph_path(
             .collect();
         println!("{}", rendered.join(" -> "));
     } else {
-        println!("No path found between '{}' and '{}' (max depth {})", from, to, max_depth);
+        println!(
+            "No path found between '{}' and '{}' (max depth {})",
+            from, to, max_depth
+        );
     }
 
     Ok(())

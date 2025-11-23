@@ -23,9 +23,7 @@ pub fn build_site_with_index(config_path: &Path) -> Result<(Config, monowiki_cor
 }
 
 /// Build the site from an already loaded config, writing output and returning the index.
-pub fn build_site_with_config(
-    config: Config,
-) -> Result<(Config, monowiki_core::SiteIndex)> {
+pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::SiteIndex)> {
     let base_url = config.normalized_base_url();
 
     tracing::info!("Building site: {}", config.site.title);
@@ -452,12 +450,7 @@ fn copy_theme_dist(src: &Path, dest: &Path) -> Result<()> {
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_file())
     {
-        if entry
-            .path()
-            .extension()
-            .and_then(|ext| ext.to_str())
-            == Some("map")
-        {
+        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("map") {
             continue;
         }
 

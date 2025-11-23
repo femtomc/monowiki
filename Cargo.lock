@@ -1791,6 +1791,7 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "hayagriva",
  "insta",
  "lru",
  "once_cell",
@@ -1800,6 +1801,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "syntect",
+ "tempfile",
  "thiserror",
  "tracing",
  "typst",

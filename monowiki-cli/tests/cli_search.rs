@@ -57,14 +57,7 @@ enable_backlinks: true
     #[allow(deprecated)]
     let assert = Command::cargo_bin("monowiki")?
         .current_dir(dir.path())
-        .args([
-            "search",
-            "rust",
-            "--json",
-            "--limit",
-            "1",
-            "--with-links",
-        ])
+        .args(["search", "rust", "--json", "--limit", "1", "--with-links"])
         .assert()
         .success();
 

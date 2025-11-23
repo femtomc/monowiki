@@ -79,8 +79,7 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
                         match res {
                             Ok(Ok((config, site_index))) => {
                                 let base_url = config.normalized_base_url();
-                                let search_entries =
-                                    compute_search_entries(&site_index, &base_url);
+                                let search_entries = compute_search_entries(&site_index, &base_url);
 
                                 let mut data = data_handle.write().await;
                                 *data = SiteData {
@@ -186,10 +185,7 @@ struct SearchParams {
     tags: Option<String>,
 }
 
-async fn api_search(
-    State(state): State<AppState>,
-    Query(params): Query<SearchParams>,
-) -> Response {
+async fn api_search(State(state): State<AppState>, Query(params): Query<SearchParams>) -> Response {
     let query = params.q.unwrap_or_default();
     if query.trim().is_empty() {
         return (StatusCode::BAD_REQUEST, "Missing query ?q=").into_response();
@@ -277,8 +273,7 @@ async fn api_graph_neighbors(
         return (StatusCode::NOT_FOUND, "Slug not in graph").into_response();
     }
 
-    let neighbors =
-        crawl_neighbors(&data.site_index.graph, &normalized, depth, direction);
+    let neighbors = crawl_neighbors(&data.site_index.graph, &normalized, depth, direction);
 
     let nodes: Vec<_> = neighbors
         .iter()
@@ -359,10 +354,7 @@ async fn api_graph_path(
     .into_response()
 }
 
-async fn api_note(
-    AxumPath(slug): AxumPath<String>,
-    State(state): State<AppState>,
-) -> Response {
+async fn api_note(AxumPath(slug): AxumPath<String>, State(state): State<AppState>) -> Response {
     let data = state.data.read().await;
     let normalized = normalize_slugish(&slug);
 
@@ -689,9 +681,7 @@ enable_backlinks: true
 
         let response = api_search(State(state), Query(params)).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 1024 * 1024)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["schema_version"], "2024-11-llm-v1");
         let results = value["data"]["results"].as_array().expect("results array");
@@ -714,9 +704,7 @@ enable_backlinks: true
         let response =
             api_graph_neighbors(AxumPath("note-a".into()), State(state), Query(params)).await;
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 1024 * 1024)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(value["schema_version"], "2024-11-llm-v1");
         let nodes = value["data"]["nodes"].as_array().expect("nodes array");

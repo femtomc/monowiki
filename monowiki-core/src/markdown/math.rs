@@ -49,15 +49,19 @@ impl MathTransformer {
                                 DelimKind::Display => Event::DisplayMath(CowStr::Boxed(
                                     state.content.into_boxed_str(),
                                 )),
-                                DelimKind::Inline => Event::InlineMath(CowStr::Boxed(
-                                    state.content.into_boxed_str(),
-                                )),
+                                DelimKind::Inline => {
+                                    Event::InlineMath(CowStr::Boxed(state.content.into_boxed_str()))
+                                }
                             });
 
                             // Process any remaining text after the closer
                             let remaining = text_str[close_idx + state.close.len()..].to_string();
                             if !remaining.is_empty() {
-                                self.process_text_for_math(remaining, &mut static_events, &mut open);
+                                self.process_text_for_math(
+                                    remaining,
+                                    &mut static_events,
+                                    &mut open,
+                                );
                             }
                         } else {
                             // Closer not found, accumulate content
@@ -85,7 +89,11 @@ impl MathTransformer {
                 // Not in math mode
                 match owned {
                     Event::Text(text) => {
-                        self.process_text_for_math(text.into_string(), &mut static_events, &mut open);
+                        self.process_text_for_math(
+                            text.into_string(),
+                            &mut static_events,
+                            &mut open,
+                        );
                     }
                     other => static_events.push(other),
                 }
@@ -104,7 +112,10 @@ impl MathTransformer {
 
     /// Second-pass transform to unwrap paragraphs containing display math
     /// This must run AFTER math rendering (which converts DisplayMath to Html)
-    pub fn unwrap_display_math_paragraphs(&self, events: Vec<Event<'static>>) -> Vec<Event<'static>> {
+    pub fn unwrap_display_math_paragraphs(
+        &self,
+        events: Vec<Event<'static>>,
+    ) -> Vec<Event<'static>> {
         let mut result = Vec::new();
         let mut i = 0;
 
@@ -396,7 +407,7 @@ impl Default for MathTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pulldown_cmark::{Event, Parser, Options};
+    use pulldown_cmark::{Event, Options, Parser};
 
     #[test]
     fn test_multiline_dollar_math() {

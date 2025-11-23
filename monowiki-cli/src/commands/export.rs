@@ -99,10 +99,5 @@ fn write_records(
 }
 
 fn slug_from_entry(entry: &monowiki_core::SearchEntry) -> String {
-    entry
-        .id
-        .split('#')
-        .next()
-        .unwrap_or(&entry.id)
-        .to_string()
+    entry.id.split('#').next().unwrap_or(&entry.id).to_string()
 }

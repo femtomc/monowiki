@@ -40,6 +40,29 @@ Sidenotes are:
 
 Example: This documentation[^sidenote: Built with monowiki itself!] demonstrates the features.
 
+## Citations
+
+Resolve BibTeX keys from your `.bib` files and get an automatic reference list.
+
+1. Add bibliography files globally in `monowiki.yml`:
+   ```yaml
+   bibliography:
+     - vault/references.bib
+   ```
+   Or per-note in frontmatter:
+   ```yaml
+   ---
+   title: Note With Citations
+   bibliography: ["vault/math.bib"]
+   ---
+   ```
+2. Cite in your markdown with Pandoc-style markers:
+   ```markdown
+   This method was introduced in [@knuth1990] and extended by [@turing1936; @hopper1952].
+   ```
+
+Inline citations are numbered (`[1]`, `[2]`, …) and a “References” section is appended to the page. Missing keys are surfaced as warnings during the build.
+
 ## Standard Markdown
 
 All standard markdown syntax is supported:

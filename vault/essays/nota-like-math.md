@@ -48,3 +48,50 @@ Example theorem:
 @Theorem{Progress}: If $$ #typeOf($e$, $τ$) $$ then either `e` is a value or there exists `e′` such that $$ #step($e$, $e′$) $$. See [the typing definition](#typing).
 
 You can link to these blocks with standard anchors: `[Typing](#typing)`, `[Progress](#progress)`, etc.
+
+## More advanced examples
+
+Here are some examples inspired by programming language theory papers:
+
+### Type checking with contexts
+
+A typical type checking judgment uses multiple contexts:
+
+$$
+Sigma; Delta; Gamma tack.r e : tau arrow.r.double Gamma'
+$$
+
+Where $Sigma$ is the global function context, $Delta$ contains type variables, and $Gamma$ tracks local bindings.
+
+### Inference rules
+
+Rules can have multiple premises stacked vertically using a fraction for the inference line:
+
+$$
+frac(
+  Gamma tack.r e_1 : tau_1 quad Gamma\, x : tau_1 tack.r e_2 : tau_2,
+  Gamma tack.r "let" x = e_1 "in" e_2 : tau_2
+)
+$$
+
+### Set operations and mappings
+
+Dependency contexts map memory locations to sets of dependencies:
+
+$$
+cal(D) : { overline(ell |-> { overline(ell') }) }
+$$
+
+After an assignment $x := e$ at location $ell_3$, we update conflicts:
+
+$$
+cal(D)' = cal(D)[x |-> cal(D)(x) union {ell_3}]
+$$
+
+### Test bad syntax
+
+This will fail to show error formatting:
+
+$$
+frac(test, test, test)
+$$

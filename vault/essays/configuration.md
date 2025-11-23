@@ -143,6 +143,17 @@ ignore_patterns:
   - "private/"
 ```
 
+### bibliography
+List one or more `.bib` files to load globally. Paths are resolved relative to `monowiki.yml`.
+
+```yaml
+bibliography:
+  - vault/references.bib
+  - vault/extra.bib
+```
+
+Notes can add or override bibliography files in their frontmatter with a `bibliography` array.
+
 ## Next Steps
 
 - See [[getting-started]] to set up your first site

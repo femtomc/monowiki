@@ -12,10 +12,7 @@ pub async fn watch_changes(config_path: &Path) -> Result<()> {
     let config = Config::from_file(config_path).context("Failed to load configuration")?;
     let vault_dir = config.vault_dir();
 
-    println!(
-        "Watching {:?} for changes (Ctrl+C to stop)...",
-        vault_dir
-    );
+    println!("Watching {:?} for changes (Ctrl+C to stop)...", vault_dir);
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     let mut _watcher = RecommendedWatcher::new(

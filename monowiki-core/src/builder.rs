@@ -1,7 +1,11 @@
 //! Site building logic - orchestrates parsing, rendering, and output.
 
 use crate::{
-    config::Config, frontmatter::parse_frontmatter, markdown::MarkdownProcessor, models::*,
+    bibliography::BibliographyStore,
+    config::Config,
+    frontmatter::parse_frontmatter,
+    markdown::{citations::CitationContext, MarkdownProcessor},
+    models::*,
     slug::slugify,
 };
 use regex::Regex;
@@ -47,6 +51,9 @@ impl SiteBuilder {
 
         tracing::info!("Found {} markdown files", markdown_files.len());
 
+        let mut bibliography_store = BibliographyStore::new();
+        bibliography_store.preload_paths(&self.config.bibliography_paths());
+
         // Parse all notes (first pass - without link resolution)
         let mut notes = Vec::new();
         let mut slug_map: HashMap<String, String> = HashMap::new();
@@ -81,9 +88,23 @@ impl SiteBuilder {
             let markdown = fs::read_to_string(&markdown_files[idx])?;
             let (frontmatter, body) = parse_frontmatter(&markdown)?;
 
-            let (html, outgoing_links, toc_html) =
-                self.processor
-                    .convert(&body, &slug_map, &base_url, frontmatter.typst_preamble.as_deref());
+            let bibliography_paths = self.bibliography_paths(&frontmatter);
+            let bibliography = bibliography_store.collect(&bibliography_paths);
+            let citation_ctx = if bibliography.is_empty() {
+                None
+            } else {
+                Some(CitationContext {
+                    bibliography: &bibliography,
+                })
+            };
+
+            let (html, outgoing_links, toc_html) = self.processor.convert(
+                &body,
+                &slug_map,
+                &base_url,
+                frontmatter.typst_preamble.as_deref(),
+                citation_ctx.as_ref(),
+            );
             note.content_html = html;
             note.outgoing_links = outgoing_links;
             note.toc_html = toc_html;
@@ -193,6 +214,20 @@ impl SiteBuilder {
             toc_html: None, // TODO: Generate TOC
             raw_body: None,
         })
+    }
+}
+
+impl SiteBuilder {
+    fn bibliography_paths(&self, frontmatter: &Frontmatter) -> Vec<PathBuf> {
+        let mut paths = self.config.bibliography_paths();
+        for extra in &frontmatter.bibliography {
+            if extra.trim().is_empty() {
+                continue;
+            }
+            let path = self.config.resolve_relative(Path::new(extra.trim()));
+            paths.push(path);
+        }
+        paths
     }
 }
 

@@ -1,18 +1,17 @@
 ///! Section-level search indexing for precise search results
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchEntry {
-    pub id: String,              // Unique ID: "{slug}#{section-id}"
-    pub url: String,             // Page URL with anchor: "/page.html#section"
-    pub title: String,           // Page title
-    pub section_title: String,   // Section heading (empty for top matter)
-    pub content: String,         // Plain text content
-    pub snippet: String,         // First ~200 chars for preview
-    pub tags: Vec<String>,       // Page tags
+    pub id: String,            // Unique ID: "{slug}#{section-id}"
+    pub url: String,           // Page URL with anchor: "/page.html#section"
+    pub title: String,         // Page title
+    pub section_title: String, // Section heading (empty for top matter)
+    pub content: String,       // Plain text content
+    pub snippet: String,       // First ~200 chars for preview
+    pub tags: Vec<String>,     // Page tags
     #[serde(rename = "type")]
-    pub doc_type: String,        // essay/thought
+    pub doc_type: String, // essay/thought
 }
 
 /// Build a granular search index from note HTML
@@ -172,7 +171,11 @@ fn extract_sections_from_html(html: &str) -> Vec<(String, String, String)> {
 
     // Add final section
     if !current_content.trim().is_empty() {
-        sections.push((current_heading, current_id, current_content.trim().to_string()));
+        sections.push((
+            current_heading,
+            current_id,
+            current_content.trim().to_string(),
+        ));
     }
 
     sections

@@ -5,6 +5,7 @@
 //! This crate provides the fundamental building blocks for parsing markdown,
 //! managing site configuration, and building the content model.
 
+pub mod bibliography;
 pub mod builder;
 pub mod config;
 pub mod frontmatter;
@@ -16,6 +17,7 @@ pub mod slug;
 // pub mod assets;
 // pub mod cleanup;
 
+pub use bibliography::{Bibliography, BibliographyStore};
 pub use builder::SiteBuilder;
 pub use config::Config;
 pub use models::{Frontmatter, LinkGraph, Note, NoteType, SiteIndex};

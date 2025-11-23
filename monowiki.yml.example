@@ -18,3 +18,11 @@ orcid:
 
 server:
   port: 8000               # Development server port
+
+bibliography:
+  - vault/references.bib   # Optional: list of BibTeX/BibLaTeX files
+
+base_url: "/"              # Deployment base path (prefix for links)
+enable_rss: true
+enable_sitemap: true
+enable_backlinks: true

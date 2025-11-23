@@ -26,6 +26,8 @@ typst-as-lib.workspace = true
 typst-assets.workspace = true
 once_cell.workspace = true
 lru.workspace = true
+hayagriva.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
+tempfile.workspace = true

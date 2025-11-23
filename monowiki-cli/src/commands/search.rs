@@ -1,5 +1,4 @@
 ///! Search command implementation
-
 use crate::agent;
 use anyhow::{Context, Result};
 use monowiki_core::{Config, SearchEntry};
@@ -62,8 +61,16 @@ pub fn search_site(config_path: &Path, query: &str, opts: SearchOptions) -> Resu
                 tags: entry.tags.clone(),
                 note_type: entry.doc_type.clone(),
                 score: *score,
-                outgoing: if opts.with_links { outgoing } else { Vec::new() },
-                backlinks: if opts.with_links { backlinks } else { Vec::new() },
+                outgoing: if opts.with_links {
+                    outgoing
+                } else {
+                    Vec::new()
+                },
+                backlinks: if opts.with_links {
+                    backlinks
+                } else {
+                    Vec::new()
+                },
             });
         }
 
@@ -203,14 +210,21 @@ fn load_graph(config: &Config) -> Result<GraphInfo> {
     }
 
     let graph_str = fs::read_to_string(&graph_path).context("Failed to read graph.json")?;
-    let parsed: GraphJson = serde_json::from_str(&graph_str).context("Failed to parse graph.json")?;
+    let parsed: GraphJson =
+        serde_json::from_str(&graph_str).context("Failed to parse graph.json")?;
 
     let mut outgoing: HashMap<String, Vec<String>> = HashMap::new();
     let mut incoming: HashMap<String, Vec<String>> = HashMap::new();
 
     for edge in parsed.edges {
-        outgoing.entry(edge.source.clone()).or_default().push(edge.target.clone());
-        incoming.entry(edge.target.clone()).or_default().push(edge.source.clone());
+        outgoing
+            .entry(edge.source.clone())
+            .or_default()
+            .push(edge.target.clone());
+        incoming
+            .entry(edge.target.clone())
+            .or_default()
+            .push(edge.source.clone());
     }
 
     Ok(GraphInfo { outgoing, incoming })

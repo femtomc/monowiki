@@ -37,6 +37,9 @@ pub struct Config {
     pub ignore_patterns: Vec<String>,
 
     #[serde(default)]
+    pub bibliography: Vec<PathBuf>,
+
+    #[serde(default)]
     pub theme_overrides: Option<PathBuf>,
 
     #[serde(default = "default_true")]
@@ -143,6 +146,19 @@ impl Config {
     /// Get the output directory, resolved relative to config file
     pub fn output_dir(&self) -> PathBuf {
         self.resolve_path(&self.paths.output)
+    }
+
+    /// Resolve an arbitrary path relative to the config file location
+    pub fn resolve_relative(&self, path: &Path) -> PathBuf {
+        self.resolve_path(path)
+    }
+
+    /// Get bibliography files, resolved relative to config file
+    pub fn bibliography_paths(&self) -> Vec<PathBuf> {
+        self.bibliography
+            .iter()
+            .map(|p| self.resolve_path(p))
+            .collect()
     }
 
     /// Get the templates directory (None means use built-in)
@@ -256,6 +272,7 @@ mod tests {
             server: ServerConfig::default(),
             base_url: default_base_url(),
             ignore_patterns: vec![],
+            bibliography: vec![],
             theme_overrides: None,
             enable_rss: true,
             enable_sitemap: true,
@@ -289,6 +306,7 @@ mod tests {
             server: ServerConfig::default(),
             base_url: default_base_url(),
             ignore_patterns: vec![],
+            bibliography: vec![],
             theme_overrides: None,
             enable_rss: true,
             enable_sitemap: true,
