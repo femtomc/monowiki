@@ -70,6 +70,9 @@ pub struct Frontmatter {
 
     #[serde(default)]
     pub aliases: Vec<String>,
+
+    #[serde(default)]
+    pub typst_preamble: Option<String>,
 }
 
 /// A single note/post in the site
@@ -230,6 +233,14 @@ impl SiteIndex {
         self.notes
             .iter()
             .filter(|n| !n.is_draft() && n.note_type == NoteType::Thought)
+            .collect()
+    }
+
+    /// Get all docs (non-draft, type=doc)
+    pub fn docs(&self) -> Vec<&Note> {
+        self.notes
+            .iter()
+            .filter(|n| !n.is_draft() && n.note_type == NoteType::Doc)
             .collect()
     }
 }

@@ -2,6 +2,7 @@
 
 pub mod highlight;
 pub mod math;
+pub mod nota_blocks;
 pub mod sidenotes;
 pub mod typst_math;
 pub mod wikilinks;
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 
 pub use highlight::HighlightTransformer;
 pub use math::MathTransformer;
+pub use nota_blocks::NotaBlockTransformer;
 pub use sidenotes::SidenoteTransformer;
 use typst_math::MATH_RENDERER;
 pub use wikilinks::WikilinkTransformer;
@@ -56,6 +58,7 @@ impl MarkdownProcessor {
         markdown: &str,
         slug_map: &HashMap<String, String>,
         base_url: &str,
+        typst_preamble: Option<&str>,
     ) -> (String, Vec<String>, Option<String>) {
         // Parse markdown into events
         let parser = Parser::new_ext(markdown, self.options);
@@ -67,7 +70,9 @@ impl MarkdownProcessor {
         // Fix math block wrapping first
         let math_transformer = MathTransformer::new();
         let events = math_transformer.transform(events);
-        let events = MATH_RENDERER.render_math(events);
+        let nota_transformer = NotaBlockTransformer::new();
+        let events = nota_transformer.transform(events);
+        let events = MATH_RENDERER.render_math(events, typst_preamble);
 
         // Apply sidenote transform
         let sidenote_transformer = SidenoteTransformer::new();
@@ -101,7 +106,7 @@ impl MarkdownProcessor {
     /// Convert markdown to HTML without link tracking
     pub fn convert_simple(&self, markdown: &str) -> String {
         let slug_map = HashMap::new();
-        let (html, _, _) = self.convert(markdown, &slug_map, "/");
+        let (html, _, _) = self.convert(markdown, &slug_map, "/", None);
         html
     }
 }

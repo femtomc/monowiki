@@ -79,10 +79,11 @@ impl SiteBuilder {
         // Second pass - render markdown with link resolution
         for (idx, note) in notes.iter_mut().enumerate() {
             let markdown = fs::read_to_string(&markdown_files[idx])?;
-            let (_, body) = parse_frontmatter(&markdown)?;
+            let (frontmatter, body) = parse_frontmatter(&markdown)?;
 
             let (html, outgoing_links, toc_html) =
-                self.processor.convert(&body, &slug_map, &base_url);
+                self.processor
+                    .convert(&body, &slug_map, &base_url, frontmatter.typst_preamble.as_deref());
             note.content_html = html;
             note.outgoing_links = outgoing_links;
             note.toc_html = toc_html;
@@ -193,13 +194,6 @@ impl SiteBuilder {
             raw_body: None,
         })
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // Tests removed - config_path is private and we don't need to test this
 }
 
 fn compile_ignore_patterns(patterns: &[String]) -> Vec<Regex> {

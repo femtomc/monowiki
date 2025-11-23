@@ -1,6 +1,6 @@
 //! Sidenote transformation for [^sidenote: text] syntax.
 
-use pulldown_cmark::{CowStr, Event};
+use pulldown_cmark::{CowStr, Event, Options, Parser, Tag, TagEnd};
 
 /// Transformer for sidenote syntax
 pub struct SidenoteTransformer {
@@ -41,8 +41,9 @@ impl SidenoteTransformer {
     fn process_sidenotes(&self, text: &str) -> Vec<Event<'static>> {
         let mut events = Vec::new();
         let mut remaining = text;
+        const SIDENOTE_PREFIX: &str = "[^sidenote:";
 
-        while let Some(start) = remaining.find("[^sidenote:") {
+        while let Some(start) = remaining.find(SIDENOTE_PREFIX) {
             // Add text before the sidenote
             if start > 0 {
                 events.push(Event::Text(CowStr::Boxed(
@@ -51,25 +52,37 @@ impl SidenoteTransformer {
             }
 
             // Find the closing ]
-            if let Some(end) = remaining[start..].find(']') {
-                let content = &remaining[start + 11..start + end]; // Skip "[^sidenote:"
+            let search_start = start + SIDENOTE_PREFIX.len();
+            if let Some(end) = find_closing_bracket(remaining, search_start) {
+                let content = &remaining[search_start..end];
 
                 // Increment counter
                 let num = self.counter.get() + 1;
                 self.counter.set(num);
 
+                let ref_id = format!("sidenote-ref-{}", num);
+                let note_id = format!("sidenote-{}", num);
+                let rendered_content = self.render_sidenote_content(content.trim());
+
                 // Create sidenote HTML
                 let sidenote_html = format!(
-                    r#"<span class="sidenote"><span class="sidenote-number">{}</span>{}</span>"#,
-                    num,
-                    html_escape(content.trim())
+                    "<sup class=\"sidenote-ref\" id=\"{ref_id}\">\
+                        <a href=\"#{note_id}\" aria-label=\"Sidenote {num}\">{num}</a>\
+                    </sup>\
+                    <span class=\"sidenote\" id=\"{note_id}\" role=\"note\" aria-describedby=\"{ref_id}\">\
+                        <span class=\"sidenote-number\">{num}</span>{content}\
+                    </span>",
+                    ref_id = ref_id,
+                    note_id = note_id,
+                    num = num,
+                    content = rendered_content
                 );
 
                 events.push(Event::InlineHtml(CowStr::Boxed(
                     sidenote_html.into_boxed_str(),
                 )));
 
-                remaining = &remaining[start + end + 1..];
+                remaining = &remaining[end + 1..];
             } else {
                 // No closing ], treat as literal text
                 events.push(Event::Text(CowStr::Boxed(
@@ -87,6 +100,104 @@ impl SidenoteTransformer {
         }
 
         events
+    }
+
+    fn render_sidenote_content(&self, content: &str) -> String {
+        // Render a limited, inline-only subset of Markdown while escaping raw HTML.
+        let mut opts = Options::empty();
+        opts.insert(Options::ENABLE_STRIKETHROUGH);
+        opts.insert(Options::ENABLE_TASKLISTS);
+        opts.insert(Options::ENABLE_TABLES);
+        opts.insert(Options::ENABLE_FOOTNOTES);
+        opts.insert(Options::ENABLE_HEADING_ATTRIBUTES);
+        opts.insert(Options::ENABLE_MATH);
+
+        let parser = Parser::new_ext(content, opts);
+        let mut rendered = String::new();
+
+        for event in parser {
+            match event {
+                Event::Text(text) => rendered.push_str(&html_escape(text.as_ref())),
+                Event::Code(code) => {
+                    rendered.push_str("<code>");
+                    rendered.push_str(&html_escape(code.as_ref()));
+                    rendered.push_str("</code>");
+                }
+                Event::SoftBreak | Event::HardBreak => rendered.push_str("<br>"),
+                Event::Start(Tag::Emphasis) => rendered.push_str("<em>"),
+                Event::End(TagEnd::Emphasis) => rendered.push_str("</em>"),
+                Event::Start(Tag::Strong) => rendered.push_str("<strong>"),
+                Event::End(TagEnd::Strong) => rendered.push_str("</strong>"),
+                Event::Start(Tag::Strikethrough) => rendered.push_str("<del>"),
+                Event::End(TagEnd::Strikethrough) => rendered.push_str("</del>"),
+                Event::Start(Tag::Link {
+                    dest_url, title, ..
+                }) => {
+                    rendered.push_str("<a href=\"");
+                    rendered.push_str(&html_escape(dest_url.as_ref()));
+                    rendered.push('"');
+                    if !title.is_empty() {
+                        rendered.push_str(" title=\"");
+                        rendered.push_str(&html_escape(title.as_ref()));
+                        rendered.push('"');
+                    }
+                    rendered.push('>');
+                }
+                Event::End(TagEnd::Link) => rendered.push_str("</a>"),
+                Event::InlineHtml(html) | Event::Html(html) => {
+                    // Escape any raw HTML to avoid XSS in sidenotes.
+                    rendered.push_str(&html_escape(html.as_ref()));
+                }
+                Event::InlineMath(math) => {
+                    rendered.push_str("<span class=\"math-inline\">");
+                    rendered.push_str(&html_escape(math.as_ref()));
+                    rendered.push_str("</span>");
+                }
+                Event::DisplayMath(math) => {
+                    rendered.push_str("<span class=\"math-display\">");
+                    rendered.push_str(&html_escape(math.as_ref()));
+                    rendered.push_str("</span>");
+                }
+                // Drop block-level wrappers to keep sidenotes inline-friendly.
+                Event::Start(
+                    Tag::Paragraph
+                    | Tag::Heading { .. }
+                    | Tag::List(_)
+                    | Tag::Item
+                    | Tag::DefinitionList
+                    | Tag::DefinitionListTitle
+                    | Tag::DefinitionListDefinition
+                    | Tag::BlockQuote(_)
+                    | Tag::CodeBlock(_)
+                    | Tag::Table(_)
+                    | Tag::TableHead
+                    | Tag::TableRow
+                    | Tag::TableCell,
+                ) => {}
+                Event::End(
+                    TagEnd::Paragraph
+                    | TagEnd::Heading(_)
+                    | TagEnd::List(_)
+                    | TagEnd::Item
+                    | TagEnd::DefinitionList
+                    | TagEnd::Table
+                    | TagEnd::TableHead
+                    | TagEnd::TableRow
+                    | TagEnd::TableCell
+                    | TagEnd::BlockQuote(_)
+                    | TagEnd::CodeBlock,
+                ) => {}
+                Event::FootnoteReference(label) => {
+                    rendered.push_str("<sup class=\"footnote-ref\">");
+                    rendered.push_str(&html_escape(label.as_ref()));
+                    rendered.push_str("</sup>");
+                }
+                Event::Rule | Event::TaskListMarker(_) => {}
+                _ => {}
+            }
+        }
+
+        rendered
     }
 
     fn event_into_static(&self, event: Event<'_>) -> Event<'static> {
@@ -202,6 +313,30 @@ impl Default for SidenoteTransformer {
     }
 }
 
+fn find_closing_bracket(text: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut iter = text[start..].char_indices();
+
+    while let Some((offset, ch)) = iter.next() {
+        match ch {
+            '\\' => {
+                // Skip escaped characters
+                iter.next();
+            }
+            '[' => depth += 1,
+            ']' => {
+                if depth == 0 {
+                    return Some(start + offset);
+                }
+                depth = depth.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 fn html_escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -233,9 +368,10 @@ mod tests {
             .collect();
 
         assert!(!html_events.is_empty());
-        assert!(html_events[0].contains("sidenote"));
+        assert!(html_events[0].contains("sidenote-ref"));
         assert!(html_events[0].contains("sidenote-number"));
         assert!(html_events[0].contains("with a note"));
+        assert!(html_events[0].contains("aria-describedby"));
     }
 
     #[test]
@@ -256,8 +392,10 @@ mod tests {
             .collect();
 
         assert_eq!(html_events.len(), 2);
-        assert!(html_events[0].contains("sidenote-number\">1<"));
-        assert!(html_events[1].contains("sidenote-number\">2<"));
+        assert!(html_events[0].contains("sidenote-ref-1"));
+        assert!(html_events[0].contains("sidenote-1"));
+        assert!(html_events[1].contains("sidenote-ref-2"));
+        assert!(html_events[1].contains("sidenote-2"));
     }
 
     #[test]
@@ -279,5 +417,50 @@ mod tests {
 
         assert!(!html_events[0].contains("<script>"));
         assert!(html_events[0].contains("&lt;script&gt;"));
+    }
+
+    #[test]
+    fn test_sidenote_with_brackets() {
+        let transformer = SidenoteTransformer::new();
+        let events = vec![Event::Text(CowStr::Borrowed(
+            "Note with [^sidenote: link [text] inside] continues.",
+        ))];
+
+        let result = transformer.transform(events);
+        let inline_html: Vec<_> = result
+            .iter()
+            .filter_map(|e| match e {
+                Event::InlineHtml(html) => Some(html.as_ref()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(inline_html.len(), 1);
+        assert!(inline_html[0].contains("link [text] inside"));
+        assert!(result
+            .iter()
+            .any(|e| matches!(e, Event::Text(t) if t.contains("continues."))));
+    }
+
+    #[test]
+    fn test_sidenote_renders_markdown() {
+        let transformer = SidenoteTransformer::new();
+        let events = vec![Event::Text(CowStr::Borrowed(
+            "Content [^sidenote: *em* and a [link](https://example.com)] here.",
+        ))];
+
+        let result = transformer.transform(events);
+        let inline_html: Vec<_> = result
+            .iter()
+            .filter_map(|e| match e {
+                Event::InlineHtml(html) => Some(html.as_ref()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(inline_html.len(), 1);
+        let html = inline_html[0];
+        assert!(html.contains("<em>em</em>"));
+        assert!(html.contains(r#"href="https://example.com""#));
     }
 }

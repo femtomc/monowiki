@@ -109,8 +109,8 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
     // Build router
     let app = Router::new()
         .route("/api/search", get(api_search))
-        .route("/api/note/:slug", get(api_note))
-        .route("/api/graph/:slug", get(api_graph_neighbors))
+        .route("/api/note/{slug}", get(api_note))
+        .route("/api/graph/{slug}", get(api_graph_neighbors))
         .route("/api/graph/path", get(api_graph_path))
         .route("/{*path}", get(serve_with_404))
         .route("/", get(serve_index))

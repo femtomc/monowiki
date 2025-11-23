@@ -11,6 +11,7 @@ interface GraphNode {
   title: string;
   type: 'essay' | 'thought' | 'doc';
   url?: string;
+  href?: string;
   tags?: string[];
 }
 

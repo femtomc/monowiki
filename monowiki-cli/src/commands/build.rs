@@ -168,32 +168,29 @@ fn render_index_page(
     site_index: &monowiki_core::SiteIndex,
     base_url: &str,
 ) -> Result<()> {
-    // Separate essays and thoughts
-    let mut essays: Vec<NoteEntry> = site_index
-        .essays()
+    // Collect all published notes with type tags
+    let mut items: Vec<(Option<chrono::NaiveDate>, NoteEntry)> = site_index
+        .notes
         .iter()
-        .map(|n| NoteEntry {
-            url: n.url_with_base(base_url),
-            title: n.title.clone(),
-            date: n.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string()),
-            description: n.frontmatter.description.clone(),
+        .filter(|n| !n.is_draft())
+        .map(|n| {
+            let date = n.date;
+            (
+                date,
+                NoteEntry {
+                    url: n.url_with_base(base_url),
+                    title: n.title.clone(),
+                    date: date.map(|d| d.format("%Y-%m-%d").to_string()),
+                    description: n.frontmatter.description.clone(),
+                    note_type: n.note_type.as_str().to_uppercase(),
+                },
+            )
         })
         .collect();
 
-    let mut thoughts: Vec<NoteEntry> = site_index
-        .thoughts()
-        .iter()
-        .map(|n| NoteEntry {
-            url: n.url_with_base(base_url),
-            title: n.title.clone(),
-            date: n.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string()),
-            description: n.frontmatter.description.clone(),
-        })
-        .collect();
-
-    // Sort by date (newest first)
-    essays.sort_by(|a, b| b.date.cmp(&a.date));
-    thoughts.sort_by(|a, b| b.date.cmp(&a.date));
+    // Sort by date (newest first), then title
+    items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.title.cmp(&b.1.title)));
+    let items: Vec<NoteEntry> = items.into_iter().map(|(_, entry)| entry).collect();
 
     let template = IndexTemplate {
         site_title: config.site.title.clone(),
@@ -206,8 +203,7 @@ fn render_index_page(
         nav_github: config.site.url.clone(),
         has_about: false, // TODO: Check if about.html exists
         has_github: true,
-        essays,
-        thoughts,
+        items,
         papers: Vec::new(), // TODO: ORCID integration
         base_url: base_url.to_string(),
     };

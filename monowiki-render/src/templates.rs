@@ -9,6 +9,7 @@ pub struct NoteEntry {
     pub title: String,
     pub date: Option<String>,
     pub description: Option<String>,
+    pub note_type: String,
 }
 
 /// A paper from ORCID
@@ -93,9 +94,8 @@ pub struct IndexTemplate {
     pub has_about: bool,
     pub has_github: bool,
 
-    // Content lists
-    pub essays: Vec<NoteEntry>,
-    pub thoughts: Vec<NoteEntry>,
+    // Content list
+    pub items: Vec<NoteEntry>,
     pub papers: Vec<Paper>,
 
     // Site base URL (for frontend scripts)

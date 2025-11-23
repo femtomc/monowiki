@@ -38,36 +38,21 @@
       {% when None %}
     {% endmatch %}
 
-    <h2>Essays</h2>
+    <h2>All notes</h2>
 
-    {% if essays.len() > 0 %}
-    <ul>
-      {% for essay in essays %}
-      <li>
-        <a href="{{ essay.url }}">{{ essay.title }}</a>
-        {% match essay.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
-        {% match essay.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
+    {% if items.len() > 0 %}
+    <ul class="note-list">
+      {% for item in items %}
+      <li class="note-list-item">
+        <span class="note-tag">{{ item.note_type }}</span>
+        <a href="{{ item.url }}">{{ item.title }}</a>
+        {% match item.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
+        {% match item.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
       </li>
       {% endfor %}
     </ul>
     {% else %}
-    <p><em>No essays yet.</em></p>
-    {% endif %}
-
-    <h2>Thoughts</h2>
-
-    {% if thoughts.len() > 0 %}
-    <ul>
-      {% for thought in thoughts %}
-      <li>
-        <a href="{{ thought.url }}">{{ thought.title }}</a>
-        {% match thought.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
-        {% match thought.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
-      </li>
-      {% endfor %}
-    </ul>
-    {% else %}
-    <p><em>No thoughts yet.</em></p>
+    <p><em>No notes yet.</em></p>
     {% endif %}
 
     {% if papers.len() > 0 %}

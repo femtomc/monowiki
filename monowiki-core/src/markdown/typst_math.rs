@@ -34,18 +34,22 @@ impl TypstMathRenderer {
     }
 
     /// Replace `InlineMath` / `DisplayMath` events with raw HTML containing SVG.
-    pub fn render_math(&self, events: Vec<Event<'static>>) -> Vec<Event<'static>> {
+    pub fn render_math(
+        &self,
+        events: Vec<Event<'static>>,
+        preamble: Option<&str>,
+    ) -> Vec<Event<'static>> {
         events
             .into_iter()
             .map(|event| match event {
-                Event::InlineMath(math) => match self.render_math_block(&math, false) {
+                Event::InlineMath(math) => match self.render_math_block(&math, false, preamble) {
                     Ok(html) => Event::InlineHtml(CowStr::Boxed(html.into_boxed_str())),
                     Err(err) => {
                         warn!("Typst inline math failed: {err}");
                         Event::InlineMath(math)
                     }
                 },
-                Event::DisplayMath(math) => match self.render_math_block(&math, true) {
+                Event::DisplayMath(math) => match self.render_math_block(&math, true, preamble) {
                     Ok(html) => Event::Html(CowStr::Boxed(html.into_boxed_str())),
                     Err(err) => {
                         warn!("Typst display math failed: {err}");
@@ -57,8 +61,13 @@ impl TypstMathRenderer {
             .collect()
     }
 
-    fn render_math_block(&self, math: &CowStr<'_>, display: bool) -> Result<String> {
-        let key = cache_key(math, display);
+    fn render_math_block(
+        &self,
+        math: &CowStr<'_>,
+        display: bool,
+        preamble: Option<&str>,
+    ) -> Result<String> {
+        let key = cache_key(math, display, preamble);
         {
             let mut cache = self.cache.lock().unwrap();
             if let Some(svg) = cache.get(&key) {
@@ -66,7 +75,7 @@ impl TypstMathRenderer {
             }
         }
 
-        let source = build_source(math, display);
+        let source = build_source(math, display, preamble);
         let engine = TypstEngine::builder()
             .main_file(source)
             .fonts(self.fonts.iter().copied())
@@ -94,25 +103,31 @@ impl Default for TypstMathRenderer {
     }
 }
 
-fn build_source(math: &CowStr<'_>, display: bool) -> String {
+fn build_source(math: &CowStr<'_>, display: bool, preamble: Option<&str>) -> String {
     let delimiter = if display { "$$" } else { "$" };
     // Use 15pt to match MathJax's typical 1.2-1.3x scaling relative to 15px body text
     // Use medium weight (500) for slightly bolder appearance
+    let preamble = preamble.unwrap_or_default();
     format!(
         r#"
 #set page(width: auto, height: auto, margin: 0pt, fill: none)
 #set text(font: "New Computer Modern", size: 15pt, weight: "medium", fill: black)
 #set math.equation(numbering: none)
 
+{preamble}
+
 {delimiter}{math}{delimiter}
 "#
     )
 }
 
-fn cache_key(math: &CowStr<'_>, display: bool) -> String {
+fn cache_key(math: &CowStr<'_>, display: bool, preamble: Option<&str>) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     math.hash(&mut hasher);
     display.hash(&mut hasher);
+    if let Some(preamble) = preamble {
+        preamble.hash(&mut hasher);
+    }
     format!("{:016x}", hasher.finish())
 }
 

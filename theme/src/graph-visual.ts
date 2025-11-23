@@ -19,6 +19,7 @@ import {
 } from 'd3';
 import { Text, Graphics, Application, Container, Circle } from 'pixi.js';
 import { Group as TweenGroup, Tween as Tweened } from '@tweenjs/tween.js';
+import { resolveWithBase } from './site-context';
 
 export interface D3Config {
   drag: boolean;
@@ -111,6 +112,12 @@ export async function renderGraph(
   }));
 
   const validNodes = new Set(graphData.nodes.map((n) => n.id));
+  const nodeMetadata = new Map<string, any>();
+  for (const node of graphData.nodes) {
+    if (node?.id) {
+      nodeMetadata.set(node.id, node);
+    }
+  }
   const neighbourhood = new Set<string>();
 
   // Compute neighborhood based on depth
@@ -228,6 +235,29 @@ export async function renderGraph(
   const tweens = new Map<string, TweenNode>();
   let dragStartTime = 0;
   let dragging = false;
+
+  const resolveNodeHref = (slug: string): string => {
+    const node = nodeMetadata.get(slug);
+    if (node?.url) {
+      return resolveWithBase(node.url).toString();
+    }
+    if (node?.href) {
+      const href = String(node.href);
+      if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href)) {
+        return href;
+      }
+      try {
+        return new URL(href, window.location.origin).toString();
+      } catch {
+        return href;
+      }
+    }
+    return resolveWithBase(`${slug}.html`).toString();
+  };
+
+  const navigateTo = (slug: string) => {
+    window.location.href = resolveNodeHref(slug);
+  };
 
   function renderLinks() {
     tweens.get('link')?.stop();
@@ -451,14 +481,14 @@ export async function renderGraph(
 
           if (Date.now() - dragStartTime < 500) {
             const node = nodes.find((n) => n.id === event.subject.id) as NodeData;
-            window.location.href = `/${node.id}.html`;
+            navigateTo(node.id);
           }
         }),
     );
   } else {
     for (const node of nodeRenderData) {
       node.gfx.on('click', () => {
-        window.location.href = `/${node.simulationData.id}.html`;
+        navigateTo(node.simulationData.id);
       });
     }
   }

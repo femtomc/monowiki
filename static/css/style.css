@@ -587,11 +587,12 @@ label input {
 
 /* Sidenotes styling for monospace grid */
 :root {
-  --sidenote-width: 26ch;
-  --sidenote-gap: 4ch;
+  --sidenote-width: clamp(20ch, 24vw, 26ch);
+  --sidenote-gap: clamp(2ch, 4vw, 4ch);
 }
 
 .sidenote {
+  display: block;
   float: right;
   clear: right;
   margin-right: calc(-1 * (var(--sidenote-width) + var(--sidenote-gap)));
@@ -614,12 +615,26 @@ label input {
 }
 
 .sidenote-ref {
-  font-weight: var(--font-weight-bold);
-  text-decoration: none;
-  cursor: default;
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.8em;
+  vertical-align: super;
+  line-height: 1;
+  margin-left: 0.35em;
+  color: var(--accent-color);
 }
 
-@media (max-width: 1200px) {
+.sidenote-ref a {
+  color: inherit;
+  text-decoration: none;
+  padding: 0 0.1em;
+}
+
+.sidenote-ref a:hover,
+.sidenote-ref a:focus-visible {
+  text-decoration: underline;
+}
+
+@media (max-width: 1300px) {
   .sidenote {
     float: none;
     margin-right: 0;
@@ -934,6 +949,70 @@ h2 {
     position: sticky;
     top: 0;
   }
+}
+
+.nota-block {
+  border: var(--border-thickness) solid var(--border-color);
+  border-radius: 6px;
+  padding: calc(var(--line-height) * 1.25) calc(var(--line-height) * 1.25);
+  background: var(--background-color-alt);
+  margin: calc(var(--line-height) * 2) 0;
+}
+
+.nota-block-heading {
+  display: flex;
+  gap: 0.6ch;
+  align-items: baseline;
+  margin-bottom: calc(var(--line-height) / 2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
+
+.nota-kind {
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-color);
+}
+
+.nota-title {
+  font-weight: var(--font-weight-medium);
+  color: var(--text-color);
+}
+
+.nota-block-body > :first-child {
+  margin-top: 0;
+}
+
+.nota-block-body p {
+  margin-top: calc(var(--line-height) / 2);
+  margin-bottom: 0;
+}
+
+.note-list {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+
+.note-list-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8ch;
+  align-items: baseline;
+  margin-top: var(--line-height);
+}
+
+.note-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--background-color-alt);
+  color: var(--text-color-alt);
 }
 
 /* Code highlighting - removed duplicate, see above */
