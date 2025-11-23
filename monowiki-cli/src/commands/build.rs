@@ -1,0 +1,603 @@
+//! Build command implementation.
+
+use anyhow::{Context, Result};
+use askama::Template;
+use chrono::{Datelike, NaiveDate};
+use monowiki_core::{Config, SiteBuilder};
+use monowiki_render::{BacklinkEntry, IndexTemplate, NotFoundTemplate, NoteEntry, PostTemplate};
+use std::fs;
+use std::path::Path;
+use walkdir::WalkDir;
+
+/// Build the static site (writes output) and discard the in-memory index
+pub fn build_site(config_path: &Path) -> Result<()> {
+    build_site_with_index(config_path).map(|_| ())
+}
+
+/// Build the static site and return the in-memory index alongside the loaded config
+pub fn build_site_with_index(config_path: &Path) -> Result<(Config, monowiki_core::SiteIndex)> {
+    tracing::info!("Loading config from {:?}", config_path);
+    let config = Config::from_file(config_path).context("Failed to load configuration")?;
+    build_site_with_config(config)
+}
+
+/// Build the site from an already loaded config, writing output and returning the index.
+pub fn build_site_with_config(
+    config: Config,
+) -> Result<(Config, monowiki_core::SiteIndex)> {
+    let base_url = config.normalized_base_url();
+
+    tracing::info!("Building site: {}", config.site.title);
+
+    // Build the site
+    let builder = SiteBuilder::new(config.clone());
+    let site_index = builder.build().context("Failed to build site")?;
+
+    tracing::info!("Parsed {} notes", site_index.notes.len());
+
+    // Create output directory
+    let output_dir = config.output_dir();
+    fs::create_dir_all(&output_dir).context("Failed to create output directory")?;
+
+    // Render individual note pages
+    for note in &site_index.notes {
+        // Skip drafts
+        if note.is_draft() {
+            tracing::debug!("Skipping draft: {}", note.title);
+            continue;
+        }
+
+        render_note_page(&config, note, &site_index, &base_url)?;
+    }
+
+    // Render index page
+    render_index_page(&config, &site_index, &base_url)?;
+
+    // Render 404 page
+    render_404_page(&config, &base_url)?;
+
+    // Generate JSON artifacts
+    generate_previews_json(&config, &site_index, &base_url)?;
+    generate_index_json(&config, &site_index, &base_url)?;
+    if config.enable_backlinks {
+        generate_graph_json(&config, &site_index, &base_url)?;
+    } else {
+        tracing::info!("Backlinks disabled; skipping graph.json");
+    }
+
+    // Syndication artifacts
+    if config.enable_rss {
+        generate_rss(&config, &site_index, &base_url)?;
+    } else {
+        tracing::info!("RSS disabled; skipping rss.xml");
+    }
+
+    if config.enable_sitemap {
+        generate_sitemap(&config, &site_index, &base_url)?;
+    } else {
+        tracing::info!("Sitemap disabled; skipping sitemap.xml");
+    }
+
+    // Copy CSS/JS assets
+    copy_assets(&config)?;
+
+    let non_draft_count = site_index.notes.iter().filter(|n| !n.is_draft()).count();
+
+    tracing::info!("✓ Built {} pages", non_draft_count);
+    tracing::info!("✓ Output written to {:?}", output_dir);
+
+    Ok((config, site_index))
+}
+
+/// Render a single note page
+fn render_note_page(
+    config: &Config,
+    note: &monowiki_core::Note,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    // Get backlinks
+    let backlinks: Vec<BacklinkEntry> = if config.enable_backlinks {
+        let backlink_slugs = site_index.graph.backlinks(&note.slug);
+        backlink_slugs
+            .iter()
+            .filter_map(|slug| site_index.find_by_slug(slug))
+            .map(|n| BacklinkEntry {
+                url: n.url_with_base(base_url),
+                title: n.title.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Format dates
+    let date = note.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string());
+    let updated = note
+        .updated
+        .as_ref()
+        .map(|d| d.format("%Y-%m-%d").to_string());
+
+    let template = PostTemplate {
+        title: note.title.clone(),
+        description: note
+            .frontmatter
+            .description
+            .clone()
+            .unwrap_or_else(|| note.title.clone()),
+        date,
+        updated,
+        tags: note.tags.clone(),
+        content: note.content_html.clone(),
+        toc_html: note.toc_html.clone(),
+        site_title: config.site.title.clone(),
+        site_author: config.site.author.clone(),
+        year: chrono::Utc::now().year(),
+        nav_home: format!("{}index.html", base_url),
+        nav_about: format!("{}about.html", base_url),
+        nav_github: config.site.url.clone(),
+        has_about: false, // TODO: Check if about.html exists
+        has_github: true,
+        css_path: base_url.to_string(), // Asset prefix
+        backlinks,
+        base_url: base_url.to_string(),
+        slug: note.slug.clone(),
+        source: note.raw_body.clone(),
+    };
+
+    let html = template
+        .render()
+        .context("Failed to render post template")?;
+
+    let output_path = config.output_dir().join(note.output_rel_path());
+    fs::write(&output_path, html).with_context(|| format!("Failed to write {:?}", output_path))?;
+
+    tracing::debug!("Rendered: {}", note.slug);
+
+    Ok(())
+}
+
+/// Render the index page
+fn render_index_page(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    // Separate essays and thoughts
+    let mut essays: Vec<NoteEntry> = site_index
+        .essays()
+        .iter()
+        .map(|n| NoteEntry {
+            url: n.url_with_base(base_url),
+            title: n.title.clone(),
+            date: n.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string()),
+            description: n.frontmatter.description.clone(),
+        })
+        .collect();
+
+    let mut thoughts: Vec<NoteEntry> = site_index
+        .thoughts()
+        .iter()
+        .map(|n| NoteEntry {
+            url: n.url_with_base(base_url),
+            title: n.title.clone(),
+            date: n.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string()),
+            description: n.frontmatter.description.clone(),
+        })
+        .collect();
+
+    // Sort by date (newest first)
+    essays.sort_by(|a, b| b.date.cmp(&a.date));
+    thoughts.sort_by(|a, b| b.date.cmp(&a.date));
+
+    let template = IndexTemplate {
+        site_title: config.site.title.clone(),
+        site_description: config.site.description.clone(),
+        site_author: config.site.author.clone(),
+        site_intro: config.site.intro.clone(),
+        year: chrono::Utc::now().year(),
+        nav_home: format!("{}index.html", base_url),
+        nav_about: format!("{}about.html", base_url),
+        nav_github: config.site.url.clone(),
+        has_about: false, // TODO: Check if about.html exists
+        has_github: true,
+        essays,
+        thoughts,
+        papers: Vec::new(), // TODO: ORCID integration
+        base_url: base_url.to_string(),
+    };
+
+    let html = template
+        .render()
+        .context("Failed to render index template")?;
+
+    let output_path = config.output_dir().join("index.html");
+    fs::write(&output_path, html).context("Failed to write index.html")?;
+
+    tracing::info!("Rendered index page");
+
+    Ok(())
+}
+
+/// Render the 404 error page
+fn render_404_page(config: &Config, base_url: &str) -> Result<()> {
+    let template = NotFoundTemplate {
+        site_title: config.site.title.clone(),
+        site_author: config.site.author.clone(),
+        year: chrono::Utc::now().year(),
+        nav_home: format!("{}index.html", base_url),
+        nav_about: format!("{}about.html", base_url),
+        nav_github: config.site.url.clone(),
+        has_about: false,
+        has_github: true,
+        css_path: base_url.to_string(),
+        base_url: base_url.to_string(),
+    };
+
+    let html = template.render().context("Failed to render 404 template")?;
+
+    let output_path = config.output_dir().join("404.html");
+    fs::write(&output_path, html).context("Failed to write 404.html")?;
+
+    tracing::info!("Rendered 404 page");
+
+    Ok(())
+}
+
+/// Generate previews.json for link previews
+fn generate_previews_json(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    use serde_json::json;
+
+    let mut previews = serde_json::Map::new();
+
+    for note in &site_index.notes {
+        if note.is_draft() {
+            continue;
+        }
+
+        let url = note.output_rel_path();
+
+        // Use TOC if available, otherwise fallback to description or first line
+        let preview_text = if let Some(ref toc_html) = note.toc_html {
+            toc_html.clone()
+        } else {
+            note.preview.clone().unwrap_or_else(|| {
+                note.frontmatter
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| "No preview available".to_string())
+            })
+        };
+
+        previews.insert(
+            url,
+            json!({
+                "title": note.title,
+                "preview": preview_text,
+                "type": note.note_type.as_str(),
+                "has_toc": note.toc_html.is_some(),
+                "url": note.url_with_base(base_url),
+            }),
+        );
+    }
+
+    let output_path = config.output_dir().join("previews.json");
+    let json = serde_json::to_string_pretty(&previews).context("Failed to serialize previews")?;
+    fs::write(&output_path, json).context("Failed to write previews.json")?;
+
+    tracing::info!("Generated previews.json");
+
+    Ok(())
+}
+
+/// Generate index.json for search with section-level granularity
+fn generate_index_json(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    let mut index = Vec::new();
+
+    for note in &site_index.notes {
+        if note.is_draft() {
+            continue;
+        }
+
+        // Build section-level search entries
+        let entries = monowiki_core::build_search_index(
+            &note.slug,
+            &note.title,
+            &note.content_html,
+            &note.tags,
+            note.note_type.as_str(),
+            base_url,
+        );
+
+        index.extend(entries);
+    }
+
+    let output_path = config.output_dir().join("index.json");
+    let json = serde_json::to_string_pretty(&index).context("Failed to serialize search index")?;
+    fs::write(&output_path, json).context("Failed to write index.json")?;
+
+    tracing::info!("Generated index.json with {} search entries", index.len());
+
+    Ok(())
+}
+
+/// Generate graph.json for backlinks visualization
+fn generate_graph_json(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    use serde_json::json;
+
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    for note in &site_index.notes {
+        if note.is_draft() {
+            continue;
+        }
+
+        nodes.push(json!({
+            "id": note.slug,
+            "title": note.title,
+            "type": note.note_type.as_str(),
+            "url": note.output_rel_path(),
+            "href": note.url_with_base(base_url),
+        }));
+
+        for target in &note.outgoing_links {
+            edges.push(json!({
+                "source": note.slug,
+                "target": target,
+            }));
+        }
+    }
+
+    let graph = json!({
+        "nodes": nodes,
+        "edges": edges,
+    });
+
+    let output_path = config.output_dir().join("graph.json");
+    let json = serde_json::to_string_pretty(&graph).context("Failed to serialize graph")?;
+    fs::write(&output_path, json).context("Failed to write graph.json")?;
+
+    tracing::info!("Generated graph.json");
+
+    Ok(())
+}
+
+/// Copy CSS/JS assets to output
+fn copy_assets(config: &Config) -> Result<()> {
+    let output_dir = config.output_dir();
+    // Copy built-in static assets (css, fonts, images, etc.)
+    let static_dir = Path::new("static");
+    if static_dir.exists() {
+        copy_dir(static_dir, &output_dir)?;
+        tracing::info!("Copied assets from static/");
+    } else {
+        tracing::warn!("static/ directory not found, skipping asset copy");
+    }
+
+    // Copy bundled theme JS (supports sourcemaps and future assets)
+    let theme_dist = Path::new("theme/dist");
+    if theme_dist.exists() {
+        let js_dest = output_dir.join("js");
+        if js_dest.exists() {
+            fs::remove_dir_all(&js_dest)
+                .with_context(|| format!("Failed to clean existing {:?}", js_dest))?;
+        }
+        fs::create_dir_all(&js_dest)?;
+        copy_theme_dist(theme_dist, &js_dest)?;
+        tracing::info!("Copied theme bundle (sourcemaps skipped)");
+    } else {
+        tracing::warn!("TypeScript bundle not found, run: npm run build --prefix theme");
+    }
+
+    // Copy custom theme directory if provided
+    if let Some(theme_dir) = config.theme_dir() {
+        if theme_dir.exists() {
+            copy_dir(&theme_dir, &output_dir)?;
+            tracing::info!("Copied custom theme from {:?}", theme_dir);
+        } else {
+            tracing::warn!("Configured theme path {:?} does not exist", theme_dir);
+        }
+    }
+
+    // Apply theme overrides (post-copy) if provided
+    if let Some(overrides_dir) = config.theme_overrides_dir() {
+        if overrides_dir.exists() {
+            copy_dir(&overrides_dir, &output_dir)?;
+            tracing::info!("Applied theme overrides from {:?}", overrides_dir);
+        } else {
+            tracing::warn!(
+                "Configured theme_overrides path {:?} does not exist",
+                overrides_dir
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn copy_dir(src: &Path, dest: &Path) -> Result<()> {
+    for entry in WalkDir::new(src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let relative = entry.path().strip_prefix(src).unwrap_or(entry.path());
+        let target = dest.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(entry.path(), &target)
+            .with_context(|| format!("Failed to copy {:?} to {:?}", entry.path(), target))?;
+    }
+    Ok(())
+}
+
+fn copy_theme_dist(src: &Path, dest: &Path) -> Result<()> {
+    for entry in WalkDir::new(src)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        if entry
+            .path()
+            .extension()
+            .and_then(|ext| ext.to_str())
+            == Some("map")
+        {
+            continue;
+        }
+
+        let relative = entry.path().strip_prefix(src).unwrap_or(entry.path());
+        let target = dest.join(relative);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(entry.path(), &target)
+            .with_context(|| format!("Failed to copy {:?} to {:?}", entry.path(), target))?;
+    }
+
+    Ok(())
+}
+
+/// Generate RSS feed (rss.xml)
+fn generate_rss(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    let mut items = String::new();
+    let mut notes: Vec<_> = site_index.notes.iter().filter(|n| !n.is_draft()).collect();
+
+    notes.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.updated.cmp(&a.updated)));
+
+    for note in notes {
+        let link = absolute_url(&config.site.url, base_url, &note.output_rel_path());
+        let title = escape_xml(&note.title);
+        let description = escape_xml(
+            note.frontmatter
+                .description
+                .as_ref()
+                .or_else(|| note.frontmatter.summary.as_ref())
+                .unwrap_or(&note.title),
+        );
+
+        let pub_date = note
+            .updated
+            .or(note.date)
+            .and_then(|d| naive_to_rfc2822(&d));
+
+        items.push_str(&format!(
+            "<item><title>{}</title><link>{}</link><guid>{}</guid><description>{}</description>",
+            title, link, link, description
+        ));
+        if let Some(pd) = pub_date {
+            items.push_str(&format!("<pubDate>{}</pubDate>", pd));
+        }
+        items.push_str("</item>");
+    }
+
+    let channel_link = absolute_url(&config.site.url, base_url, "");
+    let rss = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>{}</title>
+    <link>{}</link>
+    <description>{}</description>
+    {}
+  </channel>
+</rss>
+"#,
+        escape_xml(&config.site.title),
+        channel_link,
+        escape_xml(&config.site.description),
+        items
+    );
+
+    fs::write(config.output_dir().join("rss.xml"), rss)?;
+    tracing::info!("Generated rss.xml");
+    Ok(())
+}
+
+/// Generate sitemap.xml
+fn generate_sitemap(
+    config: &Config,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    let mut urls = String::new();
+
+    // Index
+    urls.push_str(&format!(
+        "<url><loc>{}</loc></url>",
+        absolute_url(&config.site.url, base_url, "index.html")
+    ));
+
+    for note in &site_index.notes {
+        if note.is_draft() {
+            continue;
+        }
+        let loc = absolute_url(&config.site.url, base_url, &note.output_rel_path());
+        let lastmod = note.updated.or(note.date);
+        urls.push_str("<url>");
+        urls.push_str(&format!("<loc>{}</loc>", loc));
+        if let Some(date) = lastmod {
+            urls.push_str(&format!("<lastmod>{}</lastmod>", date.format("%Y-%m-%d")));
+        }
+        urls.push_str("</url>");
+    }
+
+    let xml = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+{}
+</urlset>
+"#,
+        urls
+    );
+
+    fs::write(config.output_dir().join("sitemap.xml"), xml)?;
+    tracing::info!("Generated sitemap.xml");
+    Ok(())
+}
+
+fn absolute_url(site_url: &str, base_url: &str, rel: &str) -> String {
+    let root = site_url.trim_end_matches('/').to_string();
+    let mut base = base_url.trim_matches('/').to_string();
+    if !base.is_empty() {
+        base = format!("/{}", base);
+    }
+    let rel_clean = rel.trim_start_matches('/');
+    let joined = if rel_clean.is_empty() {
+        format!("{}{}", root, base)
+    } else {
+        format!("{}{}/{}", root, base, rel_clean)
+    };
+    joined.replace("//", "/").replace(":/", "://")
+}
+
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn naive_to_rfc2822(date: &NaiveDate) -> Option<String> {
+    let datetime = date.and_hms_opt(0, 0, 0)?;
+    Some(datetime.and_utc().to_rfc2822())
+}

@@ -1,0 +1,24 @@
+site:
+  title: "Monowiki"
+  author: "femtomc"
+  description: "Minimalist static site generator for Obsidian vaults, now in Rust"
+  url: "https://femtomc.github.io/monowiki"
+
+paths:
+  vault: "vault"
+  output: "docs"
+  templates: null
+  theme: null
+
+# orcid:
+#   enabled: false
+#   id: "0000-0000-0000-0000"
+
+server:
+  port: 8000
+
+# Rust-specific features
+base_url: "/"
+enable_rss: true
+enable_sitemap: true
+enable_backlinks: true

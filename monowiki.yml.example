@@ -1,0 +1,20 @@
+# Monowiki Configuration Example
+
+site:
+  title: "femtomc"
+  author: "McCoy R. Becker"
+  description: "Research blog on probabilistic programming, AI, and programming languages"
+  url: "https://femtomc.github.io"
+
+paths:
+  vault: "vault"           # Path to your Obsidian vault
+  output: "docs"           # Where to generate HTML (for GitHub Pages)
+  templates: null          # null = use built-in templates, or specify custom path
+  theme: null              # null = use built-in theme, or specify custom path
+
+orcid:
+  enabled: true            # Fetch papers from ORCID
+  id: "0009-0000-1930-8150"  # Your ORCID ID
+
+server:
+  port: 8000               # Development server port

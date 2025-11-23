@@ -1,0 +1,27 @@
+# Build outputs
+/target
+/docs/
+.papers_cache.json
+
+# Theme build artifacts
+**/node_modules/
+/theme/dist/
+/theme/.vite/
+
+# IDE/editor
+.vscode/
+.idea/
+.helix/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Rust backups / symbols
+**/*.rs.bk
+*.pdb
+
+# Logs
+npm-debug.log*

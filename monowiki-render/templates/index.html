@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ site_title }}</title>
+  <meta name="description" content="{{ site_description }}">
+  <meta name="monowiki-base-url" content="{{ base_url }}">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/previews.css">
+  <link rel="stylesheet" href="css/search.css">
+
+  <!-- Frontend bundle -->
+  <script type="module" src="js/bundle.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <nav class="nav">
+        <a href="{{ nav_home }}">home</a>
+        {% if has_about %}<a href="{{ nav_about }}">about</a>{% endif %}
+        {% if has_github %}<a href="{{ nav_github }}">github</a>{% endif %}
+        <button id="search-trigger" class="search-trigger" aria-label="Search">
+          <span class="search-trigger-text">search</span>
+          <span class="search-trigger-hint">⌘K</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    {% match site_intro %}
+      {% when Some with (intro) %}
+      <p>
+        {{ intro }}
+      </p>
+      {% when None %}
+    {% endmatch %}
+
+    <h2>Essays</h2>
+
+    {% if essays.len() > 0 %}
+    <ul>
+      {% for essay in essays %}
+      <li>
+        <a href="{{ essay.url }}">{{ essay.title }}</a>
+        {% match essay.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
+        {% match essay.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p><em>No essays yet.</em></p>
+    {% endif %}
+
+    <h2>Thoughts</h2>
+
+    {% if thoughts.len() > 0 %}
+    <ul>
+      {% for thought in thoughts %}
+      <li>
+        <a href="{{ thought.url }}">{{ thought.title }}</a>
+        {% match thought.date %}{% when Some with (date) %} — {{ date }}{% when None %}{% endmatch %}
+        {% match thought.description %}{% when Some with (desc) %}<br><span style="color: var(--text-color-alt);">{{ desc }}</span>{% when None %}{% endmatch %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p><em>No thoughts yet.</em></p>
+    {% endif %}
+
+    {% if papers.len() > 0 %}
+    <h2>Papers</h2>
+    <ul>
+      {% for paper in papers %}
+      <li>
+        {% match paper.url %}
+          {% when Some with (url) %}<a href="{{ url }}">{{ paper.title }}</a>
+          {% when None %}{{ paper.title }}
+        {% endmatch %}
+        {% match paper.year %}{% when Some with (year) %} ({{ year }}){% when None %}{% endmatch %}
+        {% if paper.authors.len() > 0 %}
+        <br><span style="color: var(--text-color-alt);">
+          {% for author in paper.authors %}
+            {% if author.is_me %}<strong>{{ author.name }}</strong>{% else %}{{ author.name }}{% endif %}
+            {% if !loop.last %}, {% endif %}
+          {% endfor %}
+        </span>
+        {% endif %}
+        {% match paper.journal %}{% when Some with (journal) %}<br><span style="color: var(--text-color-alt);"><em>{{ journal }}</em></span>{% when None %}{% endmatch %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </main>
+
+  <!-- Search Modal -->
+  <div id="search-modal">
+    <div class="search-modal-wrapper">
+      <div class="search-modal-header">
+        <input
+          type="text"
+          id="search-modal-input"
+          class="search-modal-input"
+          placeholder="Search documentation..."
+          autocomplete="off"
+        />
+      </div>
+      <div class="search-modal-tabs">
+        <button class="search-tab active" data-tab="results">Results</button>
+        <button class="search-tab" data-tab="graph">Graph</button>
+      </div>
+      <div class="search-modal-content">
+        <div class="search-tab-panel active" id="search-tab-results">
+          <div class="search-modal-results" id="search-modal-results"></div>
+        </div>
+        <div class="search-tab-panel" id="search-tab-graph">
+          <div class="search-graph-container" id="search-graph-container"></div>
+        </div>
+      </div>
+      <div class="search-modal-footer">
+        <div class="search-hint">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>↵</kbd> Select</span>
+          <span><kbd>ESC</kbd> Close</span>
+        </div>
+        <div class="search-count"></div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,123 @@
+/* Interactive Graph Visualization Styles - Adapted from Quartz */
+
+.graph {
+  margin: calc(var(--line-height) * 2) 0;
+}
+
+.graph h3 {
+  font-size: 1rem;
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  margin: 0 0 calc(var(--line-height) / 2) 0;
+}
+
+.graph-outer {
+  border: var(--border-thickness) solid var(--border-color);
+  border-radius: 4px;
+  background: var(--background-color);
+  height: 250px;
+  margin: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.graph-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.graph-container canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Small expand icon in corner of local graph */
+.global-graph-icon {
+  cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--text-color);
+  opacity: 0.5;
+  width: 24px;
+  height: 24px;
+  position: absolute;
+  padding: 0.2rem;
+  margin: 0.3rem;
+  top: 0;
+  right: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  transition: all 0.3s ease;
+  z-index: 10;
+}
+
+.global-graph-icon:hover {
+  opacity: 1;
+  background-color: var(--background-color-alt);
+}
+
+.global-graph-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: currentColor;
+}
+
+/* Global Graph Modal - Full screen overlay */
+.global-graph-outer {
+  position: fixed;
+  z-index: 9999;
+  left: 0;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  backdrop-filter: blur(4px);
+  display: none;
+  overflow: hidden;
+}
+
+.global-graph-outer.active {
+  display: block;
+}
+
+.global-graph-container {
+  border: var(--border-thickness) solid var(--border-color);
+  background-color: var(--background-color);
+  border-radius: 4px;
+  box-sizing: border-box;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 80vh;
+  width: 80vw;
+}
+
+/* Graph sidebar positioning */
+.graph-sidebar {
+  margin: calc(var(--line-height) * 2) 0;
+}
+
+/* On wide viewports, float on right side like TOC floats on left */
+@media screen and (min-width: 1400px) {
+  .graph-sidebar {
+    position: fixed;
+    right: calc((100vw - var(--content-max)) / 2 - var(--sidebar-gap));
+    top: calc(var(--line-height) * 8);
+    width: var(--sidebar-width);
+    margin: 0;
+  }
+
+  .graph {
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* On smaller screens, show inline at bottom of article */
+@media (max-width: 1399px) {
+  .graph-outer {
+    height: 300px;
+  }
+}

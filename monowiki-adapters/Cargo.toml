@@ -1,0 +1,25 @@
+[package]
+name = "monowiki-adapters"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Code documentation adapters for monowiki"
+
+[dependencies]
+monowiki-core = { path = "../monowiki-core" }
+
+serde.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Python parsing (optional, can be feature-gated)
+# rustpython-parser = { version = "0.3", optional = true }
+
+[dev-dependencies]
+insta.workspace = true
+
+[features]
+default = []
+# python = ["dep:rustpython-parser"]

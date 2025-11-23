@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} — {{ site_title }}</title>
+  <meta name="description" content="{{ description }}">
+  <meta name="author" content="{{ site_author }}">
+  <meta name="monowiki-base-url" content="{{ base_url }}">
+  <meta name="monowiki-note-slug" content="{{ slug }}">
+  {% match date %}{% when Some with (d) %}<meta name="date" content="{{ d }}">{% when None %}{% endmatch %}
+  <link rel="stylesheet" href="{{ css_path }}css/reset.css">
+  <link rel="stylesheet" href="{{ css_path }}css/style.css">
+  <link rel="stylesheet" href="{{ css_path }}css/previews.css">
+  <link rel="stylesheet" href="{{ css_path }}css/graph.css">
+  <link rel="stylesheet" href="{{ css_path }}css/search.css">
+
+  <!-- Frontend bundle -->
+  <script type="module" src="{{ css_path }}js/bundle.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <nav class="nav">
+        <a href="{{ nav_home }}">home</a>
+        {% if has_about %}<a href="{{ nav_about }}">about</a>{% endif %}
+        {% if has_github %}<a href="{{ nav_github }}">github</a>{% endif %}
+        <button id="search-trigger" class="search-trigger" aria-label="Search">
+          <span class="search-trigger-text">search</span>
+          <span class="search-trigger-hint">⌘K</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <article>
+      {% match date %}
+        {% when Some with (d) %}
+        <p>
+          <em>Published: {{ d }}</em>
+          {% match updated %}{% when Some with (upd) %}<em> • Updated: {{ upd }}</em>{% when None %}{% endmatch %}
+        </p>
+        {% when None %}
+      {% endmatch %}
+
+      {% if tags.len() > 0 %}
+      <p>
+        Tags: {% for tag in tags %}<code>{{ tag }}</code> {% endfor %}
+      </p>
+      {% endif %}
+
+      {% match toc_html %}
+        {% when Some with (toc) %}
+        <div id="toc" class="toc-container">
+          {{ toc|safe }}
+        </div>
+        {% when None %}
+      {% endmatch %}
+
+      <div class="page-subheader">
+        {% match source %}
+          {% when Some with (_) %}
+          <button id="copy-page-source" class="copy-page-btn" type="button" aria-label="Copy page Markdown">Copy page source</button>
+          {% when None %}
+        {% endmatch %}
+        <button id="global-graph-toggle" class="graph-btn" type="button" aria-label="Open graph">Graph</button>
+      </div>
+
+      {{ content|safe }}
+
+      {% if backlinks.len() > 0 %}
+      <hr>
+      <div id="backlinks">
+        <h3>Backlinks</h3>
+        <ul class="backlinks-list">
+          {% for backlink in backlinks %}
+          <li><a href="{{ backlink.url }}">{{ backlink.title }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    </article>
+
+    <hr>
+
+    <p>
+      <a href="{{ nav_home }}">← Back to home</a>
+    </p>
+  </main>
+
+  <!-- Global Graph Modal -->
+  <div class="global-graph-outer" id="global-graph-outer">
+    <div class="global-graph-container" id="global-graph-container"></div>
+  </div>
+
+  <!-- Search Modal -->
+  <div id="search-modal">
+    <div class="search-modal-wrapper">
+      <div class="search-modal-header">
+        <input
+          type="text"
+          id="search-modal-input"
+          class="search-modal-input"
+          placeholder="Search documentation..."
+          autocomplete="off"
+        />
+      </div>
+      <div class="search-modal-tabs">
+        <button class="search-tab active" data-tab="results">Results</button>
+        <button class="search-tab" data-tab="graph">Graph</button>
+      </div>
+      <div class="search-modal-content">
+        <div class="search-tab-panel active" id="search-tab-results">
+          <div class="search-modal-results" id="search-modal-results"></div>
+        </div>
+        <div class="search-tab-panel" id="search-tab-graph">
+          <div class="search-graph-container" id="search-graph-container"></div>
+        </div>
+      </div>
+      <div class="search-modal-footer">
+        <div class="search-hint">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>↵</kbd> Select</span>
+          <span><kbd>ESC</kbd> Close</span>
+        </div>
+        <div class="search-count"></div>
+      </div>
+    </div>
+  </div>
+
+  {% match source %}
+    {% when Some with (src) %}
+    <script id="page-source-data" type="application/json">{{ src|json|safe }}</script>
+    {% when None %}
+  {% endmatch %}
+
+</body>
+</html>

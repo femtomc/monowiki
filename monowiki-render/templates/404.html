@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>404 Not Found — {{ site_title }}</title>
+  <meta name="description" content="Page not found">
+  <meta name="monowiki-base-url" content="{{ base_url }}">
+  <link rel="stylesheet" href="{{ css_path }}css/reset.css">
+  <link rel="stylesheet" href="{{ css_path }}css/style.css">
+  <link rel="stylesheet" href="{{ css_path }}css/search.css">
+
+  <!-- Frontend bundle -->
+  <script type="module" src="{{ css_path }}js/bundle.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <nav class="nav">
+        <a href="{{ nav_home }}">home</a>
+        {% if has_about %}<a href="{{ nav_about }}">about</a>{% endif %}
+        {% if has_github %}<a href="{{ nav_github }}">github</a>{% endif %}
+        <button id="search-trigger" class="search-trigger" aria-label="Search">
+          <span class="search-trigger-text">search</span>
+          <span class="search-trigger-hint">⌘K</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <article>
+      <pre class="error-ascii" style="text-align: center; margin: 0 auto;">
+  ┌─────────────────────────────────────┐
+  │                                     │
+  │              404                    │
+  │         NOT FOUND                   │
+  │                                     │
+  │   The page you're looking for       │
+  │   doesn't exist (yet).              │
+  │                                     │
+  │   Perhaps you meant to link to      │
+  │   a page that hasn't been           │
+  │   created yet?                      │
+  │                                     │
+  └─────────────────────────────────────┘
+      </pre>
+
+      <p style="margin-top: 2rem;">
+        <strong>Possible reasons:</strong>
+      </p>
+
+      <ul>
+        <li>This page hasn't been written yet</li>
+        <li>There's a typo in the link</li>
+        <li>The page was removed or renamed</li>
+        <li>You clicked on a wikilink to a non-existent page</li>
+      </ul>
+
+      <p style="margin-top: 2rem;">
+        <strong>What you can do:</strong>
+      </p>
+
+      <ul>
+        <li>Go <a href="{{ nav_home }}">back to the homepage</a></li>
+        <li>Use the search (⌘K) to find what you're looking for</li>
+        <li>Check if the page name is spelled correctly</li>
+        <li>Create the missing page in your vault!</li>
+      </ul>
+
+      <hr style="margin-top: 3rem;">
+
+      <p style="text-align: center; color: var(--text-color-alt);">
+        <em>This is monowiki's 404 page.</em>
+      </p>
+    </article>
+  </main>
+
+  <footer>
+    <hr>
+    <p>
+      © {{ year }} {{ site_author }} | Licensed under <a href="https://opensource.org/licenses/MIT">MIT</a>
+    </p>
+  </footer>
+
+  <!-- Search Modal -->
+  <div id="search-modal">
+    <div class="search-modal-wrapper">
+      <div class="search-modal-header">
+        <input
+          type="text"
+          id="search-modal-input"
+          class="search-modal-input"
+          placeholder="Search documentation..."
+          autocomplete="off"
+        />
+      </div>
+      <div class="search-modal-tabs">
+        <button class="search-tab active" data-tab="results">Results</button>
+        <button class="search-tab" data-tab="graph">Graph</button>
+      </div>
+      <div class="search-modal-content">
+        <div class="search-tab-panel active" id="search-tab-results">
+          <div class="search-modal-results" id="search-modal-results"></div>
+        </div>
+        <div class="search-tab-panel" id="search-tab-graph">
+          <div class="search-graph-container" id="search-graph-container"></div>
+        </div>
+      </div>
+      <div class="search-modal-footer">
+        <div class="search-hint">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>↵</kbd> Select</span>
+          <span><kbd>ESC</kbd> Close</span>
+        </div>
+        <div class="search-count"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

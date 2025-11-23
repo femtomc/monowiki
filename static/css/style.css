@@ -1,0 +1,939 @@
+/**
+ * femtomc blog styles
+* Based on The Monospace Web by Oskar Wickström (MIT License)
+* Modified with Berkeley Mono and custom color scheme
+**/
+
+/* Berkeley Mono Variable font - vendored */
+/* Visually hidden but screen reader-accessible utility */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@font-face {
+  font-family: 'Berkeley Mono';
+  src: url('fonts/BerkeleyMonoVariable.otf') format('opentype-variations');
+  font-weight: 100 900;
+  font-stretch: 75% 100%;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-family: "Berkeley Mono", "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace;
+  --line-height: 1.25rem;
+  --border-thickness: 2px;
+
+  /* Light mode with subtle accents */
+  --text-color: #1a1a1a;
+  --text-color-alt: #666;
+  --background-color: #fafafa;
+  --background-color-alt: #f0f0f0;
+  --accent-color: #0066cc;
+  --accent-color-light: #e6f2ff;
+  --border-color: #d0d0d0;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 450;
+  --font-weight-semibold: 550;
+  --font-weight-bold: 700;
+  --content-max: 90ch;
+  --sidebar-width: 24ch;
+  --sidebar-gap: 28ch;
+
+  font-family: var(--font-family);
+  font-optical-sizing: auto;
+  font-weight: var(--font-weight-normal);
+  font-style: normal;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 15px;
+  font-variation-settings: "wdth" 87.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+
+* + * {
+  margin-top: var(--line-height);
+}
+
+html {
+  display: flex;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  flex-direction: column;
+  align-items: center;
+  background: var(--background-color);
+  color: var(--text-color);
+}
+
+body {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: var(--line-height) 2ch;
+  max-width: calc(min(var(--content-max), round(down, 100%, 1ch)));
+  line-height: var(--line-height);
+  overflow-x: hidden;
+}
+
+@media screen and (max-width: 480px) {
+  :root {
+    font-size: 14px;
+  }
+  body {
+    padding: var(--line-height) 1ch;
+  }
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin: calc(var(--line-height) * 2) 0 var(--line-height);
+  line-height: var(--line-height);
+}
+
+h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: calc(2 * var(--line-height));
+  margin-bottom: calc(var(--line-height) * 2);
+  text-transform: uppercase;
+}
+
+h2 {
+  font-size: 1rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+h3 {
+  font-weight: 500;
+}
+
+h4 {
+  font-weight: 450;
+}
+
+h5 {
+  font-weight: 400;
+  font-style: italic;
+}
+
+h6 {
+  font-weight: 350;
+  font-style: italic;
+}
+
+.heading-anchor {
+  text-decoration: none;
+  color: var(--text-color-alt);
+  margin-left: 0.5ch;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+h1:hover .heading-anchor,
+h2:hover .heading-anchor,
+h3:hover .heading-anchor,
+h4:hover .heading-anchor,
+h5:hover .heading-anchor,
+h6:hover .heading-anchor,
+.heading-anchor:focus-visible {
+  opacity: 1;
+}
+
+.heading-anchor:hover {
+  color: var(--text-color);
+}
+
+hr {
+  position: relative;
+  display: block;
+  height: var(--line-height);
+  margin: calc(var(--line-height) * 1.5) 0;
+  border: none;
+  color: var(--border-color);
+}
+hr:after {
+  display: block;
+  content: "";
+  position: absolute;
+  top: calc(var(--line-height) / 2 - var(--border-thickness));
+  left: 0;
+  width: 100%;
+  border-top: calc(var(--border-thickness) * 2) double var(--border-color);
+  height: 0;
+}
+
+a {
+  text-decoration-thickness: var(--border-thickness);
+  display: inline;
+  margin-top: 0 !important;
+  line-height: inherit;
+}
+
+a:link {
+  color: var(--accent-color);
+}
+
+a:visited {
+  color: var(--text-color-alt);
+}
+
+p {
+  margin-bottom: var(--line-height);
+}
+
+strong {
+  font-weight: var(--font-weight-bold);
+}
+em {
+  font-style: italic;
+}
+
+sub {
+  position: relative;
+  display: inline-block;
+  margin: 0;
+  vertical-align: sub;
+  line-height: 0;
+  width: calc(1ch / 0.75);
+  font-size: .75rem;
+}
+
+table {
+  position: relative;
+  top: calc(var(--line-height) / 2);
+  width: calc(round(down, 100%, 1ch));
+  border-collapse: collapse;
+  margin: 0 0 calc(var(--line-height) * 2);
+}
+
+th, td {
+  border: var(--border-thickness) solid var(--border-color);
+  padding:
+    calc((var(--line-height) / 2))
+    calc(1ch - var(--border-thickness) / 2)
+    calc((var(--line-height) / 2) - (var(--border-thickness)))
+  ;
+  line-height: var(--line-height);
+  vertical-align: top;
+  text-align: left;
+}
+table tbody tr:first-child > * {
+  padding-top: calc((var(--line-height) / 2) - var(--border-thickness));
+}
+
+
+th {
+  font-weight: 700;
+}
+.width-min {
+  width: 0%;
+}
+.width-auto {
+  width: 100%;
+}
+
+.header {
+  margin-bottom: calc(var(--line-height) * 2);
+  padding-bottom: var(--line-height);
+  border-bottom: var(--border-thickness) solid var(--border-color);
+}
+
+.header-content {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1ch 2ch;
+  margin-top: 0 !important;
+}
+
+.header h1 {
+  margin: 0;
+}
+
+.header * {
+  margin-top: 0 !important;
+}
+
+.nav {
+  display: flex;
+  gap: 2ch;
+  align-items: baseline;
+  flex-shrink: 0;
+}
+
+.nav a {
+  white-space: nowrap;
+  display: inline-block;
+}
+
+@media (max-width: 600px) {
+  .header-content {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .nav {
+    width: 100%;
+  }
+}
+
+p {
+  word-break: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+}
+
+img, video {
+  display: block;
+  width: 100%;
+  object-fit: contain;
+  overflow: hidden;
+}
+img {
+  font-style: italic;
+  color: var(--text-color-alt);
+}
+
+details {
+  border: var(--border-thickness) solid var(--border-color);
+  padding: calc(var(--line-height) - var(--border-thickness)) 1ch;
+  margin-bottom: var(--line-height);
+}
+
+summary {
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+details[open] summary {
+  margin-bottom: var(--line-height);
+}
+
+details ::marker {
+  display: inline-block;
+  content: '▶';
+  margin: 0;
+}
+details[open] ::marker {
+  content: '▼';
+}
+
+details :last-child {
+  margin-bottom: 0;
+}
+
+/* Removed - consolidated below at line ~600 */
+
+figure {
+  margin: calc(var(--line-height) * 2) 3ch;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+figcaption {
+  display: block;
+  font-style: italic;
+  margin-top: var(--line-height);
+}
+
+ul, ol {
+  padding: 0;
+  margin: 0 0 var(--line-height);
+}
+
+ul {
+  list-style-type: square;
+  padding: 0 0 0 2ch;
+}
+ol {
+  list-style-type: none;
+  counter-reset: item;
+  padding: 0;
+}
+ol ul,
+ol ol,
+ul ol,
+ul ul {
+  padding: 0 0 0 3ch;
+  margin: 0;
+}
+ol li:before {
+  content: counters(item, ".") ". ";
+  counter-increment: item;
+  font-weight: var(--font-weight-medium);
+}
+
+li {
+  margin: 0 !important;
+  padding: 0;
+  line-height: var(--line-height);
+}
+
+li * {
+  margin-top: 0 !important;
+}
+
+li br {
+  line-height: 0;
+  margin: 0 !important;
+}
+
+li span {
+  display: inline;
+  margin: 0 !important;
+}
+
+li::marker {
+  line-height: 0;
+}
+
+::-webkit-scrollbar {
+    height: var(--line-height);
+}
+
+input, button, textarea {
+  border: var(--border-thickness) solid var(--border-color);
+  padding:
+    calc(var(--line-height) / 2 - var(--border-thickness))
+    calc(1ch - var(--border-thickness));
+  margin: 0;
+  font: inherit;
+  font-weight: inherit;
+  height: calc(var(--line-height) * 2);
+  width: auto;
+  overflow: visible;
+  background: var(--background-color);
+  color: var(--text-color);
+  line-height: normal;
+  -webkit-font-smoothing: inherit;
+  -moz-osx-font-smoothing: inherit;
+  -webkit-appearance: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--accent-color-light);
+  border-color: var(--accent-color);
+}
+
+input[type=checkbox],
+input[type=radio] {
+  display: inline-grid;
+  place-content: center;
+  vertical-align: top;
+  width: 2ch;
+  height: var(--line-height);
+  cursor: pointer;
+}
+input[type=checkbox]:checked:before,
+input[type=radio]:checked:before {
+  content: "";
+  width: 1ch;
+  height: calc(var(--line-height) / 2);
+  background: var(--text-color);
+}
+input[type=radio],
+input[type=radio]:before {
+  border-radius: 100%;
+}
+
+button:focus, input:focus {
+  --border-thickness: 3px;
+  outline: none;
+}
+
+input {
+  width: calc(round(down, 100%, 1ch));
+}
+::placeholder {
+  color: var(--text-color-alt);
+  opacity: 1;
+}
+::-ms-input-placeholder {
+  color: var(--text-color-alt);
+}
+button::-moz-focus-inner {
+  padding: 0;
+  border: 0
+}
+
+button {
+  text-transform: uppercase;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--background-color-alt);
+}
+button:active {
+  transform: translate(2px, 2px);
+}
+
+label {
+  display: block;
+  width: calc(round(down, 100%, 1ch));
+  height: auto;
+  line-height: var(--line-height);
+  font-weight: var(--font-weight-medium);
+  margin: 0;
+}
+
+label input {
+  width: 100%;
+}
+
+.tree, .tree ul {
+  position: relative;
+  padding-left: 0;
+  list-style-type: none;
+  line-height: var(--line-height);
+}
+.tree ul {
+  margin: 0;
+}
+.tree ul li {
+  position: relative;
+  padding-left: 1.5ch;
+  margin-left: 1.5ch;
+  border-left: var(--border-thickness) solid var(--border-color);
+}
+.tree ul li:before {
+  position: absolute;
+  display: block;
+  top: calc(var(--line-height) / 2);
+  left: 0;
+  content: "";
+  width: 1ch;
+  border-bottom: var(--border-thickness) solid var(--border-color);
+}
+.tree ul li:last-child {
+  border-left: none;
+}
+.tree ul li:last-child:after {
+  position: absolute;
+  display: block;
+  top: 0;
+  left: 0;
+  content: "";
+  height: calc(var(--line-height) / 2);
+  border-left: var(--border-thickness) solid var(--border-color);
+}
+
+.grid {
+  --grid-cells: 0;
+  display: flex;
+  gap: 1ch;
+  width: calc(round(down, 100%, (1ch * var(--grid-cells)) - (1ch * var(--grid-cells) - 1)));
+  margin-bottom: var(--line-height);
+}
+
+.grid > *,
+.grid > input {
+  flex: 0 0 calc(round(down, (100% - (1ch * (var(--grid-cells) - 1))) / var(--grid-cells), 1ch));
+}
+.grid:has(> :last-child:nth-child(1)) { --grid-cells: 1; }
+.grid:has(> :last-child:nth-child(2)) { --grid-cells: 2; }
+.grid:has(> :last-child:nth-child(3)) { --grid-cells: 3; }
+.grid:has(> :last-child:nth-child(4)) { --grid-cells: 4; }
+.grid:has(> :last-child:nth-child(5)) { --grid-cells: 5; }
+.grid:has(> :last-child:nth-child(6)) { --grid-cells: 6; }
+.grid:has(> :last-child:nth-child(7)) { --grid-cells: 7; }
+.grid:has(> :last-child:nth-child(8)) { --grid-cells: 8; }
+.grid:has(> :last-child:nth-child(9)) { --grid-cells: 9; }
+
+/* DEBUG UTILITIES */
+
+.debug .debug-grid {
+  --color: color-mix(in srgb, var(--text-color) 10%, var(--background-color) 90%);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  background-image:
+    repeating-linear-gradient(var(--color) 0 1px, transparent 1px 100%),
+    repeating-linear-gradient(90deg, var(--color) 0 1px, transparent 1px 100%);
+  background-size: 1ch var(--line-height);
+  margin: 0;
+}
+
+.debug .off-grid {
+  background: rgba(255, 0, 0, 0.1);
+}
+
+.debug-toggle-label {
+  text-align: right;
+}
+
+/* Custom additions for femtomc blog */
+
+/* Sidenotes styling for monospace grid */
+:root {
+  --sidenote-width: 26ch;
+  --sidenote-gap: 4ch;
+}
+
+.sidenote {
+  float: right;
+  clear: right;
+  margin-right: calc(-1 * (var(--sidenote-width) + var(--sidenote-gap)));
+  width: var(--sidenote-width);
+  font-size: 0.9rem;
+  line-height: var(--line-height);
+  color: var(--text-color-alt);
+  border-left: var(--border-thickness) solid var(--text-color-alt);
+  padding: 0.75rem 1ch;
+  margin-top: 0.25rem;
+  background: var(--background-color-alt);
+  border-radius: 4px;
+}
+
+.sidenote-number {
+  display: inline-block;
+  margin-right: 0.5ch;
+  font-weight: var(--font-weight-semibold);
+  color: var(--accent-color);
+}
+
+.sidenote-ref {
+  font-weight: var(--font-weight-bold);
+  text-decoration: none;
+  cursor: default;
+}
+
+@media (max-width: 1200px) {
+  .sidenote {
+    float: none;
+    margin-right: 0;
+    width: 100%;
+    margin-top: var(--line-height);
+    margin-bottom: var(--line-height);
+    background: var(--background-color-alt);
+  }
+}
+
+/* Typst math output styling */
+.typst-math {
+  line-height: 1;
+  color: inherit;
+  font-size: 1em;
+  position: relative;
+}
+
+.typst-math:focus-visible {
+  outline: 1px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.typst-math svg {
+  fill: currentColor;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.math-copy-btn {
+  border: var(--border-thickness) solid var(--border-color);
+  background: var(--background-color);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.8em;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 150ms ease, transform 150ms ease, border-color 150ms ease;
+  pointer-events: none;
+}
+
+.math-copy-display {
+  position: absolute;
+  top: -0.9em;
+  right: -0.2em;
+}
+
+.math-copy-inline {
+  margin-left: 0.35em;
+}
+
+.typst-math:hover .math-copy-btn,
+.typst-math:focus-within .math-copy-btn {
+  opacity: 1;
+  transform: translateY(-1px);
+  pointer-events: auto;
+}
+
+.math-copy-btn[data-state="copied"] {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+.typst-math svg [fill]:not([fill="none"]) {
+  fill: currentColor;
+}
+
+.typst-math svg [stroke]:not([stroke="none"]) {
+  stroke: currentColor;
+}
+
+.typst-inline {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: -0.2ex;
+  gap: 0.1ch;
+}
+
+.typst-inline svg {
+  display: inline-block;
+  height: 1em;
+  width: auto;
+}
+
+.typst-display {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: calc(var(--line-height) * 1.5) 0;
+  overflow-x: auto;
+}
+
+.typst-display svg {
+  display: block;
+  width: auto;
+  height: auto;
+}
+
+/* Selection feedback for math elements */
+.typst-math::selection,
+.typst-math *::selection {
+  background-color: var(--accent-color-light);
+  color: var(--text-color);
+}
+
+/* Active/selected state visual feedback */
+.typst-math:active,
+.typst-math.selecting {
+  background-color: var(--accent-color-light);
+  border-radius: 2px;
+}
+
+/* Tighter spacing for cleaner look */
+body {
+  max-width: calc(min(var(--content-max), round(down, 100%, 1ch)));
+}
+
+/* Code blocks - monospace web aesthetic */
+pre, code {
+  font-family: var(--font-family);
+}
+
+pre {
+  background: var(--background-color);
+  padding: var(--line-height) 1.5ch;
+  border: var(--border-thickness) solid var(--border-color);
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: pre;
+  line-height: var(--line-height);
+  margin: calc(var(--line-height) * 1.5) 0;
+}
+
+figure pre {
+  margin: 0;
+}
+
+/* Inline code - subtle highlight */
+code {
+  background: var(--background-color-alt);
+  padding: 0.125rem 0.5ch;
+  font-size: 0.95em;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-color);
+}
+
+/* Code inside pre blocks */
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 1em;
+  font-weight: var(--font-weight-normal);
+}
+
+/* Syntect highlighted pre blocks - keep border */
+pre[style*="background-color"] {
+  border: var(--border-thickness) solid var(--border-color);
+  padding: var(--line-height) 1.5ch;
+}
+
+pre span {
+  font-family: var(--font-family);
+}
+
+/* Blockquotes */
+blockquote {
+  border-left: calc(var(--border-thickness) * 2) solid var(--text-color-alt);
+  padding-left: 2ch;
+  margin-left: 0;
+  color: var(--text-color-alt);
+  font-style: italic;
+}
+
+.page-subheader {
+  display: flex;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  margin: calc(var(--line-height) * 1.5) 0;
+}
+
+.copy-page-btn,
+.graph-btn {
+  border: var(--border-thickness) solid var(--border-color);
+  background: var(--background-color);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9em;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.copy-page-btn:hover,
+.copy-page-btn:focus-visible,
+.graph-btn:hover,
+.graph-btn:focus-visible {
+  border-color: var(--text-color);
+  transform: translateY(-1px);
+}
+
+.copy-page-btn[data-state="copied"] {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+}
+
+/* Links - subtle underline */
+a {
+  text-decoration-line: underline;
+  text-decoration-style: solid;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease;
+}
+
+a:hover {
+  color: var(--accent-color);
+  text-decoration-thickness: 2px;
+}
+
+/* Headings with accent color */
+h1 {
+  color: var(--text-color);
+}
+
+h2 {
+  color: var(--accent-color);
+}
+
+/* Table of Contents */
+.toc-container {
+  margin: calc(var(--line-height) * 2) 0;
+}
+
+.toc-nav {
+  background: var(--background-color-alt);
+  border: var(--border-thickness) solid var(--border-color);
+  padding: calc(var(--line-height) - var(--border-thickness)) 1ch;
+}
+
+.toc-nav h3 {
+  margin: 0 0 var(--line-height) 0;
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  font-size: 1rem;
+}
+
+.toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.toc-list li {
+  margin: 0;
+  padding: 0;
+  line-height: var(--line-height);
+}
+
+.toc-list a {
+  display: block;
+  color: var(--text-color);
+  text-decoration: none;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.toc-list a:hover {
+  color: var(--accent-color);
+  text-decoration: none;
+}
+
+.toc-list li.active > a {
+  color: var(--accent-color);
+  font-weight: var(--font-weight-medium);
+}
+
+/* TOC indentation levels */
+.toc-list .toc-level-1 {
+  padding-left: 0;
+}
+
+.toc-list .toc-level-2 {
+  padding-left: 2ch;
+}
+
+.toc-list .toc-level-3 {
+  padding-left: 4ch;
+}
+
+.toc-list .toc-level-4 {
+  padding-left: 6ch;
+}
+
+/* Floating TOC on wide viewports */
+@media screen and (min-width: 1400px) {
+  main {
+    position: relative;
+  }
+
+  .toc-container {
+    position: fixed;
+    left: calc((100vw - var(--content-max)) / 2 - var(--sidebar-gap));
+    top: calc(var(--line-height) * 8);
+    width: var(--sidebar-width);
+    max-height: calc(100vh - var(--line-height) * 10);
+    overflow-y: auto;
+    margin: 0;
+  }
+
+  .toc-nav {
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* Code highlighting - removed duplicate, see above */
