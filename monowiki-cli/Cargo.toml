@@ -31,6 +31,7 @@ askama.workspace = true
 walkdir.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true
+include_dir.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

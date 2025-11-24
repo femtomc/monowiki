@@ -9,6 +9,10 @@ use monowiki_render::{BacklinkEntry, IndexTemplate, NotFoundTemplate, NoteEntry,
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
+use include_dir::{include_dir, Dir};
+
+// Embed the theme bundle at compile time so it's available after cargo install
+static THEME_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../theme/dist");
 
 /// Build the static site (writes output) and discard the in-memory index
 pub fn build_site(config_path: &Path) -> Result<()> {
@@ -386,19 +390,23 @@ fn copy_assets(config: &Config) -> Result<()> {
         tracing::warn!("static/ directory not found, skipping asset copy");
     }
 
-    // Copy bundled theme JS (supports sourcemaps and future assets)
+    // Copy bundled theme JS
+    let js_dest = output_dir.join("js");
+    if js_dest.exists() {
+        fs::remove_dir_all(&js_dest)
+            .with_context(|| format!("Failed to clean existing {:?}", js_dest))?;
+    }
+    fs::create_dir_all(&js_dest)?;
+
+    // Try to use local theme/dist first (for development), fall back to embedded
     let theme_dist = Path::new("theme/dist");
     if theme_dist.exists() {
-        let js_dest = output_dir.join("js");
-        if js_dest.exists() {
-            fs::remove_dir_all(&js_dest)
-                .with_context(|| format!("Failed to clean existing {:?}", js_dest))?;
-        }
-        fs::create_dir_all(&js_dest)?;
         copy_theme_dist(theme_dist, &js_dest)?;
-        tracing::info!("Copied theme bundle (sourcemaps skipped)");
+        tracing::info!("Copied theme bundle from local theme/dist");
     } else {
-        tracing::warn!("TypeScript bundle not found, run: npm run build --prefix theme");
+        // Use embedded theme assets (available after cargo install)
+        extract_embedded_theme(&js_dest)?;
+        tracing::info!("Copied theme bundle from embedded assets");
     }
 
     // Copy custom theme directory if provided
@@ -461,6 +469,28 @@ fn copy_theme_dist(src: &Path, dest: &Path) -> Result<()> {
         }
         fs::copy(entry.path(), &target)
             .with_context(|| format!("Failed to copy {:?} to {:?}", entry.path(), target))?;
+    }
+
+    Ok(())
+}
+
+fn extract_embedded_theme(dest: &Path) -> Result<()> {
+    // Extract all files from embedded theme, skipping .map files
+    for file in THEME_BUNDLE.files() {
+        let path = file.path();
+
+        // Skip sourcemap files
+        if path.extension().and_then(|e| e.to_str()) == Some("map") {
+            continue;
+        }
+
+        let target = dest.join(path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        fs::write(&target, file.contents())
+            .with_context(|| format!("Failed to write embedded theme file to {:?}", target))?;
     }
 
     Ok(())
