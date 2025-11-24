@@ -122,6 +122,10 @@ pub struct Note {
 
     /// Raw markdown body (without frontmatter) for copy/export features
     pub raw_body: Option<String>,
+
+    /// Source path relative to vault root (e.g., "essays/foo.md")
+    #[serde(default)]
+    pub source_path: Option<String>,
 }
 
 impl Note {
@@ -300,6 +304,7 @@ mod tests {
             preview: None,
             toc_html: None,
             raw_body: None,
+            source_path: None,
         };
 
         assert_eq!(note_default.url(), "/test-note.html");

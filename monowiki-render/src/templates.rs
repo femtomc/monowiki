@@ -12,6 +12,23 @@ pub struct NoteEntry {
     pub note_type: String,
 }
 
+/// A file entry in the directory tree
+#[derive(Debug, Clone)]
+pub struct FileNode {
+    pub name: String,
+    pub url: String,
+    pub title: String,
+    pub note_type: String,
+}
+
+/// A directory entry in the directory tree
+#[derive(Debug, Clone)]
+pub struct DirectoryNode {
+    pub name: String,
+    pub files: Vec<FileNode>,
+    pub subdirs: Vec<DirectoryNode>,
+}
+
 /// A paper from ORCID
 #[derive(Debug, Clone)]
 pub struct Paper {
@@ -94,9 +111,12 @@ pub struct IndexTemplate {
     pub has_about: bool,
     pub has_github: bool,
 
-    // Content list
+    // Content list (legacy flat list)
     pub items: Vec<NoteEntry>,
     pub papers: Vec<Paper>,
+
+    // Directory tree view
+    pub directory_tree: Vec<DirectoryNode>,
 
     // Site base URL (for frontend scripts)
     pub base_url: String,

@@ -38,21 +38,25 @@
       {% when None %}
     {% endmatch %}
 
-    {% if items.len() > 0 %}
-    <ul class="note-list">
-      {% for item in items %}
-      <li class="note-list-item">
-        <span class="note-tag">{{ item.note_type }}</span>
-        <div class="note-body">
-          <div class="note-heading">
-            <a href="{{ item.url }}">{{ item.title }}</a>
-            {% match item.date %}{% when Some with (date) %}<span>— {{ date }}</span>{% when None %}{% endmatch %}
-          </div>
-          {% match item.description %}{% when Some with (desc) %}<div class="note-description">{{ desc }}</div>{% when None %}{% endmatch %}
-        </div>
-      </li>
+    {% if directory_tree.len() > 0 %}
+    <div class="directory-tree">
+      {% for dir in directory_tree %}
+      <details class="directory-node" open>
+        <summary class="directory-name">
+          <span class="dir-label">{{ dir.name }}/</span>
+          <span class="file-count">({{ dir.files.len() }} files)</span>
+        </summary>
+        <ul class="file-list">
+          {% for file in dir.files %}
+          <li class="file-item">
+            <a href="{{ file.url }}" class="file-link">{{ file.title }}</a>
+            <span class="file-type-badge">{{ file.note_type }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </details>
       {% endfor %}
-    </ul>
+    </div>
     {% else %}
     <p><em>No notes yet.</em></p>
     {% endif %}

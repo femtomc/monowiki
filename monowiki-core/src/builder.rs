@@ -198,6 +198,14 @@ impl SiteBuilder {
             .as_ref()
             .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
 
+        // Capture source path relative to vault root
+        let vault_dir = self.config.vault_dir();
+        let source_path = path
+            .strip_prefix(&vault_dir)
+            .ok()
+            .and_then(|p| p.to_str())
+            .map(|s| s.to_string());
+
         Ok(Note {
             slug,
             title,
@@ -213,6 +221,7 @@ impl SiteBuilder {
             preview: frontmatter.summary.clone(),
             toc_html: None, // TODO: Generate TOC
             raw_body: None,
+            source_path,
         })
     }
 }

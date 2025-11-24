@@ -5,7 +5,11 @@ use anyhow::{Context, Result};
 use askama::Template;
 use chrono::{Datelike, NaiveDate};
 use monowiki_core::{Config, SiteBuilder};
-use monowiki_render::{BacklinkEntry, IndexTemplate, NotFoundTemplate, NoteEntry, PostTemplate};
+use monowiki_render::{
+    BacklinkEntry, DirectoryNode, FileNode, IndexTemplate, NotFoundTemplate, NoteEntry,
+    PostTemplate,
+};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -167,6 +171,69 @@ fn render_note_page(
     Ok(())
 }
 
+/// Build a directory tree structure from notes
+fn build_directory_tree(
+    notes: &[&monowiki_core::Note],
+    base_url: &str,
+) -> Vec<DirectoryNode> {
+    let mut tree_map: HashMap<String, DirectoryNode> = HashMap::new();
+
+    for note in notes {
+        if let Some(source_path) = &note.source_path {
+            let path_parts: Vec<&str> = source_path.split('/').collect();
+
+            if path_parts.len() == 1 {
+                // File at root level (shouldn't happen typically but handle it)
+                let root_key = String::from("");
+                let dir = tree_map.entry(root_key.clone()).or_insert_with(|| {
+                    DirectoryNode {
+                        name: String::from(""),
+                        files: Vec::new(),
+                        subdirs: Vec::new(),
+                    }
+                });
+
+                dir.files.push(FileNode {
+                    name: path_parts[0].to_string(),
+                    url: note.url_with_base(base_url),
+                    title: note.title.clone(),
+                    note_type: note.note_type.as_str().to_uppercase(),
+                });
+            } else {
+                // File in subdirectory
+                let dir_name = path_parts[0];
+                let file_name = path_parts[path_parts.len() - 1];
+
+                let dir = tree_map.entry(dir_name.to_string()).or_insert_with(|| {
+                    DirectoryNode {
+                        name: dir_name.to_string(),
+                        files: Vec::new(),
+                        subdirs: Vec::new(),
+                    }
+                });
+
+                dir.files.push(FileNode {
+                    name: file_name.to_string(),
+                    url: note.url_with_base(base_url),
+                    title: note.title.clone(),
+                    note_type: note.note_type.as_str().to_uppercase(),
+                });
+            }
+        }
+    }
+
+    // Convert HashMap to Vec and sort
+    let mut directories: Vec<DirectoryNode> = tree_map.into_values().collect();
+    directories.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Sort files within each directory
+    for dir in &mut directories {
+        dir.files.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+
+    directories
+}
+
 /// Render the index page
 fn render_index_page(
     config: &Config,
@@ -197,6 +264,11 @@ fn render_index_page(
     items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.title.cmp(&b.1.title)));
     let items: Vec<NoteEntry> = items.into_iter().map(|(_, entry)| entry).collect();
 
+    // Build directory tree from published notes
+    let published_notes: Vec<&monowiki_core::Note> =
+        site_index.notes.iter().filter(|n| !n.is_draft()).collect();
+    let directory_tree = build_directory_tree(&published_notes, base_url);
+
     let template = IndexTemplate {
         site_title: config.site.title.clone(),
         site_description: config.site.description.clone(),
@@ -210,6 +282,7 @@ fn render_index_page(
         has_github: true,
         items,
         papers: Vec::new(), // TODO: ORCID integration
+        directory_tree,
         base_url: base_url.to_string(),
     };
 
