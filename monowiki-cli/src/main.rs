@@ -97,6 +97,17 @@ enum Commands {
 
     /// Stream vault change events for agents
     Watch,
+
+    /// Set up GitHub Actions for GitHub Pages deployment
+    GithubPages {
+        /// GitHub repository name (e.g., "username/repo")
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Force overwrite existing workflow
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[tokio::main]
@@ -170,6 +181,9 @@ async fn main() -> anyhow::Result<()> {
             ),
         },
         Commands::Watch => commands::watch_changes(&cli.config).await,
+        Commands::GithubPages { repo, force } => {
+            commands::setup_github_pages(repo.as_deref(), force)
+        }
     }
 }
 

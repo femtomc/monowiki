@@ -43,9 +43,10 @@ cargo install --git https://github.com/femtomc/monowiki monowiki-cli
 ## Quick start
 
 ```bash
-monowiki init   # writes monowiki.yml and vault/{essays,thoughts,drafts,templates}
-monowiki dev    # build + serve at http://localhost:8000 with live rebuilds
-monowiki build  # generate static site into docs/ (or configured output)
+monowiki init            # writes monowiki.yml and vault/{essays,thoughts,drafts,templates}
+monowiki dev             # build + serve at http://localhost:8000 with live rebuilds
+monowiki build           # generate static site into docs/ (or configured output)
+monowiki github-pages    # set up GitHub Actions for automatic deployment
 monowiki search "rust" --json --limit 5 --with-links  # agent-friendly search output
 ```
 
@@ -103,10 +104,25 @@ server:
   - `/api/graph/<slug>?depth=2&direction=both`
   - `/api/graph/path?from=a&to=b&max_depth=5`
 
-## Deploying to a subpath (e.g., GitHub Pages)
-- Set `base_url` to your subpath, e.g., `"/blog/"`.
-- Run `monowiki build` (or `monowiki dev`) to regenerate HTML/JS/JSON with the base path baked in.
-- Publish the `output` directory (`docs/` by default) to your host. All internal links, search, previews, and graphs will honor `base_url`.
+## Deploying to GitHub Pages
+
+```bash
+monowiki github-pages
+```
+
+This command:
+- Creates `.github/workflows/deploy-pages.yml` workflow
+- Auto-detects your repository from git remote
+- Configures automatic deployment on push to main
+- Sets correct `base_url` for your repository
+
+Then:
+1. Commit and push: `git add .github && git commit -m "Add GH Pages" && git push`
+2. Enable Pages at: `https://github.com/your-username/your-repo/settings/pages`
+3. Select "GitHub Actions" as the source
+4. Your site will be live at: `https://your-username.github.io/your-repo/`
+
+For custom domains or subpaths, manually set `base_url` in `monowiki.yml`.
 
 ## Theming and assets
 - Default theme is bundled; override with your own `templates/` or `theme/` dirs.
