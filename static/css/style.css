@@ -972,20 +972,26 @@ h2 {
   display: flex;
   gap: 0.9ch;
   align-items: flex-start;
-  margin-top: var(--line-height);
+}
+
+.note-list-item + .note-list-item {
+  margin-top: calc(var(--line-height) * 0.85) !important;
 }
 
 .note-tag {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 6ch;
   padding: 0.1rem 0.5rem;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 0.78rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: var(--background-color-alt);
   color: var(--text-color-alt);
+  flex-shrink: 0;
 }
 
 .note-body {
