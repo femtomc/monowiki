@@ -3,6 +3,9 @@
 /docs/
 .papers_cache.json
 
+# User configuration (may contain personal info)
+monowiki.yml
+
 # Theme build artifacts
 **/node_modules/
 /theme/.vite/

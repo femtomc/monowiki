@@ -1,10 +1,10 @@
 # Monowiki Configuration Example
 
 site:
-  title: "femtomc"
-  author: "McCoy R. Becker"
-  description: "Research blog on probabilistic programming, AI, and programming languages"
-  url: "https://femtomc.github.io"
+  title: "Your Site Name"
+  author: "Your Name"
+  description: "Your site description"
+  url: "https://yourusername.github.io"
 
 paths:
   vault: "vault"           # Path to your Obsidian vault
@@ -13,8 +13,8 @@ paths:
   theme: null              # null = use built-in theme, or specify custom path
 
 orcid:
-  enabled: true            # Fetch papers from ORCID
-  id: "0009-0000-1930-8150"  # Your ORCID ID
+  enabled: false           # Fetch papers from ORCID
+  id: "0000-0000-0000-0000"  # Your ORCID ID
 
 server:
   port: 8000               # Development server port
