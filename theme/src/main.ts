@@ -7,6 +7,7 @@
 import { initTOC } from './toc';
 import { initMathCopy } from './math-copy';
 import { initCopyPageSource } from './copy-page';
+import { initCopyCode } from './copy-code';
 // import { initDarkMode } from './darkmode';
 
 // Initialize all components when DOM is ready
@@ -23,6 +24,7 @@ function init() {
   initTOC();
   initMathCopy();
   initCopyPageSource();
+  initCopyCode();
   // initDarkMode(); // Disabled for now
 }
 

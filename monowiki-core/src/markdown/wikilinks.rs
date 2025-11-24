@@ -25,8 +25,33 @@ impl<'a> WikilinkTransformer<'a> {
         let mut result = Vec::new();
         let mut outgoing_links = Vec::new();
         let mut i = 0;
+        let mut in_code_block = false;
 
         while i < events.len() {
+            // Track code block context
+            match &events[i] {
+                Event::Start(Tag::CodeBlock(_)) => {
+                    in_code_block = true;
+                    result.push(events[i].clone().into_static());
+                    i += 1;
+                    continue;
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    in_code_block = false;
+                    result.push(events[i].clone().into_static());
+                    i += 1;
+                    continue;
+                }
+                _ => {}
+            }
+
+            // Skip wikilink processing inside code blocks
+            if in_code_block {
+                result.push(events[i].clone().into_static());
+                i += 1;
+                continue;
+            }
+
             if let Event::Text(_) = &events[i] {
                 // Collect all consecutive Text events and merge them
                 let mut merged_text = String::new();

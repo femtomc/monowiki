@@ -42,7 +42,9 @@ impl MarkdownProcessor {
     pub fn new() -> Self {
         let mut options = Options::empty();
         options.insert(Options::ENABLE_TABLES);
-        options.insert(Options::ENABLE_FOOTNOTES);
+        // Note: ENABLE_FOOTNOTES is intentionally disabled - monowiki uses
+        // sidenotes ([^sidenote: text]) instead of traditional footnotes,
+        // and enabling footnotes breaks sidenote parsing by splitting the syntax.
         options.insert(Options::ENABLE_STRIKETHROUGH);
         options.insert(Options::ENABLE_TASKLISTS);
         options.insert(Options::ENABLE_HEADING_ATTRIBUTES);

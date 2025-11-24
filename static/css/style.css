@@ -386,6 +386,10 @@ li * {
   margin-top: 0 !important;
 }
 
+li pre {
+  margin-top: calc(var(--line-height) * 1.5) !important;
+}
+
 li br {
   line-height: 0;
   margin: 0 !important;
@@ -728,7 +732,8 @@ pre {
   border: var(--border-thickness) solid var(--border-color);
   overflow-x: auto;
   overflow-y: hidden;
-  white-space: pre;
+  white-space: pre-wrap;
+  word-wrap: break-word;
   line-height: var(--line-height);
   margin: calc(var(--line-height) * 1.5) 0;
 }
@@ -762,6 +767,58 @@ pre[style*="background-color"] {
 
 pre span {
   font-family: var(--font-family);
+}
+
+/* Code blocks with toolbar */
+.code-block {
+  margin: calc(var(--line-height) * 1.5) 0;
+}
+
+.code-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1ch;
+  padding: 0.3rem 1ch;
+  background: var(--background-color-alt);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+}
+
+.code-title {
+  margin-right: auto;
+  font-size: 0.85rem;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-color-alt);
+}
+
+.copy-code-btn {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  font-family: var(--font-family);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  color: var(--text-color-alt);
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.copy-code-btn:hover {
+  background: var(--background-color);
+  color: var(--text-color);
+}
+
+.copy-code-btn[data-state="copied"] {
+  color: var(--accent-color);
+}
+
+.copy-code-btn[data-state="error"] {
+  color: #c00;
+}
+
+.code-block pre {
+  margin-top: 0 !important;
 }
 
 /* Blockquotes */
@@ -1049,14 +1106,14 @@ h2 {
 
 /* Directory tree view for index page */
 .directory-tree {
-  margin: calc(var(--line-height) * 1.5) 0;
+  margin: var(--line-height) 0;
 }
 
 .directory-node {
-  border: var(--border-thickness) solid var(--border-color);
-  padding: calc(var(--line-height) - var(--border-thickness)) 1ch;
-  margin-bottom: calc(var(--line-height) * 1.2);
-  background: var(--background-color);
+  border: none;
+  padding: 0;
+  margin-bottom: calc(var(--line-height) * 0.5);
+  background: transparent;
 }
 
 .directory-name {
@@ -1064,7 +1121,7 @@ h2 {
   cursor: pointer;
   display: flex;
   align-items: baseline;
-  gap: 0.6ch;
+  gap: 0.5ch;
   color: var(--text-color);
 }
 
@@ -1088,20 +1145,20 @@ h2 {
 }
 
 .directory-node[open] .directory-name {
-  margin-bottom: var(--line-height);
+  margin-bottom: calc(var(--line-height) * 0.25);
 }
 
 .subdirs-container {
   margin-left: 2ch;
-  margin-top: var(--line-height);
+  margin-top: calc(var(--line-height) * 0.25);
   padding-left: 1ch;
-  border-left: var(--border-thickness) solid var(--border-color);
+  border-left: 1px solid var(--border-color);
 }
 
 .subdirs-container .directory-node {
   border: none;
   padding: 0;
-  margin-bottom: var(--line-height);
+  margin-bottom: calc(var(--line-height) * 0.5);
   background: transparent;
 }
 
@@ -1109,16 +1166,16 @@ h2 {
   list-style: none;
   padding: 0;
   margin: 0;
-  border-left: var(--border-thickness) solid var(--border-color);
+  border-left: 1px solid var(--border-color);
   padding-left: 2ch;
 }
 
 .file-item {
   display: flex;
   align-items: baseline;
-  gap: 0.6ch;
+  gap: 0.5ch;
   line-height: var(--line-height);
-  padding: 0.2rem 0;
+  padding: 0;
 }
 
 .file-item * {
@@ -1135,13 +1192,10 @@ h2 {
 .file-type-badge {
   display: inline-flex;
   align-items: center;
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--border-color);
-  border-radius: 0;
+  padding: 0 0.3rem;
   font-size: 0.7rem;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  background: var(--background-color-alt);
   color: var(--text-color-alt);
   flex-shrink: 0;
   margin-left: auto;

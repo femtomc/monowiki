@@ -77,13 +77,18 @@ class LinkPreviewManager {
         ${previewContent}
       </div>
     `;
-    this.positionPopupNearLink(linkElement);
+    this.popup.style.visibility = "hidden";
     this.popup.style.display = "block";
     this.popup.style.opacity = "0";
     requestAnimationFrame(() => {
-      if (this.popup) {
-        this.popup.style.opacity = "1";
-      }
+      if (!this.popup) return;
+      this.positionPopupNearLink(linkElement);
+      this.popup.style.visibility = "visible";
+      requestAnimationFrame(() => {
+        if (this.popup) {
+          this.popup.style.opacity = "1";
+        }
+      });
     });
   }
   hidePreview() {
@@ -158,4 +163,4 @@ function initPreviews() {
 export {
   initPreviews
 };
-//# sourceMappingURL=previews-B4nD-uJ8.js.map
+//# sourceMappingURL=previews-C0a62L67.js.map

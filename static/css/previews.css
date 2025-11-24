@@ -5,6 +5,10 @@
 #link-preview {
   position: fixed;
   max-width: 50ch;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   background: var(--background-color);
   border: var(--border-thickness) solid var(--border-color);
   padding: var(--line-height) 2ch;

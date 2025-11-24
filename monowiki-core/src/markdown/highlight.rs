@@ -26,6 +26,35 @@ fn theme() -> &'static Theme {
     })
 }
 
+/// Parsed code block info (language and optional title)
+struct CodeBlockInfo {
+    lang: String,
+    title: Option<String>,
+}
+
+impl CodeBlockInfo {
+    /// Parse info string like `bash title="Installation"` or just `rust`
+    fn parse(info: &str) -> Self {
+        let info = info.trim();
+
+        // Try to extract title="..." or title='...'
+        let title_pattern = regex::Regex::new(r#"title\s*=\s*["']([^"']+)["']"#).ok();
+        let title = title_pattern
+            .as_ref()
+            .and_then(|re| re.captures(info))
+            .map(|caps| caps.get(1).unwrap().as_str().to_string());
+
+        // Extract language (first word before any attributes)
+        let lang = info
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_string();
+
+        Self { lang, title }
+    }
+}
+
 /// Transformer for syntax highlighting code blocks
 pub struct HighlightTransformer;
 
@@ -38,14 +67,14 @@ impl HighlightTransformer {
     pub fn transform(&self, events: Vec<Event<'_>>) -> Vec<Event<'static>> {
         let mut result = Vec::new();
         let mut in_code_block = false;
-        let mut code_lang: Option<String> = None;
+        let mut code_info: Option<CodeBlockInfo> = None;
         let mut code_content = String::new();
 
         for event in events {
             match event {
                 Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
                     in_code_block = true;
-                    code_lang = Some(lang.to_string());
+                    code_info = Some(CodeBlockInfo::parse(&lang));
                     code_content.clear();
                 }
                 Event::Text(text) if in_code_block => {
@@ -55,8 +84,8 @@ impl HighlightTransformer {
                     in_code_block = false;
 
                     // Highlight the code
-                    if let Some(lang) = &code_lang {
-                        let highlighted = self.highlight_code(&code_content, lang);
+                    if let Some(info) = &code_info {
+                        let highlighted = self.highlight_code(&code_content, &info.lang, info.title.as_deref());
                         result.push(Event::Html(CowStr::Boxed(highlighted.into_boxed_str())));
                     } else {
                         // No language specified, output as plain pre/code
@@ -67,7 +96,7 @@ impl HighlightTransformer {
                         result.push(Event::End(TagEnd::CodeBlock));
                     }
 
-                    code_lang = None;
+                    code_info = None;
                 }
                 _ => {
                     result.push(self.event_into_static(event));
@@ -78,20 +107,32 @@ impl HighlightTransformer {
         result
     }
 
-    fn highlight_code(&self, code: &str, lang: &str) -> String {
+    fn highlight_code(&self, code: &str, lang: &str, title: Option<&str>) -> String {
         let ss = syntax_set();
         let syntax = ss
             .find_syntax_by_token(lang)
             .or_else(|| ss.find_syntax_by_extension(lang))
             .unwrap_or_else(|| ss.find_syntax_plain_text());
 
-        match highlighted_html_for_string(code, ss, syntax, theme()) {
+        let highlighted = match highlighted_html_for_string(code, ss, syntax, theme()) {
             Ok(html) => html,
             Err(_) => {
                 // Fallback to plain code block
                 format!("<pre><code>{}</code></pre>", html_escape(code))
             }
-        }
+        };
+
+        // Build toolbar with optional title and copy button
+        let title_span = match title {
+            Some(t) => format!("<span class=\"code-title\">{}</span>", html_escape(t)),
+            None => String::new(),
+        };
+
+        format!(
+            "<div class=\"code-block\">\n<div class=\"code-toolbar\">{}<button class=\"copy-code-btn\" type=\"button\" aria-label=\"Copy code\">Copy</button></div>\n{}\n</div>",
+            title_span,
+            highlighted
+        )
     }
 
     fn event_into_static(&self, event: Event<'_>) -> Event<'static> {

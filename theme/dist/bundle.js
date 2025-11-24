@@ -146,7 +146,7 @@ function initMathCopy() {
       const mathSource = mathEl.getAttribute("data-math") || "";
       if (!mathSource || !selectionIntersects(mathEl)) return;
       e.preventDefault();
-      copyText$1(mathSource).then();
+      copyText$2(mathSource).then();
     };
     mathEl.addEventListener("copy", handleCopy);
   };
@@ -175,7 +175,7 @@ function initMathCopy() {
     });
   });
 }
-async function copyText$1(text) {
+async function copyText$2(text) {
   var _a;
   try {
     if ((_a = navigator.clipboard) == null ? void 0 : _a.writeText) {
@@ -223,8 +223,8 @@ function initCopyPageSource() {
     return;
   }
   button.addEventListener("click", async () => {
-    const success = await copyText(source);
-    showStatus(button, success ? "Copied!" : "Copy failed", defaultLabel);
+    const success = await copyText$1(source);
+    showStatus$1(button, success ? "Copied!" : "Copy failed", defaultLabel);
   });
 }
 function readSourcePayload() {
@@ -237,6 +237,54 @@ function readSourcePayload() {
     console.warn("Failed to parse page source payload", err);
     return null;
   }
+}
+async function copyText$1(text) {
+  var _a;
+  try {
+    if ((_a = navigator.clipboard) == null ? void 0 : _a.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) {
+    console.warn("Navigator clipboard copy failed, falling back", err);
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "absolute";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let success = false;
+  try {
+    success = document.execCommand("copy");
+  } catch (err) {
+    console.warn("Fallback copy failed", err);
+  } finally {
+    document.body.removeChild(textarea);
+  }
+  return success;
+}
+function showStatus$1(button, status, defaultLabel) {
+  const prev = button.textContent;
+  button.textContent = status;
+  button.dataset.state = status.toLowerCase().includes("copied") ? "copied" : "error";
+  setTimeout(() => {
+    button.textContent = prev || defaultLabel;
+    button.dataset.state = "";
+  }, 1200);
+}
+function initCopyCode() {
+  document.querySelectorAll(".copy-code-btn").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const codeBlock = button.closest(".code-block");
+      const pre = codeBlock == null ? void 0 : codeBlock.querySelector("pre");
+      if (!pre) return;
+      const code = pre.textContent || "";
+      const success = await copyText(code);
+      showStatus(button, success);
+    });
+  });
 }
 async function copyText(text) {
   var _a;
@@ -265,12 +313,12 @@ async function copyText(text) {
   }
   return success;
 }
-function showStatus(button, status, defaultLabel) {
-  const prev = button.textContent;
-  button.textContent = status;
-  button.dataset.state = status.toLowerCase().includes("copied") ? "copied" : "error";
+function showStatus(button, success) {
+  const originalText = button.textContent;
+  button.textContent = success ? "Copied!" : "Failed";
+  button.dataset.state = success ? "copied" : "error";
   setTimeout(() => {
-    button.textContent = prev || defaultLabel;
+    button.textContent = originalText;
     button.dataset.state = "";
   }, 1200);
 }
@@ -286,6 +334,7 @@ function init() {
   initTOC();
   initMathCopy();
   initCopyPageSource();
+  initCopyCode();
 }
 function setupPreviewsLoader() {
   let loaded = false;
@@ -293,7 +342,7 @@ function setupPreviewsLoader() {
     if (loaded) return;
     loaded = true;
     try {
-      const { initPreviews } = await import("./previews-B4nD-uJ8.js");
+      const { initPreviews } = await import("./previews-C0a62L67.js");
       initPreviews();
     } catch (err) {
       console.error("Failed to load previews", err);

@@ -123,16 +123,23 @@ class LinkPreviewManager {
       </div>
     `;
 
-    // Position anchored to link element
-    this.positionPopupNearLink(linkElement);
+    // Show popup (invisible) so we can measure its dimensions
+    this.popup.style.visibility = 'hidden';
     this.popup.style.display = 'block';
     this.popup.style.opacity = '0';
 
-    // Fade in
+    // Position after a frame so dimensions are calculated
     requestAnimationFrame(() => {
-      if (this.popup) {
-        this.popup.style.opacity = '1';
-      }
+      if (!this.popup) return;
+      this.positionPopupNearLink(linkElement);
+      this.popup.style.visibility = 'visible';
+
+      // Fade in
+      requestAnimationFrame(() => {
+        if (this.popup) {
+          this.popup.style.opacity = '1';
+        }
+      });
     });
   }
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{{ title }} — {{ site_title }}</title>
+  <title>{% if title == site_title %}{{ title }}{% else %}{{ title }} — {{ site_title }}{% endif %}</title>
   <meta name="description" content="{{ description }}">
   <meta name="author" content="{{ site_author }}">
   <meta name="monowiki-base-url" content="{{ base_url }}">
@@ -82,11 +82,13 @@
       {% endif %}
     </article>
 
+    {% if slug != "index" %}
     <hr>
 
     <p>
       <a href="{{ nav_home }}">← Back to home</a>
     </p>
+    {% endif %}
   </main>
 
   <!-- Global Graph Modal -->

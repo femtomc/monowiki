@@ -17,21 +17,56 @@ impl SidenoteTransformer {
     /// Transform events, converting [^sidenote: text] to HTML spans
     pub fn transform(&self, events: Vec<Event<'_>>) -> Vec<Event<'static>> {
         let mut result = Vec::new();
+        let mut in_code_block = false;
+        let mut i = 0;
+        let events: Vec<_> = events.into_iter().collect();
 
-        for event in events {
-            if let Event::Text(text) = &event {
-                let text_str = text.as_ref();
+        while i < events.len() {
+            // Track code block context
+            match &events[i] {
+                Event::Start(Tag::CodeBlock(_)) => {
+                    in_code_block = true;
+                    result.push(self.event_into_static(events[i].clone()));
+                    i += 1;
+                    continue;
+                }
+                Event::End(TagEnd::CodeBlock) => {
+                    in_code_block = false;
+                    result.push(self.event_into_static(events[i].clone()));
+                    i += 1;
+                    continue;
+                }
+                _ => {}
+            }
 
-                // Check if this text contains sidenote syntax
-                if text_str.contains("[^sidenote:") && text_str.contains("]") {
-                    result.extend(self.process_sidenotes(text_str));
+            // Skip sidenote processing inside code blocks
+            if in_code_block {
+                result.push(self.event_into_static(events[i].clone()));
+                i += 1;
+                continue;
+            }
+
+            if let Event::Text(_) = &events[i] {
+                // Merge consecutive Text events (pulldown-cmark splits [^sidenote:] across events)
+                let mut merged_text = String::new();
+                while i < events.len() {
+                    if let Event::Text(text) = &events[i] {
+                        merged_text.push_str(text.as_ref());
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                // Check if merged text contains sidenote syntax
+                if merged_text.contains("[^sidenote:") && merged_text.contains("]") {
+                    result.extend(self.process_sidenotes(&merged_text));
                 } else {
-                    result.push(Event::Text(CowStr::Boxed(
-                        text_str.to_string().into_boxed_str(),
-                    )));
+                    result.push(Event::Text(CowStr::Boxed(merged_text.into_boxed_str())));
                 }
             } else {
-                result.push(self.event_into_static(event));
+                result.push(self.event_into_static(events[i].clone()));
+                i += 1;
             }
         }
 

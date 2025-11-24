@@ -5,10 +5,7 @@ use anyhow::{Context, Result};
 use askama::Template;
 use chrono::{Datelike, NaiveDate};
 use monowiki_core::{Config, SiteBuilder};
-use monowiki_render::{
-    BacklinkEntry, DirectoryNode, FileNode, IndexTemplate, NotFoundTemplate, NoteEntry,
-    PostTemplate,
-};
+use monowiki_render::{BacklinkEntry, DirectoryNode, FileNode, NotFoundTemplate, PostTemplate};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -59,9 +56,6 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
 
         render_note_page(&config, note, &site_index, &base_url)?;
     }
-
-    // Render index page
-    render_index_page(&config, &site_index, &base_url)?;
 
     // Render 404 page
     render_404_page(&config, &base_url)?;
@@ -132,6 +126,9 @@ fn render_note_page(
         .as_ref()
         .map(|d| d.format("%Y-%m-%d").to_string());
 
+    // Expand {{directory_tree}} macro if present
+    let content = expand_macros(&note.content_html, site_index, base_url);
+
     let template = PostTemplate {
         title: note.title.clone(),
         description: note
@@ -142,7 +139,7 @@ fn render_note_page(
         date,
         updated,
         tags: note.tags.clone(),
-        content: note.content_html.clone(),
+        content,
         toc_html: note.toc_html.clone(),
         site_title: config.site.title.clone(),
         site_author: config.site.author.clone(),
@@ -273,35 +270,16 @@ fn sort_directory_tree(tree: HashMap<String, DirectoryNode>) -> Vec<DirectoryNod
     directories
 }
 
-/// Render the index page
-fn render_index_page(
-    config: &Config,
+/// Expand macros like {{directory_tree}} in content
+fn expand_macros(
+    content: &str,
     site_index: &monowiki_core::SiteIndex,
     base_url: &str,
-) -> Result<()> {
-    // Collect all published notes with type tags
-    let mut items: Vec<(Option<chrono::NaiveDate>, NoteEntry)> = site_index
-        .notes
-        .iter()
-        .filter(|n| !n.is_draft())
-        .map(|n| {
-            let date = n.date;
-            (
-                date,
-                NoteEntry {
-                    url: n.url_with_base(base_url),
-                    title: n.title.clone(),
-                    date: date.map(|d| d.format("%Y-%m-%d").to_string()),
-                    description: n.frontmatter.description.clone(),
-                    note_type: n.note_type.as_str().to_uppercase(),
-                },
-            )
-        })
-        .collect();
-
-    // Sort by date (newest first), then title
-    items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.title.cmp(&b.1.title)));
-    let items: Vec<NoteEntry> = items.into_iter().map(|(_, entry)| entry).collect();
+) -> String {
+    // Check for {{directory_tree}} macro (may be wrapped in <p> tags by markdown parser)
+    if !content.contains("{{directory_tree}}") {
+        return content.to_string();
+    }
 
     // Build directory tree from published notes
     let published_notes: Vec<&monowiki_core::Note> =
@@ -309,43 +287,21 @@ fn render_index_page(
     let directory_tree = build_directory_tree(&published_notes, base_url);
 
     // Render directory tree to HTML
-    let directory_tree_html = if directory_tree.is_empty() {
-        None
+    let tree_html = if directory_tree.is_empty() {
+        "<p><em>No notes yet.</em></p>".to_string()
     } else {
-        let mut html = String::new();
+        let mut html = String::from("<div class=\"directory-tree\">\n");
         for dir in &directory_tree {
             html.push_str(&dir.render_to_html());
         }
-        Some(html)
+        html.push_str("</div>");
+        html
     };
 
-    let template = IndexTemplate {
-        site_title: config.site.title.clone(),
-        site_description: config.site.description.clone(),
-        site_author: config.site.author.clone(),
-        site_intro: config.site.intro.clone(),
-        year: chrono::Utc::now().year(),
-        nav_home: format!("{}index.html", base_url),
-        nav_about: format!("{}about.html", base_url),
-        nav_github: config.site.url.clone(),
-        has_about: false, // TODO: Check if about.html exists
-        has_github: true,
-        items,
-        papers: Vec::new(), // TODO: ORCID integration
-        directory_tree_html,
-        base_url: base_url.to_string(),
-    };
-
-    let html = template
-        .render()
-        .context("Failed to render index template")?;
-
-    let output_path = config.output_dir().join("index.html");
-    fs::write(&output_path, html).context("Failed to write index.html")?;
-
-    tracing::info!("Rendered index page");
-
-    Ok(())
+    // Replace the macro (handle both raw and paragraph-wrapped versions)
+    content
+        .replace("<p>{{directory_tree}}</p>", &tree_html)
+        .replace("{{directory_tree}}", &tree_html)
 }
 
 /// Render the 404 error page
