@@ -3,6 +3,7 @@ site:
   author: "femtomc"
   description: "Minimalist static site generator for Obsidian vaults, now in Rust"
   url: "https://femtomc.github.io/monowiki"
+  intro: "<pre><code>curl -fsSL https://raw.githubusercontent.com/femtomc/monowiki/main/install.sh | sh</code></pre>"
 
 paths:
   vault: "vault"

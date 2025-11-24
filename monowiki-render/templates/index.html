@@ -32,9 +32,9 @@
   <main>
     {% match site_intro %}
       {% when Some with (intro) %}
-      <p>
-        {{ intro }}
-      </p>
+      <div class="site-intro">
+        {{ intro|safe }}
+      </div>
       {% when None %}
     {% endmatch %}
 

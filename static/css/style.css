@@ -1146,3 +1146,27 @@ h2 {
   flex-shrink: 0;
   margin-left: auto;
 }
+
+/* Site intro section for install commands */
+.site-intro {
+  margin: calc(var(--line-height) * 2) 0;
+  text-align: center;
+}
+
+.site-intro pre {
+  display: inline-block;
+  text-align: left;
+  background: var(--background-color-alt);
+  border: var(--border-thickness) solid var(--accent-color);
+  padding: calc(var(--line-height) * 1.5) 2ch;
+  margin: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.site-intro code {
+  font-size: 1rem;
+  font-weight: var(--font-weight-medium);
+  color: var(--text-color);
+  background: none;
+  padding: 0;
+}
