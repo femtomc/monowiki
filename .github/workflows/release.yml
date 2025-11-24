@@ -27,10 +27,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: monowiki
             asset_name: monowiki-linux-x86_64.tar.gz
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact_name: monowiki
-            asset_name: monowiki-linux-aarch64.tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: monowiki
@@ -39,10 +35,6 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: monowiki
             asset_name: monowiki-macos-aarch64.tar.gz
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: monowiki.exe
-            asset_name: monowiki-windows-x86_64.zip
 
     steps:
       - name: Checkout
@@ -77,37 +69,24 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('theme/package-lock.json') }}
 
       - name: Install theme dependencies
-        run: npm install --prefix theme
+        working-directory: theme
+        run: npm install
 
       - name: Build theme bundle
-        run: npm run build --prefix theme
-
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
+        working-directory: theme
+        run: npm run build
 
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }} --bin monowiki
 
-      - name: Strip binary (Unix)
-        if: runner.os != 'Windows'
+      - name: Strip binary
         run: |
           strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
 
-      - name: Create tarball (Unix)
-        if: runner.os != 'Windows'
+      - name: Create tarball
         run: |
           cd target/${{ matrix.target }}/release
           tar czf ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
-          mv ${{ matrix.asset_name }} ${{ github.workspace }}/
-
-      - name: Create zip (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          cd target/${{ matrix.target }}/release
-          7z a ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
           mv ${{ matrix.asset_name }} ${{ github.workspace }}/
 
       - name: Upload artifact
