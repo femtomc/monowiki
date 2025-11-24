@@ -24,33 +24,24 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: theme/node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('theme/package-lock.json') }}
-
-      - name: Install theme dependencies
-        run: npm install --prefix theme
-
-      - name: Build theme bundle
-        run: npm run build --prefix theme
+      - name: Install theme dependencies and build
+        working-directory: theme
+        run: |
+          bun install
+          bun run build
 
       - name: Build monowiki
         run: cargo build --release

@@ -45,10 +45,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Cache Rust dependencies
         uses: actions/cache@v4
@@ -62,21 +60,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      - name: Cache npm dependencies
-        uses: actions/cache@v4
-        with:
-          path: theme/node_modules
-          key: ${{ runner.os }}-node-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Install theme dependencies
+      - name: Install theme dependencies and build
         working-directory: theme
-        run: npm install
-
-      - name: Build theme bundle
-        working-directory: theme
-        run: npm run build
+        run: |
+          bun install
+          bun run build
 
       - name: Build binary
         run: cargo build --release --target ${{ matrix.target }} --bin monowiki
