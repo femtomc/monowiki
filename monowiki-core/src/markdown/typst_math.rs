@@ -25,8 +25,20 @@ pub struct TypstMathRenderer {
 
 impl TypstMathRenderer {
     pub fn new() -> Self {
+        // Embed minimal Computer Modern font set for math rendering (~5.7MB total)
+        // These 7 fonts cover most math symbols while keeping binary size reasonable
+        let minimal_fonts: Vec<&'static [u8]> = vec![
+            include_bytes!("fonts/NewComputerModern10-Regular.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModern10-Bold.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModern10-Italic.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModern10-BoldItalic.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModernMath-Book.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModernMath-Regular.otf").as_slice(),
+            include_bytes!("fonts/NewComputerModernMath-Bold.otf").as_slice(),
+        ];
+
         Self {
-            fonts: typst_assets::fonts().collect(),
+            fonts: minimal_fonts,
             cache: Mutex::new(LruCache::new(
                 NonZeroUsize::new(MATH_CACHE_CAPACITY).unwrap(),
             )),
