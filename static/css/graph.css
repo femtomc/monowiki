@@ -1,7 +1,7 @@
 /* Interactive Graph Visualization Styles - Adapted from Quartz */
 
 .graph {
-  margin: calc(var(--line-height) * 2) 0;
+  margin: var(--line-height) 0;
 }
 
 .graph h3 {
@@ -15,7 +15,7 @@
   border: var(--border-thickness) solid var(--border-color);
   border-radius: 4px;
   background: var(--background-color);
-  height: 250px;
+  height: 200px;
   margin: 0;
   position: relative;
   overflow: hidden;
@@ -90,13 +90,13 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  height: 80vh;
-  width: 80vw;
+  height: 90vh;
+  width: 92vw;
 }
 
 /* Graph sidebar positioning */
 .graph-sidebar {
-  margin: calc(var(--line-height) * 2) 0;
+  margin: var(--line-height) 0;
 }
 
 /* On wide viewports, float on right side like TOC floats on left */
@@ -104,7 +104,7 @@
   .graph-sidebar {
     position: fixed;
     right: calc((100vw - var(--content-max)) / 2 - var(--sidebar-gap));
-    top: calc(var(--line-height) * 8);
+    top: calc(var(--line-height) * 5);
     width: var(--sidebar-width);
     margin: 0;
   }
@@ -118,6 +118,6 @@
 /* On smaller screens, show inline at bottom of article */
 @media (max-width: 1399px) {
   .graph-outer {
-    height: 300px;
+    height: 240px;
   }
 }

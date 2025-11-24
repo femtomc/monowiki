@@ -11,7 +11,7 @@
   -webkit-overflow-scrolling: touch;
   background: var(--background-color);
   border: var(--border-thickness) solid var(--border-color);
-  padding: var(--line-height) 2ch;
+  padding: calc(var(--line-height) * 0.7) 1.25ch;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   z-index: 10000;
   pointer-events: auto;
@@ -20,8 +20,8 @@
 }
 
 .preview-header {
-  margin-bottom: var(--line-height);
-  padding-bottom: calc(var(--line-height) / 2);
+  margin-bottom: calc(var(--line-height) * 0.7);
+  padding-bottom: calc(var(--line-height) * 0.35);
   border-bottom: 1px solid var(--border-color);
 }
 
