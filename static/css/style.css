@@ -386,7 +386,8 @@ li * {
   margin-top: 0 !important;
 }
 
-li pre {
+li pre,
+li .code-block {
   margin-top: calc(var(--line-height) * 1.5) !important;
 }
 
