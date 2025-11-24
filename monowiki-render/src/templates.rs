@@ -29,6 +29,53 @@ pub struct DirectoryNode {
     pub subdirs: Vec<DirectoryNode>,
 }
 
+impl DirectoryNode {
+    /// Render this directory node and its children to HTML
+    pub fn render_to_html(&self) -> String {
+        let mut html = String::new();
+
+        html.push_str("<details class=\"directory-node\" open>\n");
+        html.push_str("  <summary class=\"directory-name\">\n");
+        html.push_str(&format!("    <span class=\"dir-label\">{}/</span>\n", self.name));
+        html.push_str(&format!("    <span class=\"file-count\">({} files)</span>\n", self.files.len()));
+        html.push_str("  </summary>\n");
+
+        // Render subdirectories
+        if !self.subdirs.is_empty() {
+            html.push_str("  <div class=\"subdirs-container\">\n");
+            for subdir in &self.subdirs {
+                html.push_str(&subdir.render_to_html());
+            }
+            html.push_str("  </div>\n");
+        }
+
+        // Render files
+        if !self.files.is_empty() {
+            html.push_str("  <ul class=\"file-list\">\n");
+            for file in &self.files {
+                html.push_str("    <li class=\"file-item\">\n");
+                html.push_str(&format!("      <a href=\"{}\" class=\"file-link\">{}</a>\n",
+                    html_escape(&file.url), html_escape(&file.title)));
+                html.push_str(&format!("      <span class=\"file-type-badge\">{}</span>\n", file.note_type));
+                html.push_str("    </li>\n");
+            }
+            html.push_str("  </ul>\n");
+        }
+
+        html.push_str("</details>\n");
+        html
+    }
+}
+
+/// HTML escape function to prevent XSS
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 /// A paper from ORCID
 #[derive(Debug, Clone)]
 pub struct Paper {
@@ -115,8 +162,8 @@ pub struct IndexTemplate {
     pub items: Vec<NoteEntry>,
     pub papers: Vec<Paper>,
 
-    // Directory tree view
-    pub directory_tree: Vec<DirectoryNode>,
+    // Directory tree view (pre-rendered HTML)
+    pub directory_tree_html: Option<String>,
 
     // Site base URL (for frontend scripts)
     pub base_url: String,

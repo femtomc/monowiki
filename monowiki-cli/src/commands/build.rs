@@ -171,64 +171,103 @@ fn render_note_page(
     Ok(())
 }
 
-/// Build a directory tree structure from notes
+/// Build a directory tree structure from notes with arbitrary nesting
 fn build_directory_tree(
     notes: &[&monowiki_core::Note],
     base_url: &str,
 ) -> Vec<DirectoryNode> {
-    let mut tree_map: HashMap<String, DirectoryNode> = HashMap::new();
+    // Build a hierarchical tree structure
+    let mut root_dirs: HashMap<String, DirectoryNode> = HashMap::new();
 
     for note in notes {
         if let Some(source_path) = &note.source_path {
             let path_parts: Vec<&str> = source_path.split('/').collect();
 
+            if path_parts.is_empty() {
+                continue;
+            }
+
+            let file_name = path_parts[path_parts.len() - 1];
+            let file_node = FileNode {
+                name: file_name.to_string(),
+                url: note.url_with_base(base_url),
+                title: note.title.clone(),
+                note_type: note.note_type.as_str().to_uppercase(),
+            };
+
             if path_parts.len() == 1 {
-                // File at root level (shouldn't happen typically but handle it)
-                let root_key = String::from("");
-                let dir = tree_map.entry(root_key.clone()).or_insert_with(|| {
+                // File at root level
+                let root_dir = root_dirs.entry(String::new()).or_insert_with(|| {
                     DirectoryNode {
-                        name: String::from(""),
+                        name: String::new(),
                         files: Vec::new(),
                         subdirs: Vec::new(),
                     }
                 });
-
-                dir.files.push(FileNode {
-                    name: path_parts[0].to_string(),
-                    url: note.url_with_base(base_url),
-                    title: note.title.clone(),
-                    note_type: note.note_type.as_str().to_uppercase(),
-                });
+                root_dir.files.push(file_node);
             } else {
-                // File in subdirectory
-                let dir_name = path_parts[0];
-                let file_name = path_parts[path_parts.len() - 1];
-
-                let dir = tree_map.entry(dir_name.to_string()).or_insert_with(|| {
-                    DirectoryNode {
-                        name: dir_name.to_string(),
-                        files: Vec::new(),
-                        subdirs: Vec::new(),
-                    }
-                });
-
-                dir.files.push(FileNode {
-                    name: file_name.to_string(),
-                    url: note.url_with_base(base_url),
-                    title: note.title.clone(),
-                    note_type: note.note_type.as_str().to_uppercase(),
-                });
+                // File in nested directories
+                insert_into_tree(&mut root_dirs, &path_parts[..path_parts.len() - 1], file_node);
             }
         }
     }
 
-    // Convert HashMap to Vec and sort
-    let mut directories: Vec<DirectoryNode> = tree_map.into_values().collect();
+    // Convert to sorted vector
+    sort_directory_tree(root_dirs)
+}
+
+/// Insert a file into a nested directory tree, creating directories as needed
+fn insert_into_tree(
+    tree: &mut HashMap<String, DirectoryNode>,
+    dir_path: &[&str],
+    file_node: FileNode,
+) {
+    if dir_path.is_empty() {
+        return;
+    }
+
+    let first_dir = dir_path[0];
+    let rest = &dir_path[1..];
+
+    let dir_node = tree.entry(first_dir.to_string()).or_insert_with(|| {
+        DirectoryNode {
+            name: first_dir.to_string(),
+            files: Vec::new(),
+            subdirs: Vec::new(),
+        }
+    });
+
+    if rest.is_empty() {
+        // We're at the final directory level - add the file here
+        dir_node.files.push(file_node);
+    } else {
+        // Continue recursing into subdirectories
+        let mut subdir_map: HashMap<String, DirectoryNode> = HashMap::new();
+
+        // Extract existing subdirs into a HashMap
+        for subdir in dir_node.subdirs.drain(..) {
+            subdir_map.insert(subdir.name.clone(), subdir);
+        }
+
+        // Recursively insert
+        insert_into_tree(&mut subdir_map, rest, file_node);
+
+        // Convert back to sorted vector
+        dir_node.subdirs = sort_directory_tree(subdir_map);
+    }
+}
+
+/// Convert a HashMap of directories into a sorted vector with sorted contents
+fn sort_directory_tree(tree: HashMap<String, DirectoryNode>) -> Vec<DirectoryNode> {
+    let mut directories: Vec<DirectoryNode> = tree.into_values().collect();
+
+    // Sort directories by name
     directories.sort_by(|a, b| a.name.cmp(&b.name));
 
-    // Sort files within each directory
+    // Sort files and subdirs within each directory
     for dir in &mut directories {
         dir.files.sort_by(|a, b| a.name.cmp(&b.name));
+        // Subdirs are already sorted by the recursive calls
     }
 
     directories
@@ -269,6 +308,17 @@ fn render_index_page(
         site_index.notes.iter().filter(|n| !n.is_draft()).collect();
     let directory_tree = build_directory_tree(&published_notes, base_url);
 
+    // Render directory tree to HTML
+    let directory_tree_html = if directory_tree.is_empty() {
+        None
+    } else {
+        let mut html = String::new();
+        for dir in &directory_tree {
+            html.push_str(&dir.render_to_html());
+        }
+        Some(html)
+    };
+
     let template = IndexTemplate {
         site_title: config.site.title.clone(),
         site_description: config.site.description.clone(),
@@ -282,7 +332,7 @@ fn render_index_page(
         has_github: true,
         items,
         papers: Vec::new(), // TODO: ORCID integration
-        directory_tree,
+        directory_tree_html,
         base_url: base_url.to_string(),
     };
 

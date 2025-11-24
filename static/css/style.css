@@ -1091,6 +1091,20 @@ h2 {
   margin-bottom: var(--line-height);
 }
 
+.subdirs-container {
+  margin-left: 2ch;
+  margin-top: var(--line-height);
+  padding-left: 1ch;
+  border-left: var(--border-thickness) solid var(--border-color);
+}
+
+.subdirs-container .directory-node {
+  border: none;
+  padding: 0;
+  margin-bottom: var(--line-height);
+  background: transparent;
+}
+
 .file-list {
   list-style: none;
   padding: 0;

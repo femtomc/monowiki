@@ -38,28 +38,14 @@
       {% when None %}
     {% endmatch %}
 
-    {% if directory_tree.len() > 0 %}
-    <div class="directory-tree">
-      {% for dir in directory_tree %}
-      <details class="directory-node" open>
-        <summary class="directory-name">
-          <span class="dir-label">{{ dir.name }}/</span>
-          <span class="file-count">({{ dir.files.len() }} files)</span>
-        </summary>
-        <ul class="file-list">
-          {% for file in dir.files %}
-          <li class="file-item">
-            <a href="{{ file.url }}" class="file-link">{{ file.title }}</a>
-            <span class="file-type-badge">{{ file.note_type }}</span>
-          </li>
-          {% endfor %}
-        </ul>
-      </details>
-      {% endfor %}
-    </div>
-    {% else %}
-    <p><em>No notes yet.</em></p>
-    {% endif %}
+    {% match directory_tree_html %}
+      {% when Some with (html) %}
+      <div class="directory-tree">
+        {{ html|safe }}
+      </div>
+      {% when None %}
+      <p><em>No notes yet.</em></p>
+    {% endmatch %}
 
     {% if papers.len() > 0 %}
     <h2>Papers</h2>
