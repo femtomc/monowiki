@@ -3,12 +3,14 @@ title: "Nota-style math in monowiki"
 date: "2025-01-22"
 type: doc
 tags: [math, typst, nota]
+bibliography:
+  - vault/references/nota.bib
 typst_preamble: |
   #let typeOf(e, t) = $ Γ ⊢ #e : #t $
   #let step(e1, e2) = $ #e1 → #e2 $
 ---
 
-This note shows how to get a Nota-like experience while staying in plain Markdown. Two building blocks matter:
+This note shows how to get a Nota-like experience while staying in plain Markdown (inspired by the Nota language [@nota]). Two building blocks matter:
 
 - A per-note Typst preamble (set in frontmatter) so you can define macros and reuse them across inline and display math.
 - A lightweight `@Block` syntax for callouts like definitions and theorems without leaving Markdown.

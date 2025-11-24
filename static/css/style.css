@@ -917,17 +917,17 @@ h2 {
 
 .nota-block {
   border: var(--border-thickness) solid var(--border-color);
-  border-radius: 6px;
-  padding: calc(var(--line-height) * 1.25) calc(var(--line-height) * 1.25);
+  border-radius: 4px;
+  padding: var(--line-height);
   background: var(--background-color-alt);
-  margin: calc(var(--line-height) * 2) 0;
+  margin: var(--line-height) 0;
 }
 
 .nota-block-heading {
   display: flex;
   gap: 0.6ch;
   align-items: baseline;
-  margin-bottom: calc(var(--line-height) / 2);
+  margin-bottom: calc(var(--line-height) * 0.35);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   font-size: 0.9rem;
@@ -936,11 +936,17 @@ h2 {
 .nota-kind {
   font-weight: var(--font-weight-semibold);
   color: var(--accent-color);
+  margin-top: 0;
 }
 
 .nota-title {
   font-weight: var(--font-weight-medium);
   color: var(--text-color);
+  margin-top: 0;
+}
+
+.nota-block-heading > * {
+  margin-top: 0;
 }
 
 .nota-block-body > :first-child {
@@ -948,8 +954,12 @@ h2 {
 }
 
 .nota-block-body p {
-  margin-top: calc(var(--line-height) / 2);
+  margin-top: calc(var(--line-height) * 0.35);
   margin-bottom: 0;
+}
+
+.nota-block-body .typst-display {
+  margin: calc(var(--line-height) * 0.5) 0;
 }
 
 .note-list {
