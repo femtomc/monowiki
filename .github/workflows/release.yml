@@ -1,0 +1,139 @@
+name: Release
+
+# Triggers on version tags (e.g., v0.2.0)
+# Creates cross-platform binaries and uploads them as GitHub release assets
+#
+# To create a release:
+#   git tag v0.2.0
+#   git push origin v0.2.0
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: monowiki
+            asset_name: monowiki-linux-x86_64.tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: monowiki
+            asset_name: monowiki-linux-aarch64.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: monowiki
+            asset_name: monowiki-macos-x86_64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: monowiki
+            asset_name: monowiki-macos-aarch64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: monowiki.exe
+            asset_name: monowiki-windows-x86_64.zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: theme/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('theme/package-lock.json') }}
+
+      - name: Install theme dependencies
+        run: npm install --prefix theme
+
+      - name: Build theme bundle
+        run: npm run build --prefix theme
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.target }} --bin monowiki
+
+      - name: Strip binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
+
+      - name: Create tarball (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          mv ${{ matrix.asset_name }} ${{ github.workspace }}/
+
+      - name: Create zip (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cd target/${{ matrix.target }}/release
+          7z a ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          mv ${{ matrix.asset_name }} ${{ github.workspace }}/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: ${{ matrix.asset_name }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

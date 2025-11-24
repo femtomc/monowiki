@@ -13,8 +13,31 @@ Fast builds, monospace theme, hover previews, sidenotes, Typst math, backlinks, 
 
 ## Install
 
+**Option 1: Download pre-built binary** (recommended)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/femtomc/monowiki/releases):
+
 ```bash
-cargo install --path monowiki-cli   # from source (Rust toolchain required)
+# macOS (Apple Silicon)
+curl -L https://github.com/femtomc/monowiki/releases/latest/download/monowiki-macos-aarch64.tar.gz | tar xz
+sudo mv monowiki /usr/local/bin/
+
+# macOS (Intel)
+curl -L https://github.com/femtomc/monowiki/releases/latest/download/monowiki-macos-x86_64.tar.gz | tar xz
+sudo mv monowiki /usr/local/bin/
+
+# Linux (x86_64)
+curl -L https://github.com/femtomc/monowiki/releases/latest/download/monowiki-linux-x86_64.tar.gz | tar xz
+sudo mv monowiki /usr/local/bin/
+
+# Windows (x86_64)
+# Download monowiki-windows-x86_64.zip and extract monowiki.exe
+```
+
+**Option 2: Install from source** (requires Rust toolchain)
+
+```bash
+cargo install --git https://github.com/femtomc/monowiki monowiki-cli
 ```
 
 ## Quick start

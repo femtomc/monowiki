@@ -14,6 +14,9 @@ use include_dir::{include_dir, Dir};
 // Embed the theme bundle at compile time so it's available after cargo install
 static THEME_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../theme/dist");
 
+// Embed static assets (CSS, fonts) at compile time
+static STATIC_ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../static");
+
 /// Build the static site (writes output) and discard the in-memory index
 pub fn build_site(config_path: &Path) -> Result<()> {
     build_site_with_index(config_path).map(|_| ())
@@ -385,9 +388,11 @@ fn copy_assets(config: &Config) -> Result<()> {
     let static_dir = Path::new("static");
     if static_dir.exists() {
         copy_dir(static_dir, &output_dir)?;
-        tracing::info!("Copied assets from static/");
+        tracing::info!("Copied assets from local static/");
     } else {
-        tracing::warn!("static/ directory not found, skipping asset copy");
+        // Use embedded static assets (available after cargo install)
+        extract_embedded_static(&output_dir)?;
+        tracing::info!("Copied assets from embedded static bundle");
     }
 
     // Copy bundled theme JS
@@ -493,6 +498,35 @@ fn extract_embedded_theme(dest: &Path) -> Result<()> {
             .with_context(|| format!("Failed to write embedded theme file to {:?}", target))?;
     }
 
+    Ok(())
+}
+
+fn extract_embedded_static(dest: &Path) -> Result<()> {
+    // Extract all files from embedded static directory (CSS, fonts, etc.)
+    // Use dirs() to recursively traverse and files() to get all files
+    fn extract_dir(dir: &include_dir::Dir, dest: &Path) -> Result<()> {
+        // Extract files in this directory
+        for file in dir.files() {
+            let path = file.path();
+            let target = dest.join(path);
+
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            fs::write(&target, file.contents())
+                .with_context(|| format!("Failed to write embedded static file to {:?}", target))?;
+        }
+
+        // Recursively extract subdirectories
+        for subdir in dir.dirs() {
+            extract_dir(subdir, dest)?;
+        }
+
+        Ok(())
+    }
+
+    extract_dir(&STATIC_ASSETS, dest)?;
     Ok(())
 }
 
