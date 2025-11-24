@@ -87,9 +87,11 @@ impl TypstMathRenderer {
             .output
             .map_err(|err| anyhow!("Typst math compilation failed: {err}"))?;
 
-        // Provide minimal padding so strokes aren't clipped at the edges
-        // Reduced from 2pt to 0.5pt for tighter inline math rendering
-        let svg = typst_svg::svg_merged(&doc, Abs::pt(0.5));
+        // Provide padding so strokes and descenders aren't clipped at the edges
+        // Use different padding for inline (tighter) vs display (more room for subscripts/fractions)
+        // Display needs extra padding for complex structures like fractions
+        let padding = if display { 10.0 } else { 1.5 };
+        let svg = typst_svg::svg_merged(&doc, Abs::pt(padding));
         let svg = normalize_svg(&svg);
 
         self.cache.lock().unwrap().put(key, svg.clone());
@@ -109,6 +111,11 @@ fn build_source(math: &CowStr<'_>, display: bool, preamble: Option<&str>) -> Str
     // Use 15pt to match MathJax's typical 1.2-1.3x scaling relative to 15px body text
     // Use medium weight (500) for slightly bolder appearance
     let preamble = preamble.unwrap_or_default();
+
+    // Normalize whitespace in math: collapse newlines to spaces
+    // This allows multi-line math in markdown to work in Typst
+    let math_normalized = math.replace('\n', " ").trim().to_string();
+
     format!(
         r#"
 #set page(width: auto, height: auto, margin: 0pt, fill: none)
@@ -117,7 +124,7 @@ fn build_source(math: &CowStr<'_>, display: bool, preamble: Option<&str>) -> Str
 
 {preamble}
 
-{delimiter}{math}{delimiter}
+{delimiter}{math_normalized}{delimiter}
 "#
     )
 }
@@ -162,7 +169,6 @@ fn log_warnings(warnings: &[SourceDiagnostic]) {
 
 fn normalize_svg(svg: &str) -> String {
     let svg = normalize_svg_colors(svg);
-    let svg = trim_svg_viewbox(&svg);
     ensure_svg_is_hidden_from_a11y(&svg)
 }
 
@@ -205,21 +211,47 @@ fn trim_svg_viewbox(svg: &str) -> String {
         }
     }
 
-    let (new_min_y, new_height) = if let Some(baseline) = baseline_y {
-        // With 15pt font: cap height ≈ 11pt, descender ≈ 3pt
-        // Content spans from (baseline - 11) to (baseline + 3)
-        let cap_height = 11.0;
-        let descender_depth = 3.0;
-        let padding = 1.0;
+    // Find the outer transform offset (Typst adds padding via transform)
+    static OUTER_TRANSFORM_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r#"<g transform="matrix\(1 0 0 1 ([0-9.]+) ([0-9.]+)\)">"#)
+            .expect("valid outer transform regex")
+    });
 
-        let content_top = (baseline - cap_height - padding).max(0.0);
-        let content_bottom = baseline + descender_depth + padding;
-        let content_height = content_bottom - content_top;
-
-        (content_top, content_height.min(orig_height))
+    let outer_offset = if let Some(cap) = OUTER_TRANSFORM_RE.captures(svg) {
+        cap.get(2)
+            .and_then(|m| m.as_str().parse::<f64>().ok())
+            .unwrap_or(0.0)
     } else {
-        // Fallback: reduce by 40% if we can't find text bounds, keep origin
-        (0.0, orig_height * 0.6)
+        0.0
+    };
+
+    let (new_min_y, new_height) = if let Some(baseline) = baseline_y {
+        // baseline is the Y position in the inner coordinate system
+        // Add outer_offset to get position in viewBox coordinates
+        let actual_baseline = baseline + outer_offset;
+
+        // With 15pt font at medium weight:
+        // - Cap height ≈ 10.5pt (distance from baseline to top of capitals)
+        // - Descender depth ≈ 3.5pt (distance from baseline to bottom of descenders like g, y, p)
+        let cap_height = 10.5;
+        let descender_depth = 3.5;
+
+        // Calculate minimum needed height
+        let min_needed_height = actual_baseline + descender_depth + outer_offset;
+
+        // Only trim if original has excess space (>20% more than needed)
+        if orig_height > min_needed_height * 1.2 {
+            // Trim top space if baseline is far from top
+            let content_top = (actual_baseline - cap_height - outer_offset).max(0.0);
+            let content_bottom = actual_baseline + descender_depth + outer_offset;
+            (content_top, content_bottom - content_top)
+        } else {
+            // Keep original to avoid clipping
+            (0.0, orig_height)
+        }
+    } else {
+        // Fallback: don't trim if we can't determine bounds
+        (0.0, orig_height)
     };
 
     let new_viewbox = format!("0 {} {} {}", new_min_y, orig_width, new_height);

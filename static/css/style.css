@@ -674,14 +674,14 @@ label input {
 
 .typst-inline {
   display: inline;
-  vertical-align: -0.15ex;
+  vertical-align: baseline;
 }
 
 .typst-inline svg {
   display: inline;
   height: 1em;
   width: auto;
-  vertical-align: baseline;
+  vertical-align: -0.2ex;
 }
 
 .typst-display {

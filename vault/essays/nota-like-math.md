@@ -68,10 +68,7 @@ Where $Sigma$ is the global function context, $Delta$ contains type variables, a
 Rules can have multiple premises stacked vertically using a fraction for the inference line:
 
 $$
-frac(
-  Gamma tack.r e_1 : tau_1 quad Gamma\, x : tau_1 tack.r e_2 : tau_2,
-  Gamma tack.r "let" x = e_1 "in" e_2 : tau_2
-)
+frac(Gamma tack.r e_1 : tau_1, Gamma tack.r "let" x = e_1 "in" e_2 : tau_2)
 $$
 
 ### Set operations and mappings
@@ -86,12 +83,4 @@ After an assignment $x := e$ at location $ell_3$, we update conflicts:
 
 $$
 cal(D)' = cal(D)[x |-> cal(D)(x) union {ell_3}]
-$$
-
-### Test bad syntax
-
-This will fail to show error formatting:
-
-$$
-frac(test, test, test)
 $$
