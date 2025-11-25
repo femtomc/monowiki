@@ -35,17 +35,13 @@ struct SiteData {
 }
 
 /// Start development server with file watching
-pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
+pub async fn dev_server(config_path: &Path, port: Option<u16>, open_browser: bool) -> Result<()> {
     // Initial build + in-memory index
     let site_data = build_site_data(config_path).context("Failed to build site")?;
     let output_dir = site_data.config.output_dir();
     let vault_dir = site_data.config.vault_dir();
     let config_path_buf = config_path.to_path_buf();
     let shared_data = Arc::new(RwLock::new(site_data));
-
-    tracing::info!("Starting dev server on http://localhost:{}", port);
-    println!("\n🚀 Serving at http://localhost:{}", port);
-    println!("   Press Ctrl+C to stop\n");
 
     // Set up file watching for live rebuilds
     let (tx, mut rx) = mpsc::unbounded_channel();
@@ -116,11 +112,26 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
         .fallback(serve_404)
         .with_state(state);
 
-    // Start server
-    let addr = format!("127.0.0.1:{}", port);
+    // Start server - use port 0 to let OS pick if not specified
+    let bind_port = port.unwrap_or(0);
+    let addr = format!("127.0.0.1:{}", bind_port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .with_context(|| format!("Failed to bind to {}", addr))?;
+
+    // Get the actual port (useful when port was 0)
+    let actual_port = listener.local_addr()?.port();
+    let url = format!("http://localhost:{}", actual_port);
+
+    tracing::info!("Starting dev server on {}", url);
+    println!("\n🚀 Serving at {}", url);
+    println!("   Press Ctrl+C to stop\n");
+
+    if open_browser {
+        if let Err(e) = open::that(&url) {
+            tracing::warn!("Failed to open browser: {}", e);
+        }
+    }
 
     axum::serve(listener, app).await.context("Server error")?;
 
@@ -610,6 +621,7 @@ enable_backlinks: true
             preview: Some("Rust content".into()),
             toc_html: None,
             raw_body: Some("# Intro\nRust content".into()),
+            source_path: None,
         };
 
         let note_b = Note {
@@ -627,6 +639,7 @@ enable_backlinks: true
             preview: Some("Memory".into()),
             toc_html: None,
             raw_body: Some("Memory".into()),
+            source_path: None,
         };
 
         let mut site_index = SiteIndex {

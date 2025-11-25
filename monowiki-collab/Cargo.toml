@@ -1,0 +1,32 @@
+[package]
+name = "monowiki-collab"
+version = "0.2.8"
+edition = "2021"
+authors = ["femtomc"]
+license = "MIT"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true, features = ["ws"] }
+clap = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+# Auth
+jsonwebtoken = "9"
+glob-match = "0.2"
+
+# Multipart uploads
+axum-extra = { version = "0.10", features = ["multipart"] }
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+
+# Optional: reuse core rendering/parsing logic when turning CRDT -> markdown
+monowiki-core = { path = "../monowiki-core" }
+monowiki-render = { path = "../monowiki-render" }

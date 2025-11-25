@@ -5,6 +5,7 @@ members = [
     "monowiki-cli",
     "monowiki-render",
     "monowiki-adapters",
+    "monowiki-collab",
 ]
 
 [workspace.package]

@@ -38,9 +38,13 @@ enum Commands {
 
     /// Start development server with live reload
     Dev {
-        /// Server port
-        #[arg(long, default_value = "8000")]
-        port: u16,
+        /// Server port (auto-selects if not specified)
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
     },
 
     /// Search the site content
@@ -129,7 +133,7 @@ async fn main() -> anyhow::Result<()> {
     match cli.command {
         Commands::Init { path } => commands::init_project(path.as_deref()),
         Commands::Build => commands::build_site(&cli.config),
-        Commands::Dev { port } => commands::dev_server(&cli.config, port).await,
+        Commands::Dev { port, open } => commands::dev_server(&cli.config, port, open).await,
         Commands::Search {
             query,
             limit,
