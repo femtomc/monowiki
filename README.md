@@ -38,7 +38,7 @@ monowiki github-pages
 git add .github && git commit -m "Add pages workflow" && git push
 ```
 
-Enable Pages in repo settings → select "GitHub Actions" as source. Done.
+Enable Pages in repo settings → select "GitHub Actions" as source.
 
 ## Config
 
