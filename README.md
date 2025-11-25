@@ -38,9 +38,6 @@ sudo mv monowiki /usr/local/bin/
 # Linux (x86_64)
 curl -L https://github.com/femtomc/monowiki/releases/latest/download/monowiki-linux-x86_64.tar.gz | tar xz
 sudo mv monowiki /usr/local/bin/
-
-# Windows (x86_64)
-# Download monowiki-windows-x86_64.zip and extract monowiki.exe
 ```
 </details>
 
@@ -55,7 +52,7 @@ cargo install --git https://github.com/femtomc/monowiki monowiki-cli
 ## Quick start
 
 ```bash
-monowiki init            # writes monowiki.yml and vault/{essays,thoughts,drafts,templates}
+monowiki init            # writes monowiki.yml and vault/{index.md,essays/,thoughts/,drafts/}
 monowiki dev             # build + serve at http://localhost:8000 with live rebuilds
 monowiki build           # generate static site into docs/ (or configured output)
 monowiki github-pages    # set up GitHub Actions for automatic deployment
