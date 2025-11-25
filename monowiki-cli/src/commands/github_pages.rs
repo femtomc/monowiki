@@ -27,30 +27,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'theme/src/**', 'theme/package.json', 'static/**') }}
-
-      - name: Install theme dependencies and build
-        working-directory: theme
+      - name: Install monowiki
         run: |
-          bun install
-          bun run build
-
-      - name: Build monowiki
-        run: cargo build --release
+          curl -sL https://github.com/femtomc/monowiki/releases/latest/download/monowiki-linux-x86_64.tar.gz | tar xz
+          chmod +x monowiki
+          sudo mv monowiki /usr/local/bin/
 
       - name: Update base_url for GitHub Pages
         run: |
@@ -58,7 +39,7 @@ jobs:
           cat monowiki.yml | grep base_url
 
       - name: Build documentation
-        run: ./target/release/monowiki build
+        run: monowiki build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
