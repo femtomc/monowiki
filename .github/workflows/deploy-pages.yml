@@ -35,7 +35,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'theme/src/**', 'theme/package.json', 'static/**') }}
 
       - name: Install theme dependencies and build
         working-directory: theme
