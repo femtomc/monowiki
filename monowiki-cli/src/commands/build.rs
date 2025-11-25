@@ -582,30 +582,29 @@ fn extract_embedded_theme(dest: &Path) -> Result<()> {
 
 fn extract_embedded_static(dest: &Path) -> Result<()> {
     // Extract all files from embedded static directory (CSS, fonts, etc.)
-    // Use dirs() to recursively traverse and files() to get all files
-    fn extract_dir(dir: &include_dir::Dir, dest: &Path) -> Result<()> {
-        // Extract files in this directory
-        for file in dir.files() {
-            let path = file.path();
-            let target = dest.join(path);
+    // The include_dir crate stores full paths relative to the embedded root
+    for entry in STATIC_ASSETS.entries() {
+        extract_entry(entry, dest)?;
+    }
+    Ok(())
+}
 
+fn extract_entry(entry: &include_dir::DirEntry, dest: &Path) -> Result<()> {
+    match entry {
+        include_dir::DirEntry::Dir(dir) => {
+            for sub_entry in dir.entries() {
+                extract_entry(sub_entry, dest)?;
+            }
+        }
+        include_dir::DirEntry::File(file) => {
+            let target = dest.join(file.path());
             if let Some(parent) = target.parent() {
                 fs::create_dir_all(parent)?;
             }
-
             fs::write(&target, file.contents())
                 .with_context(|| format!("Failed to write embedded static file to {:?}", target))?;
         }
-
-        // Recursively extract subdirectories
-        for subdir in dir.dirs() {
-            extract_dir(subdir, dest)?;
-        }
-
-        Ok(())
     }
-
-    extract_dir(&STATIC_ASSETS, dest)?;
     Ok(())
 }
 
