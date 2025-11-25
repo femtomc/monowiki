@@ -53,6 +53,22 @@ impl DocStore {
         Ok(doc.snapshot().await)
     }
 
+    /// Get complete markdown (frontmatter + body) for a slug.
+    pub async fn get_markdown(
+        &self,
+        slug: &str,
+        site_config: &monowiki_core::Config,
+    ) -> Result<String> {
+        let (frontmatter, body) = self.snapshot(slug, site_config).await?;
+        let yaml = serde_yaml::to_string(&frontmatter)?;
+        let mut content = String::new();
+        content.push_str("---\n");
+        content.push_str(&yaml);
+        content.push_str("---\n");
+        content.push_str(&body);
+        Ok(content)
+    }
+
     /// Flush all loaded docs to disk (frontmatter + markdown body).
     pub async fn flush_dirty_to_disk(&self, site_config: &monowiki_core::Config) -> Result<()> {
         let docs: Vec<(String, Arc<NoteDoc>)> = {
@@ -132,34 +148,32 @@ impl NoteDoc {
         Ok(encoder.to_vec())
     }
 
-    /// Current awareness update for broadcasting to new peers.
+    /// Current awareness state as a complete y-protocols Awareness message.
     pub fn awareness_update(&self) -> Result<Option<Vec<u8>>> {
         let update = self.awareness.update()?;
-        let mut enc = EncoderV1::new();
-        update.encode(&mut enc);
-        Ok(Some(enc.to_vec()))
+        // Wrap as a y-protocols Awareness message
+        let msg = Message::Awareness(update);
+        Ok(Some(encode_message(msg)))
     }
 
-    /// Handle an incoming y-sync message, returning responses to send back to the sender.
-    /// Broadcasts relevant messages to other peers (excluding the sender_id).
-    pub fn handle_sync_message(&self, sender_id: u64, data: &[u8]) -> Result<Vec<(u8, Vec<u8>)>> {
+    /// Handle an incoming y-protocols message (sync or awareness), returning responses
+    /// to send back to the sender. Broadcasts relevant messages to other peers.
+    pub fn handle_sync_message(&self, sender_id: u64, data: &[u8]) -> Result<Vec<Vec<u8>>> {
         // Apply to doc and gather responses for the sender
         let protocol = DefaultProtocol;
         let responses = protocol.handle(self.awareness(), data)?;
         self.dirty.store(true, Ordering::Relaxed);
+
+        // Encode responses as complete y-protocols messages
         let mut encoded_responses = Vec::new();
         for msg in responses {
-            let frame_type = match msg {
-                Message::Awareness(_) => 1,
-                _ => 0,
-            };
-            encoded_responses.push((frame_type, encode_message(msg)));
+            encoded_responses.push(encode_message(msg));
         }
 
         // Broadcast updates/awareness messages to other peers
-        for (frame_type, msg) in filter_broadcast_messages(data) {
+        for msg in filter_broadcast_messages(data) {
             let bytes = encode_message(msg);
-            let _ = self.broadcast_frame(frame_type, bytes, sender_id);
+            let _ = self.broadcast(bytes, sender_id);
         }
 
         Ok(encoded_responses)
@@ -182,7 +196,7 @@ impl NoteDoc {
         };
         let msg = Message::Sync(SyncMessage::Update(update));
         let bytes = encode_message(msg);
-        let _ = self.broadcast_frame(0, bytes, 0);
+        let _ = self.broadcast(bytes, 0);
     }
 
     /// Snapshot current frontmatter/body from the CRDT doc.
@@ -202,10 +216,9 @@ impl NoteDoc {
         self.dirty.store(false, Ordering::Relaxed);
     }
 
-    pub fn broadcast_frame(&self, frame_type: u8, payload: Vec<u8>, sender_id: u64) {
+    pub fn broadcast(&self, payload: Vec<u8>, sender_id: u64) {
         let _ = self.tx.send(BroadcastPacket {
             sender_id,
-            frame_type,
             payload,
         });
     }
@@ -221,12 +234,11 @@ impl NoteDoc {
     }
 }
 
-/// Message sent over broadcast channel (y-sync payload + sender id).
+/// Message sent over broadcast channel (y-protocols encoded payload + sender id).
 #[derive(Clone, Debug)]
 pub struct BroadcastPacket {
     pub sender_id: u64,
-    /// Outer frame type: 0 = sync, 1 = awareness (aligns with y-websocket framing)
-    pub frame_type: u8,
+    /// Complete y-protocols encoded message
     pub payload: Vec<u8>,
 }
 
@@ -236,18 +248,18 @@ fn encode_message(msg: Message) -> Vec<u8> {
     encoder.to_vec()
 }
 
-/// Filter incoming y-sync data down to messages that should be broadcast to other peers.
-fn filter_broadcast_messages(data: &[u8]) -> Vec<(u8, Message)> {
+/// Filter incoming y-protocols data down to messages that should be broadcast to other peers.
+fn filter_broadcast_messages(data: &[u8]) -> Vec<Message> {
     let mut decoder = DecoderV1::new(Cursor::new(data));
     let mut reader = MessageReader::new(&mut decoder);
     let mut msgs = Vec::new();
     while let Some(res) = reader.next() {
         match res {
-            Ok(msg @ Message::Sync(SyncMessage::Update(_))) => msgs.push((0, msg)),
-            Ok(msg @ Message::Awareness(_) | msg @ Message::AwarenessQuery) => msgs.push((1, msg)),
+            Ok(msg @ Message::Sync(SyncMessage::Update(_))) => msgs.push(msg),
+            Ok(msg @ Message::Awareness(_) | msg @ Message::AwarenessQuery) => msgs.push(msg),
             Ok(_) => {}
             Err(err) => {
-                warn!(?err, "failed to decode y-sync message");
+                warn!(?err, "failed to decode y-protocols message");
                 break;
             }
         }

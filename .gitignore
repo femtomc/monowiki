@@ -3,6 +3,9 @@
 /docs/
 .papers_cache.json
 
+# Collab daemon working directory
+.monowiki-collab/
+
 # User configuration (may contain personal info)
 monowiki.yml
 

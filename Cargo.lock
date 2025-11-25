@@ -2027,10 +2027,13 @@ name = "monowiki-collab"
 version = "0.2.8"
 dependencies = [
  "anyhow",
+ "askama",
  "axum",
  "axum-extra",
+ "chrono",
  "clap",
  "glob-match",
+ "include_dir",
  "jsonwebtoken",
  "monowiki-core",
  "monowiki-render",

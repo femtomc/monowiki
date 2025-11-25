@@ -105,6 +105,17 @@ enum Commands {
     /// Run collaborative editor/server
     Collab(monowiki_collab::cli::Cli),
 
+    /// Start the collaborative editor UI
+    Editor {
+        /// Server port (defaults to 5173)
+        #[arg(long)]
+        port: Option<u16>,
+
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
+    },
+
     /// Set up GitHub Actions for GitHub Pages deployment
     GithubPages {
         /// GitHub repository name (e.g., "username/repo")
@@ -189,6 +200,7 @@ async fn main() -> anyhow::Result<()> {
     },
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::Collab(collab_cli) => monowiki_collab::run_with_cli(collab_cli).await,
+        Commands::Editor { port, open } => commands::editor_server(port, open).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
         }

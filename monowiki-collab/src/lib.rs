@@ -5,9 +5,10 @@ pub mod auth;
 pub mod build;
 pub mod cli;
 pub mod config;
+pub mod crdt;
 pub mod git;
 pub mod ratelimit;
-pub mod crdt;
+pub mod render;
 pub mod server;
 
 use anyhow::Result;
@@ -15,16 +16,16 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{build::BuildRunner, config::CollabConfig, git::GitWorkspace};
 
-fn init_tracing(verbose: bool) -> Result<()> {
+fn try_init_tracing(verbose: bool) {
     let level = if verbose { "debug" } else { "info" };
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
-    Ok(())
+    // Use try_init to avoid panic if tracing is already set up (e.g., by CLI)
+    let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
 /// Run the collab daemon using CLI args (parsed by the caller).
 pub async fn run_with_cli(cli: cli::Cli) -> Result<()> {
-    init_tracing(cli.verbose)?;
+    try_init_tracing(cli.verbose);
 
     let cfg = CollabConfig::from_cli(&cli)?;
     let workspace = GitWorkspace::new(

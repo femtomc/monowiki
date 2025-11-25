@@ -54,10 +54,11 @@ impl BuildRunner {
     /// Kick off a build, optionally pushing to deploy branch.
     pub async fn run_build(&self) -> Result<()> {
         info!(bin = %self.monowiki_bin.display(), worktree = %self.worktree.display(), "running monowiki build");
+        // Note: --config is a global flag and must come before the subcommand
         let status = Command::new(&self.monowiki_bin)
-            .arg("build")
             .arg("--config")
             .arg(&self.config_path)
+            .arg("build")
             .current_dir(&self.worktree)
             .output()
             .await?;

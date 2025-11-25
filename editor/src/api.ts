@@ -18,6 +18,17 @@ export interface FlushResponse {
   message: string;
 }
 
+export interface FileEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children?: FileEntry[];
+}
+
+export interface FilesResponse {
+  files: FileEntry[];
+}
+
 export class CollabAPI {
   private baseUrl: string;
   private token: string | null;
@@ -109,6 +120,32 @@ export class CollabAPI {
     });
     if (!res.ok) {
       throw new Error(`Status check failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async listFiles(): Promise<FilesResponse> {
+    const res = await fetch(`${this.baseUrl}/api/files`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to list files: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Incrementally render a single note without full rebuild.
+   * Updates the HTML output for the given slug.
+   */
+  async render(slug: string): Promise<{ slug: string; success: boolean }> {
+    const res = await fetch(`${this.baseUrl}/api/render/${slug}`, {
+      method: 'POST',
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Render failed: ${res.status}`);
     }
     return res.json();
   }

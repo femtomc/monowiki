@@ -1,20 +1,26 @@
+use std::path::Path as StdPath;
 use std::sync::Arc;
 
 use anyhow::Result;
 use axum::{
+    body::Body,
     extract::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
         DefaultBodyLimit, Path, State,
     },
-    http::StatusCode,
-    response::IntoResponse,
+    http::{header, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
 use axum_extra::extract::Multipart;
+use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{info, warn};
+
+/// Embedded editor UI (built from /editor with bun)
+static EDITOR_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../editor/dist");
 
 use crate::{
     auth::{AuthError, AuthState, Capability, MaybeClaims},
@@ -23,10 +29,9 @@ use crate::{
     git::{GitWorkspace, GitWorkspaceSummary},
     crdt::{BroadcastPacket, DocStore, slug_to_rel},
     ratelimit::RateLimiter,
+    render::SharedRenderCache,
 };
-use yrs::sync::AwarenessUpdate;
-use yrs::updates::decoder::{DecoderV1, Decode};
-use yrs::encoding::read::Cursor;
+// y-protocols message handling is done in crdt.rs
 
 use monowiki_core::Frontmatter;
 
@@ -38,6 +43,7 @@ pub struct AppState {
     pub site_config: Arc<monowiki_core::Config>,
     pub crdt: Arc<DocStore>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub render_cache: SharedRenderCache,
 }
 
 pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: BuildRunner) -> Result<()> {
@@ -49,10 +55,20 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
     workspace.init_or_refresh().await?;
     let site_config = monowiki_core::Config::from_file(config.config_path())?;
     let crdt = Arc::new(DocStore::default());
+    let render_cache = SharedRenderCache::new();
+
+    // Initialize render cache with site config
+    render_cache.initialize(site_config.clone()).await;
 
     if config.build_on_start {
         builder.ensure_ready().await?;
         builder.run_build().await?;
+
+        // Load site index into render cache for incremental rendering
+        let site_builder = monowiki_core::SiteBuilder::new(site_config.clone());
+        if let Ok(index) = site_builder.build() {
+            render_cache.load_site_index(index).await;
+        }
     }
 
     // Build auth state
@@ -71,31 +87,169 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
         site_config: Arc::new(site_config),
         crdt: crdt.clone(),
         rate_limiter,
+        render_cache,
     };
 
     let app = Router::new()
+        // Editor UI (served from embedded dist)
+        .route("/", get(serve_editor_index))
+        .route("/assets/{*path}", get(serve_editor_asset))
+        // Preview (served from build output)
+        .route("/preview", get(serve_preview_index))
+        .route("/preview/", get(serve_preview_index))
+        .route("/preview/{*path}", get(serve_preview_file))
+        // Serve preview assets at root level too (for iframe compatibility)
+        .route("/css/{*path}", get(serve_preview_css))
+        .route("/js/{*path}", get(serve_preview_js))
         // Public endpoints (no auth required)
         .route("/healthz", get(healthz))
         // Authenticated endpoints
         .route("/api/status", get(status))
+        .route("/api/files", get(list_files))
         .route("/api/note/{*slug}", get(get_note).put(write_note))
         .route("/api/checkpoint", post(checkpoint))
         .route("/api/build", post(build_now))
         .route("/api/flush", post(flush_now))
         .route("/api/upload", post(upload_asset))
+        .route("/api/render/{*slug}", post(render_single))
         .route("/ws/note/{*slug}", get(ws_note))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB max for uploads
         .layer(Extension(auth_state))
         .with_state(state);
 
-    info!(addr = %config.listen_addr, "monowiki-collab listening");
     let listener = tokio::net::TcpListener::bind(&config.listen_addr).await?;
+    let url = format!("http://{}", config.listen_addr);
+    info!(addr = %config.listen_addr, "monowiki-collab listening");
+    println!("\nEditor:  {}", url);
+    println!("Preview: {}/preview", url);
+    println!("API:     {}/api/status", url);
+    println!("Press Ctrl+C to stop\n");
     axum::serve(listener, app).await?;
     Ok(())
 }
 
 async fn healthz() -> impl IntoResponse {
     (StatusCode::OK, "ok")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editor UI (embedded)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn serve_editor_index() -> Response {
+    match EDITOR_DIST.get_file("index.html") {
+        Some(file) => Html(String::from_utf8_lossy(file.contents()).to_string()).into_response(),
+        None => (StatusCode::NOT_FOUND, "Editor not built - run `bun run build` in /editor").into_response(),
+    }
+}
+
+async fn serve_editor_asset(Path(path): Path<String>) -> Response {
+    let file_path = format!("assets/{}", path);
+    match EDITOR_DIST.get_file(&file_path) {
+        Some(file) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type_for_path(&path))
+            .body(Body::from(file.contents().to_vec()))
+            .unwrap(),
+        None => (StatusCode::NOT_FOUND, "Asset not found").into_response(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Preview (served from build output)
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn serve_preview_index(State(state): State<AppState>) -> Response {
+    let index_path = state.site_config.output_dir().join("index.html");
+    match tokio::fs::read_to_string(&index_path).await {
+        Ok(content) => Html(content).into_response(),
+        Err(_) => (StatusCode::NOT_FOUND, "Preview not built - click Build first").into_response(),
+    }
+}
+
+async fn serve_preview_file(Path(path): Path<String>, State(state): State<AppState>) -> Response {
+    // Handle empty path or trailing slash as index
+    if path.is_empty() || path == "/" {
+        let index_path = state.site_config.output_dir().join("index.html");
+        return match tokio::fs::read_to_string(&index_path).await {
+            Ok(content) => Html(content).into_response(),
+            Err(_) => (StatusCode::NOT_FOUND, "Preview not built").into_response(),
+        };
+    }
+
+    let file_path = state.site_config.output_dir().join(&path);
+    match tokio::fs::read(&file_path).await {
+        Ok(content) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type_for_path(&path))
+            .body(Body::from(content))
+            .unwrap(),
+        Err(_) => {
+            // Try with .html extension for clean URLs
+            let html_path = state.site_config.output_dir().join(format!("{}.html", path));
+            match tokio::fs::read(&html_path).await {
+                Ok(content) => Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                    .body(Body::from(content))
+                    .unwrap(),
+                Err(_) => (StatusCode::NOT_FOUND, "File not found").into_response(),
+            }
+        }
+    }
+}
+
+/// Serve CSS files from preview output at /css/* (for iframe compatibility)
+async fn serve_preview_css(Path(path): Path<String>, State(state): State<AppState>) -> Response {
+    let file_path = state.site_config.output_dir().join("css").join(&path);
+    match tokio::fs::read(&file_path).await {
+        Ok(content) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type_for_path(&path))
+            .body(Body::from(content))
+            .unwrap(),
+        Err(_) => (StatusCode::NOT_FOUND, "CSS not found").into_response(),
+    }
+}
+
+/// Serve JS files from preview output at /js/* (for iframe compatibility)
+async fn serve_preview_js(Path(path): Path<String>, State(state): State<AppState>) -> Response {
+    let file_path = state.site_config.output_dir().join("js").join(&path);
+    match tokio::fs::read(&file_path).await {
+        Ok(content) => Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+            .body(Body::from(content))
+            .unwrap(),
+        Err(_) => (StatusCode::NOT_FOUND, "JS not found").into_response(),
+    }
+}
+
+fn content_type_for_path(path: &str) -> &'static str {
+    match StdPath::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase()
+        .as_str()
+    {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "map" => "application/json; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "ico" => "image/x-icon",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    }
 }
 
 #[derive(Serialize)]
@@ -123,6 +277,89 @@ async fn status(
     };
 
     Ok(Json(body))
+}
+
+/// List all markdown files in the vault
+async fn list_files(
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+) -> Result<impl IntoResponse, AuthError> {
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Read, None)?;
+    }
+
+    let vault_dir = state.site_config.vault_dir();
+    let mut files = Vec::new();
+
+    if let Ok(entries) = collect_md_files(&vault_dir, &vault_dir) {
+        files = entries;
+    }
+
+    Ok(Json(serde_json::json!({ "files": files })))
+}
+
+/// Recursively collect .md files from a directory
+fn collect_md_files(base: &std::path::Path, dir: &std::path::Path) -> std::io::Result<Vec<FileEntry>> {
+    let mut entries = Vec::new();
+
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden files/directories
+        if name.starts_with('.') {
+            continue;
+        }
+
+        if path.is_dir() {
+            // Recurse into subdirectory
+            if let Ok(children) = collect_md_files(base, &path) {
+                if !children.is_empty() {
+                    let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                    entries.push(FileEntry {
+                        name,
+                        path: rel_path.to_string_lossy().to_string(),
+                        is_dir: true,
+                        children: Some(children),
+                    });
+                }
+            }
+        } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+            let rel_path = path.strip_prefix(base).unwrap_or(&path);
+            // Convert path to slug (remove .md extension)
+            let slug = rel_path
+                .with_extension("")
+                .to_string_lossy()
+                .to_string();
+            entries.push(FileEntry {
+                name,
+                path: slug,
+                is_dir: false,
+                children: None,
+            });
+        }
+    }
+
+    // Sort: directories first, then alphabetically
+    entries.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    Ok(entries)
+}
+
+#[derive(Serialize)]
+struct FileEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    children: Option<Vec<FileEntry>>,
 }
 
 #[derive(Serialize)]
@@ -295,11 +532,54 @@ async fn flush_now(
         warn!(?err, "failed to flush");
         return Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("flush failed: {err}"),
+            Json(serde_json::json!({"error": format!("flush failed: {err}")})),
         ));
     }
 
-    Ok((StatusCode::OK, "Flushed dirty docs".to_string()))
+    Ok((StatusCode::OK, Json(serde_json::json!({"message": "Flushed dirty docs"}))))
+}
+
+/// Render a single note incrementally (without full rebuild).
+/// Gets markdown from CRDT and renders to HTML using cached site context.
+async fn render_single(
+    Path(slug): Path<String>,
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+) -> Result<impl IntoResponse, AuthError> {
+    // Check auth: need Read capability
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Read, Some(&slug))?;
+    }
+
+    // Get markdown content from CRDT
+    let markdown = match state.crdt.get_markdown(&slug, &state.site_config).await {
+        Ok(md) => md,
+        Err(err) => {
+            warn!(%slug, ?err, "failed to get markdown for render");
+            return Ok((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("note not found: {slug}")})),
+            ).into_response());
+        }
+    };
+
+    // Render using cached context
+    match state.render_cache.render_single(&slug, &markdown).await {
+        Ok(_html) => {
+            info!(%slug, "incremental render complete");
+            Ok(Json(serde_json::json!({
+                "slug": slug,
+                "success": true
+            })).into_response())
+        }
+        Err(err) => {
+            warn!(%slug, ?err, "incremental render failed");
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("render failed: {err}")})),
+            ).into_response())
+        }
+    }
 }
 
 async fn ws_note(
@@ -566,33 +846,25 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
     let session_id = doc.next_session_id();
     let mut broadcast_rx = doc.subscribe();
 
-    // Send initial sync payload (state vector + awareness).
+    // Send initial sync payload (already y-protocols encoded by DefaultProtocol.start()).
     if let Ok(init) = doc.start_sync_payload() {
         if !init.is_empty() {
-            let mut framed = Vec::with_capacity(1 + init.len());
-            framed.push(0);
-            framed.extend_from_slice(&init);
-            socket.send(WsMessage::Binary(framed.into())).await.ok();
+            socket.send(WsMessage::Binary(init.into())).await.ok();
         }
     }
+    // Send initial awareness state (already encoded as y-protocols Awareness message).
     if let Ok(Some(aw)) = doc.awareness_update() {
-        let mut framed = Vec::with_capacity(1 + aw.len());
-        framed.push(1);
-        framed.extend_from_slice(&aw);
-        socket.send(WsMessage::Binary(framed.into())).await.ok();
+        socket.send(WsMessage::Binary(aw.into())).await.ok();
     }
 
     loop {
         tokio::select! {
-            // Messages from other peers
+            // Messages from other peers (complete y-protocols messages)
             recv = broadcast_rx.recv() => {
                 match recv {
-                    Ok(BroadcastPacket { sender_id, frame_type, payload }) => {
+                    Ok(BroadcastPacket { sender_id, payload }) => {
                         if sender_id != session_id {
-                            let mut framed = Vec::with_capacity(1 + payload.len());
-                            framed.push(frame_type);
-                            framed.extend_from_slice(&payload);
-                            if socket.send(WsMessage::Binary(framed.into())).await.is_err() {
+                            if socket.send(WsMessage::Binary(payload.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -606,36 +878,21 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
                 match inbound {
                     Some(Ok(WsMessage::Binary(bytes))) => {
                         if bytes.is_empty() { continue; }
-                        let frame_type = bytes[0];
-                        let payload = &bytes[1..];
 
-                        if frame_type == 0 {
-                            match doc.handle_sync_message(session_id, payload) {
-                                Ok(responses) => {
-                                    for (ft, resp) in responses {
-                                        let mut framed = Vec::with_capacity(1 + resp.len());
-                                        framed.push(ft);
-                                        framed.extend_from_slice(&resp);
-                                        if socket.send(WsMessage::Binary(framed.into())).await.is_err() {
-                                            break;
-                                        }
+                        // y-websocket sends raw y-protocols messages.
+                        // Pass entire message to handle_sync_message which will parse
+                        // the message type from the y-protocols encoding.
+                        match doc.handle_sync_message(session_id, &bytes) {
+                            Ok(responses) => {
+                                for resp in responses {
+                                    // Response is already a complete y-protocols message
+                                    if socket.send(WsMessage::Binary(resp.into())).await.is_err() {
+                                        break;
                                     }
-                                }
-                                Err(err) => {
-                                    warn!(%slug, ?err, "failed to handle y-sync message");
                                 }
                             }
-                        } else if frame_type == 1 {
-                            let mut dec = DecoderV1::new(Cursor::new(payload));
-                            match AwarenessUpdate::decode(&mut dec) {
-                                Ok(update) => {
-                                    if let Err(err) = doc.awareness().apply_update(update) {
-                                        warn!(?err, %slug, "failed to apply awareness update");
-                                    } else if let Ok(Some(aw)) = doc.awareness_update() {
-                                        doc.broadcast_frame(1, aw, session_id);
-                                    }
-                                }
-                                Err(err) => warn!(?err, %slug, "failed to decode awareness update"),
+                            Err(err) => {
+                                warn!(%slug, ?err, "failed to handle y-sync message");
                             }
                         }
                     }

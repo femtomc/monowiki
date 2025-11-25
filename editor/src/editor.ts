@@ -20,6 +20,7 @@ export interface EditorOptions {
   room: string;
   token?: string;
   onStatusChange?: (status: ConnectionStatus) => void;
+  onContentChange?: () => void;
 }
 
 export interface EditorInstance {
@@ -33,11 +34,18 @@ export interface EditorInstance {
  * Create a CodeMirror 6 editor with Yjs/y-websocket binding.
  */
 export function createEditor(options: EditorOptions): EditorInstance {
-  const { container, wsBaseUrl, room, token, onStatusChange } = options;
+  const { container, wsBaseUrl, room, token, onStatusChange, onContentChange } = options;
 
   // Create Yjs document
   const ydoc = new Y.Doc();
   const ytext = ydoc.getText('body');
+
+  // Observe text changes and notify caller
+  if (onContentChange) {
+    ytext.observe(() => {
+      onContentChange();
+    });
+  }
 
   // Connect to the collab server via WebSocket
   // y-websocket constructs URL as: `${wsBaseUrl}/${room}`
@@ -48,8 +56,6 @@ export function createEditor(options: EditorOptions): EditorInstance {
     {
       disableBc: true, // Disable broadcast channel (not needed for server-based sync)
       params: token ? { token } : undefined,
-    }
-  );/ Disable broadcast channel (not needed for server-based sync)
     }
   );
 
@@ -90,6 +96,7 @@ export function createEditor(options: EditorOptions): EditorInstance {
       lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
+      EditorView.lineWrapping,
       history(),
       bracketMatching(),
       autocompletion(),

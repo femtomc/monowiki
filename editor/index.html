@@ -19,17 +19,29 @@
         <button id="flush-btn" title="Flush to disk without commit">Save</button>
         <button id="checkpoint-btn" title="Commit and push to git">Checkpoint</button>
         <button id="build-btn" title="Build and deploy">Build</button>
-        <input type="text" id="preview-url" placeholder="http://localhost:3000" />
+        <input type="text" id="preview-url" placeholder="/preview" />
         <button id="refresh-btn" title="Refresh preview">↻</button>
       </div>
     </header>
-    <main class="split-pane">
-      <div class="editor-pane">
-        <div id="editor"></div>
-      </div>
-      <div class="resizer" id="resizer"></div>
-      <div class="preview-pane">
-        <iframe id="preview-frame" src="about:blank"></iframe>
+    <main class="main-layout">
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-title">VAULT</span>
+          <button id="new-file-btn" class="sidebar-btn" title="New file">+</button>
+        </div>
+        <div class="file-tree" id="file-tree">
+          <div class="loading">Loading...</div>
+        </div>
+      </aside>
+      <div class="sidebar-resizer" id="sidebar-resizer"></div>
+      <div class="content-area">
+        <div class="editor-pane">
+          <div id="editor"></div>
+        </div>
+        <div class="resizer" id="resizer"></div>
+        <div class="preview-pane">
+          <iframe id="preview-frame" src="about:blank"></iframe>
+        </div>
       </div>
     </main>
   </div>
