@@ -43,6 +43,13 @@ fn scaffold_vault(root: &Path) -> Result<()> {
         fs::create_dir_all(dir).with_context(|| format!("Failed to create {:?}", dir))?;
     }
 
+    // Index page (required for GitHub Pages)
+    let index = vault_root.join("index.md");
+    if !index.exists() {
+        fs::write(&index, index_note())?;
+        println!("Created {:?}", index);
+    }
+
     // Starter note
     let sample = essays.join("welcome.md");
     if !sample.exists() {
@@ -53,6 +60,23 @@ fn scaffold_vault(root: &Path) -> Result<()> {
     write_agent_guide(&vault_root)?;
 
     Ok(())
+}
+
+fn index_note() -> String {
+    r#"---
+title: Home
+description: Welcome to my monowiki site
+---
+
+# Welcome
+
+This is your monowiki site. Start writing notes in `vault/essays/` or `vault/thoughts/`.
+
+## All Notes
+
+{{directory_tree}}
+"#
+    .to_string()
 }
 
 fn sample_note() -> String {
