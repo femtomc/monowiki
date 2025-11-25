@@ -1,19 +1,16 @@
-//! monowiki-collab: realtime editor + git checkpoint scaffolding.
-//!
-//! This is a thin daemon that will host WebSocket collab, checkpoint to git,
-//! and trigger `monowiki build`. Right now it only wires config + HTTP stubs so
-//! we can iterate incrementally without touching the existing build pipeline.
+//! Library entrypoint for monowiki-collab so other binaries (monowiki CLI) can
+//! reuse the server without shelling out.
 
-mod auth;
-mod build;
-mod cli;
-mod config;
-mod git;
-mod ratelimit;
-mod server;
+pub mod auth;
+pub mod build;
+pub mod cli;
+pub mod config;
+pub mod git;
+pub mod ratelimit;
+pub mod crdt;
+pub mod server;
 
 use anyhow::Result;
-use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 use crate::{build::BuildRunner, config::CollabConfig, git::GitWorkspace};
@@ -25,9 +22,8 @@ fn init_tracing(verbose: bool) -> Result<()> {
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cli = cli::Cli::parse();
+/// Run the collab daemon using CLI args (parsed by the caller).
+pub async fn run_with_cli(cli: cli::Cli) -> Result<()> {
     init_tracing(cli.verbose)?;
 
     let cfg = CollabConfig::from_cli(&cli)?;

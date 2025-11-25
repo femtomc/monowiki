@@ -27,6 +27,9 @@ axum-extra = { version = "0.10", features = ["multipart"] }
 # Utilities
 uuid = { version = "1", features = ["v4"] }
 
+# CRDT - yrs 0.24 with sync protocol
+yrs = { version = "0.24", features = ["sync"] }
+
 # Optional: reuse core rendering/parsing logic when turning CRDT -> markdown
 monowiki-core = { path = "../monowiki-core" }
 monowiki-render = { path = "../monowiki-render" }

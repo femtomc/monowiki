@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>monowiki editor</title>
+  <script type="module" crossorigin src="/assets/index-qkL6gn0U.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BI6rw0Gf.css">
+</head>
+<body>
+  <div id="app">
+    <header class="toolbar">
+      <div class="toolbar-left">
+        <input type="text" id="slug-input" placeholder="note-slug" />
+        <button id="open-btn" title="Open note">Open</button>
+        <span id="connection-status" class="status disconnected">disconnected</span>
+      </div>
+      <div class="toolbar-right">
+        <button id="checkpoint-btn" title="Commit and push to git">Checkpoint</button>
+        <button id="build-btn" title="Build and deploy">Build</button>
+        <input type="text" id="preview-url" placeholder="http://localhost:3000" />
+        <button id="refresh-btn" title="Refresh preview">↻</button>
+      </div>
+    </header>
+    <main class="split-pane">
+      <div class="editor-pane">
+        <div id="editor"></div>
+      </div>
+      <div class="resizer" id="resizer"></div>
+      <div class="preview-pane">
+        <iframe id="preview-frame" src="about:blank"></iframe>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

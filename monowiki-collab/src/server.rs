@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use axum::{
     extract::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
@@ -15,7 +13,7 @@ use axum::{
 };
 use axum_extra::extract::Multipart;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::broadcast;
 use tracing::{info, warn};
 
 use crate::{
@@ -23,8 +21,12 @@ use crate::{
     build::{BuildRunner, BuildSummary},
     config::CollabConfig,
     git::{GitWorkspace, GitWorkspaceSummary},
+    crdt::{BroadcastPacket, DocStore, slug_to_rel},
     ratelimit::RateLimiter,
 };
+use yrs::sync::AwarenessUpdate;
+use yrs::updates::decoder::{DecoderV1, Decode};
+use yrs::encoding::read::Cursor;
 
 use monowiki_core::Frontmatter;
 
@@ -34,7 +36,7 @@ pub struct AppState {
     pub workspace: Arc<GitWorkspace>,
     pub builder: Arc<BuildRunner>,
     pub site_config: Arc<monowiki_core::Config>,
-    pub hub: Arc<CollabHub>,
+    pub crdt: Arc<DocStore>,
     pub rate_limiter: Arc<RateLimiter>,
 }
 
@@ -46,7 +48,7 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
     // Ensure the worktree exists before serving.
     workspace.init_or_refresh().await?;
     let site_config = monowiki_core::Config::from_file(config.config_path())?;
-    let hub = Arc::new(CollabHub::default());
+    let crdt = Arc::new(DocStore::default());
 
     if config.build_on_start {
         builder.ensure_ready().await?;
@@ -67,7 +69,7 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
         workspace: workspace.clone(),
         builder: builder.clone(),
         site_config: Arc::new(site_config),
-        hub: hub.clone(),
+        crdt: crdt.clone(),
         rate_limiter,
     };
 
@@ -79,6 +81,7 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
         .route("/api/note/{*slug}", get(get_note).put(write_note))
         .route("/api/checkpoint", post(checkpoint))
         .route("/api/build", post(build_now))
+        .route("/api/flush", post(flush_now))
         .route("/api/upload", post(upload_asset))
         .route("/ws/note/{*slug}", get(ws_note))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB max for uploads
@@ -216,6 +219,15 @@ async fn checkpoint(
     let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
+    if let Err(err) = flush_crdt_to_disk(&state).await {
+        warn!(?err, "failed to flush CRDT docs before checkpoint");
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("flush failed: {err}"),
+        )
+            .into_response());
+    }
+
     match commit_and_push(&state, "collab checkpoint").await {
         Ok(committed) => Ok(Json(CheckpointResponse {
             committed,
@@ -250,12 +262,44 @@ async fn build_now(
     let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
+    if let Err(err) = flush_crdt_to_disk(&state).await {
+        warn!(?err, "failed to flush CRDT docs before build");
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("flush failed: {err}"),
+        ));
+    }
+
     if let Err(err) = state.builder.run_build().await {
         let msg = format!("Build failed: {err:?}");
         return Ok((StatusCode::INTERNAL_SERVER_ERROR, msg));
     }
 
     Ok((StatusCode::ACCEPTED, "Build completed".to_string()))
+}
+
+/// Flush dirty CRDT docs to disk without committing.
+async fn flush_now(
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+) -> Result<impl IntoResponse, AuthError> {
+    // Require Write capability (same as editing)
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Write, None)?;
+    }
+
+    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    check_rate_limit(&state, identity).await?;
+
+    if let Err(err) = flush_crdt_to_disk(&state).await {
+        warn!(?err, "failed to flush");
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("flush failed: {err}"),
+        ));
+    }
+
+    Ok((StatusCode::OK, "Flushed dirty docs".to_string()))
 }
 
 async fn ws_note(
@@ -278,10 +322,7 @@ async fn ws_note(
 
 async fn read_note(state: &AppState, slug: &str) -> Result<NoteResponse> {
     let rel_path = slug_to_rel(slug)?;
-    let abs_path = state.site_config.vault_dir().join(&rel_path);
-    let raw = tokio::fs::read_to_string(&abs_path).await?;
-    let (frontmatter, body) = monowiki_core::frontmatter::parse_frontmatter(&raw)?;
-    let frontmatter_json = serde_json::to_value(frontmatter)?;
+    let (frontmatter_json, body) = state.crdt.snapshot(slug, &state.site_config).await?;
 
     Ok(NoteResponse {
         slug: slug.to_string(),
@@ -289,96 +330,6 @@ async fn read_note(state: &AppState, slug: &str) -> Result<NoteResponse> {
         frontmatter: frontmatter_json,
         body: body.to_string(),
     })
-}
-
-fn slug_to_rel(slug: &str) -> Result<PathBuf> {
-    use std::path::Component;
-
-    let candidate = PathBuf::from(slug.trim_matches('/'));
-    let mut clean = PathBuf::new();
-    for comp in candidate.components() {
-        match comp {
-            Component::CurDir => continue,
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(anyhow!("invalid path component in slug"))
-            }
-            Component::Normal(s) => clean.push(s),
-        }
-    }
-
-    if clean.as_os_str().is_empty() {
-        return Err(anyhow!("empty slug"));
-    }
-
-    // Default extension to .md
-    if clean.extension().is_none() {
-        clean.set_extension("md");
-    }
-
-    Ok(clean)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CollabMessage {
-    kind: String,
-    body: String,
-    frontmatter: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct CollabInbound {
-    body: String,
-    frontmatter: Option<serde_json::Value>,
-}
-
-#[derive(Default)]
-pub struct CollabHub {
-    rooms: RwLock<HashMap<String, Arc<Room>>>,
-}
-
-impl CollabHub {
-    pub async fn room(&self, slug: &str) -> Arc<Room> {
-        if let Some(room) = self.rooms.read().await.get(slug).cloned() {
-            return room;
-        }
-
-        let mut guard = self.rooms.write().await;
-        guard
-            .entry(slug.to_string())
-            .or_insert_with(|| Arc::new(Room::new()))
-            .clone()
-    }
-}
-
-pub struct Room {
-    tx: broadcast::Sender<CollabMessage>,
-    latest: RwLock<Option<CollabMessage>>,
-}
-
-impl Room {
-    fn new() -> Self {
-        let (tx, _) = broadcast::channel(32);
-        Self {
-            tx,
-            latest: RwLock::new(None),
-        }
-    }
-
-    fn subscribe(&self) -> broadcast::Receiver<CollabMessage> {
-        self.tx.subscribe()
-    }
-
-    async fn latest(&self) -> Option<CollabMessage> {
-        self.latest.read().await.clone()
-    }
-
-    async fn publish(&self, msg: CollabMessage) {
-        {
-            let mut guard = self.latest.write().await;
-            *guard = Some(msg.clone());
-        }
-        let _ = self.tx.send(msg);
-    }
 }
 
 async fn write_note_to_disk(
@@ -414,6 +365,13 @@ async fn write_note_to_disk(
 
     tokio::fs::write(&abs_path, content).await?;
 
+    // Update CRDT doc and broadcast a full update to connected peers.
+    let fm_json = serde_json::to_value(&frontmatter)?;
+    state
+        .crdt
+        .overwrite_from_plain(slug, fm_json, &payload.body, &state.site_config)
+        .await?;
+
     let checkpointed = if payload.checkpoint.unwrap_or(false) {
         commit_and_push(state, "collab save").await?
     } else {
@@ -427,6 +385,7 @@ async fn write_note_to_disk(
 }
 
 async fn commit_and_push(state: &AppState, message: &str) -> Result<bool> {
+    flush_crdt_to_disk(state).await?;
     state.workspace.init_or_refresh().await?;
     state.workspace.add_vault().await?;
     let committed = state.workspace.commit(message, false).await?;
@@ -434,6 +393,11 @@ async fn commit_and_push(state: &AppState, message: &str) -> Result<bool> {
         state.workspace.push().await?;
     }
     Ok(committed)
+}
+
+async fn flush_crdt_to_disk(state: &AppState) -> Result<()> {
+    state.crdt.flush_dirty_to_disk(&state.site_config).await?;
+    Ok(())
 }
 
 /// Check rate limit for a given identity (from JWT sub claim).
@@ -598,22 +562,24 @@ fn extract_safe_extension(name: &str) -> Option<String> {
 }
 
 async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Result<()> {
-    let room = state.hub.room(&slug).await;
-    let mut broadcast_rx = room.subscribe();
+    let doc = state.crdt.get_or_load(&slug, &state.site_config).await?;
+    let session_id = doc.next_session_id();
+    let mut broadcast_rx = doc.subscribe();
 
-    // Send initial snapshot from cache or disk.
-    if let Some(msg) = room.latest().await {
-        let text = serde_json::to_string(&msg)?;
-        socket.send(WsMessage::Text(text.into())).await.ok();
-    } else if let Ok(note) = read_note(&state, &slug).await {
-        let msg = CollabMessage {
-            kind: "snapshot".to_string(),
-            body: note.body,
-            frontmatter: Some(note.frontmatter),
-        };
-        room.publish(msg.clone()).await;
-        let text = serde_json::to_string(&msg)?;
-        socket.send(WsMessage::Text(text.into())).await.ok();
+    // Send initial sync payload (state vector + awareness).
+    if let Ok(init) = doc.start_sync_payload() {
+        if !init.is_empty() {
+            let mut framed = Vec::with_capacity(1 + init.len());
+            framed.push(0);
+            framed.extend_from_slice(&init);
+            socket.send(WsMessage::Binary(framed.into())).await.ok();
+        }
+    }
+    if let Ok(Some(aw)) = doc.awareness_update() {
+        let mut framed = Vec::with_capacity(1 + aw.len());
+        framed.push(1);
+        framed.extend_from_slice(&aw);
+        socket.send(WsMessage::Binary(framed.into())).await.ok();
     }
 
     loop {
@@ -621,9 +587,12 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
             // Messages from other peers
             recv = broadcast_rx.recv() => {
                 match recv {
-                    Ok(msg) => {
-                        if let Ok(text) = serde_json::to_string(&msg) {
-                            if socket.send(WsMessage::Text(text.into())).await.is_err() {
+                    Ok(BroadcastPacket { sender_id, frame_type, payload }) => {
+                        if sender_id != session_id {
+                            let mut framed = Vec::with_capacity(1 + payload.len());
+                            framed.push(frame_type);
+                            framed.extend_from_slice(&payload);
+                            if socket.send(WsMessage::Binary(framed.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -635,19 +604,44 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
             // Messages from this client
             inbound = socket.recv() => {
                 match inbound {
-                    Some(Ok(WsMessage::Text(txt))) => {
-                        if let Ok(update) = serde_json::from_str::<CollabInbound>(&txt) {
-                            let msg = CollabMessage {
-                                kind: "update".to_string(),
-                                body: update.body,
-                                frontmatter: update.frontmatter,
-                            };
-                            room.publish(msg).await;
-                        } else {
-                            warn!(%slug, "ignoring non-json WS payload");
+                    Some(Ok(WsMessage::Binary(bytes))) => {
+                        if bytes.is_empty() { continue; }
+                        let frame_type = bytes[0];
+                        let payload = &bytes[1..];
+
+                        if frame_type == 0 {
+                            match doc.handle_sync_message(session_id, payload) {
+                                Ok(responses) => {
+                                    for (ft, resp) in responses {
+                                        let mut framed = Vec::with_capacity(1 + resp.len());
+                                        framed.push(ft);
+                                        framed.extend_from_slice(&resp);
+                                        if socket.send(WsMessage::Binary(framed.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!(%slug, ?err, "failed to handle y-sync message");
+                                }
+                            }
+                        } else if frame_type == 1 {
+                            let mut dec = DecoderV1::new(Cursor::new(payload));
+                            match AwarenessUpdate::decode(&mut dec) {
+                                Ok(update) => {
+                                    if let Err(err) = doc.awareness().apply_update(update) {
+                                        warn!(?err, %slug, "failed to apply awareness update");
+                                    } else if let Ok(Some(aw)) = doc.awareness_update() {
+                                        doc.broadcast_frame(1, aw, session_id);
+                                    }
+                                }
+                                Err(err) => warn!(?err, %slug, "failed to decode awareness update"),
+                            }
                         }
                     }
                     Some(Ok(WsMessage::Close(_))) | None => break,
+                    Some(Ok(WsMessage::Ping(p))) => { let _ = socket.send(WsMessage::Pong(p)).await; }
+                    Some(Ok(_)) => {}
                     _ => {}
                 }
             }

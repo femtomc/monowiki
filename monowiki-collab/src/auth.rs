@@ -336,12 +336,30 @@ pub struct AuthState {
 }
 
 /// Extract bearer token from Authorization header
-fn extract_bearer_token(parts: &Parts) -> Option<&str> {
-    parts
+fn extract_bearer_token(parts: &Parts) -> Option<String> {
+    // Authorization header
+    if let Some(token) = parts
         .headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
+    {
+        return Some(token.to_string());
+    }
+
+    // Fallback to ?token= query param (useful for WebSocket clients)
+    if let Some(query) = parts.uri.query() {
+        for pair in query.split('&') {
+            let mut iter = pair.splitn(2, '=');
+            if let (Some(k), Some(v)) = (iter.next(), iter.next()) {
+                if k == "token" {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Extractor for optional claims (doesn't fail if no token)
@@ -367,7 +385,7 @@ where
             return Ok(MaybeClaims(None));
         };
 
-        match auth_state.keystore.verify(token) {
+        match auth_state.keystore.verify(&token) {
             Ok(claims) => Ok(MaybeClaims(Some(claims))),
             Err(e) => {
                 warn!("auth failed: {}", e);
@@ -394,7 +412,7 @@ where
 
         let token = extract_bearer_token(parts).ok_or(AuthError::MissingToken)?;
 
-        let claims = auth_state.keystore.verify(token)?;
+        let claims = auth_state.keystore.verify(&token)?;
         Ok(AuthenticatedClaims(claims))
     }
 }

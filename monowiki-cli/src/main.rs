@@ -102,6 +102,9 @@ enum Commands {
     /// Stream vault change events for agents
     Watch,
 
+    /// Run collaborative editor/server
+    Collab(monowiki_collab::cli::Cli),
+
     /// Set up GitHub Actions for GitHub Pages deployment
     GithubPages {
         /// GitHub repository name (e.g., "username/repo")
@@ -171,20 +174,21 @@ async fn main() -> anyhow::Result<()> {
             } => commands::graph_path(&cli.config, &from, &to, max_depth, json),
         },
         Commands::Export { command } => match command {
-            ExportCommands::Sections {
-                format,
-                output,
-                with_links,
-                pretty,
-            } => commands::export_sections(
-                &cli.config,
-                format,
-                output.as_deref(),
-                with_links,
-                pretty,
-            ),
-        },
+        ExportCommands::Sections {
+            format,
+            output,
+            with_links,
+            pretty,
+        } => commands::export_sections(
+            &cli.config,
+            format,
+            output.as_deref(),
+            with_links,
+            pretty,
+        ),
+    },
         Commands::Watch => commands::watch_changes(&cli.config).await,
+        Commands::Collab(collab_cli) => monowiki_collab::run_with_cli(collab_cli).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
         }
