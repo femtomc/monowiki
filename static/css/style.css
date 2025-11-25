@@ -370,7 +370,7 @@ ul ul {
   margin: 0;
 }
 ol > li:before {
-  content: counters(item, ".") ". ";
+  content: counter(item) ". ";
   counter-increment: item;
   font-weight: var(--font-weight-medium);
 }
