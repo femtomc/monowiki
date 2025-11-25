@@ -369,10 +369,13 @@ ul ul {
   padding: 0 0 0 3ch;
   margin: 0;
 }
-ol li:before {
+ol > li:before {
   content: counters(item, ".") ". ";
   counter-increment: item;
   font-weight: var(--font-weight-medium);
+}
+ol > li > p:first-child {
+  display: contents;
 }
 
 li {
