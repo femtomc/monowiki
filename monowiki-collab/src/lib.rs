@@ -11,6 +11,15 @@ pub mod ratelimit;
 pub mod render;
 pub mod server;
 
+// New CRDT abstraction layer (Sprint 03)
+pub mod operational;
+pub mod yrs_adapter;
+pub mod projection;
+pub mod migration;
+
+#[cfg(feature = "loro")]
+pub mod loro;
+
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;
 
