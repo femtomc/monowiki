@@ -14,8 +14,16 @@ draft: true
 ## Scope & Deliverables
 - Type checks for `Inline`/`Block` invariants, diagnostics with source spans.
 - Show/set rule engine with filters and transforms; tests/goldens.
+  - Implement `it` binding semantics (see MRL spec §3.3 for type rules)
+  - Ensure show rules are type-preserving (`K -> K` constraint)
+  - Support attribute-based selectors for custom elements (e.g., `span.where(class == "my-macro")`)
 - CRDT migration plan: block IDs, mark anchors, fractional ordering, storage schema, and projected assertions layout.
 - Updated projection layer plan from operational → semantic with new CRDT model.
+
+## Reference Documentation
+- See `vault/design/mrl.md` §3.3 for detailed type rules on `it` binding in show rules
+- See `vault/design/mrl.md` §9.4-9.6 for show/set rule examples
+- See `vault/design/mrl.md` FAQ "How do selectors for custom elements work?"
 
 ## Workstreams (parallel)
 - **Stream A (Typing/Show-Set):** Implement validator, friendly errors, ensure expand output obeys invariants.

@@ -13,9 +13,18 @@ draft: true
 
 ## Scope & Deliverables
 - Macro API with hygiene contexts, quote/splice types, precedence resolution.
+  - Implement quote/splice semantics (see MRL spec §3.3)
+  - Implement cross-stage persistence (CSP) for value capture
+  - Ensure CSP captures VALUES not bindings (see FAQ)
 - Expand-time executor for `!staged` blocks with sandbox hooks.
 - Durability tiers (volatile/session/durable/static) wired into queries.
 - Content-addressable caching for expand outputs (per section) with hit-rate metrics.
+
+## Reference Documentation
+- See `vault/design/mrl.md` §3.3 for complete quote/splice semantics and CSP rules
+- See `vault/design/mrl.md` §8.1 for expand-time stdlib reference
+- See `vault/design/mrl.md` §9.1-9.12 for comprehensive macro examples
+- See `vault/design/mrl.md` FAQ "What's the difference between !staged and !live?"
 
 ## Workstreams (parallel)
 - **Stream A (Macros/Staging):** Enforestation, macro application rules, diagnostics, tests/goldens.
