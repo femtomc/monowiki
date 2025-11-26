@@ -140,6 +140,28 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Check if current token is an operator (including assignment for expressions)
+    fn is_operator(&self) -> bool {
+        matches!(
+            self.peek().map(|t| &t.token),
+            Some(Token::Plus)
+                | Some(Token::Minus)
+                | Some(Token::Star)
+                | Some(Token::Slash)
+                | Some(Token::Percent)
+                | Some(Token::EqEq)
+                | Some(Token::NotEq)
+                | Some(Token::Lt)
+                | Some(Token::Le)
+                | Some(Token::Gt)
+                | Some(Token::Ge)
+                | Some(Token::AndAnd)
+                | Some(Token::OrOr)
+                | Some(Token::PlusPlus)
+                | Some(Token::Eq) // assignment
+        )
+    }
+
     /// Parse a single element
     fn parse_element(&mut self) -> Result<Option<Shrubbery>> {
         // Skip newlines
@@ -194,17 +216,60 @@ impl<'a> Parser<'a> {
         Ok(result)
     }
 
+    /// Parse an expression (primary element followed by optional operators and operands)
+    /// Also handles function calls: identifier(args)
+    fn parse_expression(&mut self) -> Result<Option<Shrubbery>> {
+        let first = self.parse_element()?;
+        if first.is_none() {
+            return Ok(None);
+        }
+
+        let mut elements = vec![first.unwrap()];
+        let start = elements[0].span().start;
+
+        // Check for function call syntax: identifier(...)
+        // This handles `text("one")`, `paragraph(item)`, etc.
+        if self.check(&Token::LParen) {
+            let args = self.parse_parens()?;
+            elements.push(args);
+        }
+
+        // Continue parsing while we see operators
+        while self.is_operator() {
+            elements.push(self.parse_operator()?);
+            if let Some(operand) = self.parse_element()? {
+                elements.push(operand);
+                // Check for function call after operand too
+                if self.check(&Token::LParen) {
+                    let args = self.parse_parens()?;
+                    elements.push(args);
+                }
+            } else {
+                break;
+            }
+        }
+
+        if elements.len() == 1 {
+            Ok(Some(elements.into_iter().next().unwrap()))
+        } else {
+            let end = elements.last().map(|e| e.span().end).unwrap_or(start);
+            Ok(Some(Shrubbery::Sequence(elements, Span::new(start, end))))
+        }
+    }
+
     /// Parse an identifier
+    /// Note: Function calls like `foo(...)` are handled at a higher level - here we just
+    /// return the identifier. The shrubbery model keeps things flat for later enforestation.
     fn parse_identifier(&mut self) -> Result<Shrubbery> {
         let token = self.expect(Token::Identifier(String::new()))?;
-        if let Token::Identifier(name) = &token.token {
-            let name_clone = name.clone();
-            let span = token.span;
-            let sym = self.symbols.intern(&name_clone);
-            Ok(Shrubbery::Identifier(sym, ScopeSet::new(), span))
+        let (name_clone, span) = if let Token::Identifier(name) = &token.token {
+            (name.clone(), token.span)
         } else {
             unreachable!()
-        }
+        };
+
+        let sym = self.symbols.intern(&name_clone);
+        Ok(Shrubbery::Identifier(sym, ScopeSet::new(), span))
     }
 
     /// Parse a literal
@@ -327,6 +392,7 @@ impl<'a> Parser<'a> {
             Token::OrOr => "||",
             Token::Bang => "!",
             Token::PlusPlus => "++",
+            Token::Eq => "=",
             _ => unreachable!(),
         };
         let sym = self.symbols.intern(op_name);
@@ -465,7 +531,7 @@ impl<'a> Parser<'a> {
     fn parse_indented_block(&mut self) -> Result<Vec<Shrubbery>> {
         let mut body = Vec::new();
 
-        // For now, just parse elements until we hit a dedent or EOF
+        // For now, just parse expressions until we hit a dedent or EOF
         // In a real implementation, we'd track indentation levels
         while !self.is_eof() {
             // Check if we're at a dedent by looking for a keyword at the same level
@@ -473,7 +539,8 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            if let Some(elem) = self.parse_element()? {
+            // Use parse_expression to handle things like `x = 42`
+            if let Some(elem) = self.parse_expression()? {
                 body.push(elem);
             } else {
                 break;
@@ -688,18 +755,19 @@ impl<'a> Parser<'a> {
         // Check for .where(predicate)
         let predicate = if self.check(&Token::Dot) {
             self.advance();
-            if let Some(Token::Identifier(name)) = self.peek().map(|t| &t.token) {
-                if name == "where" {
-                    self.advance();
-                    self.expect(Token::LParen)?;
-                    let pred = self.parse_element()?.unwrap_or_else(|| {
-                        Shrubbery::Literal(Literal::Bool(true), Span::default())
-                    });
-                    self.expect(Token::RParen)?;
-                    Some(Box::new(pred))
-                } else {
-                    None
-                }
+            // Check for Token::Where keyword or identifier "where"
+            let is_where = self.check(&Token::Where)
+                || matches!(self.peek().map(|t| &t.token), Some(Token::Identifier(name)) if name == "where");
+
+            if is_where {
+                self.advance(); // consume "where"
+                self.expect(Token::LParen)?;
+                // Parse predicate as an expression (to handle level == 1, etc.)
+                let pred = self.parse_expression()?.unwrap_or_else(|| {
+                    Shrubbery::Literal(Literal::Bool(true), Span::default())
+                });
+                self.expect(Token::RParen)?;
+                Some(Box::new(pred))
             } else {
                 None
             }
@@ -785,7 +853,8 @@ impl<'a> Parser<'a> {
         let start_token = self.expect(Token::If)?;
         let start = start_token.span.start;
 
-        let condition = Box::new(self.parse_element()?.unwrap_or_else(|| {
+        // Parse condition as an expression (to handle x == 1, etc.)
+        let condition = Box::new(self.parse_expression()?.unwrap_or_else(|| {
             Shrubbery::Literal(Literal::Bool(true), Span::default())
         }));
 
@@ -796,7 +865,8 @@ impl<'a> Parser<'a> {
             let body = self.parse_indented_block()?;
             Box::new(Shrubbery::Sequence(body, Span::default()))
         } else {
-            Box::new(self.parse_element()?.unwrap_or_else(|| {
+            // Use parse_expression to handle `text("one")` as a single expression
+            Box::new(self.parse_expression()?.unwrap_or_else(|| {
                 Shrubbery::Literal(Literal::None, Span::default())
             }))
         };
@@ -809,7 +879,7 @@ impl<'a> Parser<'a> {
                 let body = self.parse_indented_block()?;
                 Some(Box::new(Shrubbery::Sequence(body, Span::default())))
             } else {
-                Some(Box::new(self.parse_element()?.unwrap_or_else(|| {
+                Some(Box::new(self.parse_expression()?.unwrap_or_else(|| {
                     Shrubbery::Literal(Literal::None, Span::default())
                 })))
             }
@@ -855,7 +925,8 @@ impl<'a> Parser<'a> {
             let body_elems = self.parse_indented_block()?;
             Box::new(Shrubbery::Sequence(body_elems, Span::default()))
         } else {
-            Box::new(self.parse_element()?.unwrap_or_else(|| {
+            // Use parse_expression to handle `paragraph(item)` as a single expression
+            Box::new(self.parse_expression()?.unwrap_or_else(|| {
                 Shrubbery::Literal(Literal::None, Span::default())
             }))
         };

@@ -197,10 +197,8 @@ impl<'a> DocumentParser<'a> {
             code.push(ch);
             self.advance();
 
-            // If we've closed all brackets and hit whitespace, stop
-            if depth == 0 && !in_string && ch.is_whitespace() {
-                break;
-            }
+            // Only stop at newlines when depth is 0, not on any whitespace
+            // This allows `!def greet(name):` to be fully captured
         }
 
         let end = self.pos;
