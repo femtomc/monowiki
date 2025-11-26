@@ -42,7 +42,7 @@ mod tests;
 
 // Re-export key types
 pub use checker::TypeChecker;
-pub use content::{Attributes, Block, Content, Inline, ListItem};
+pub use content::{Attributes, Block, Content, Inline, ListItem, LiveCell};
 pub use document::{parse_document, DocumentElement, DocumentParser};
 pub use enforest::{
     enforest, enforest_with_env, Assoc, BinOp, Enforester, Expr, ImplicitOp, InfixOperator,

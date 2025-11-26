@@ -9,6 +9,7 @@
 use crate::content::{Attributes, Block, Content, Inline};
 use crate::error::{MrlError, Result, Span};
 use crate::shrubbery::{Shrubbery, Symbol};
+use crate::types::ContentKind;
 use std::collections::HashMap;
 
 /// A selector that matches content elements
@@ -73,6 +74,63 @@ impl SelectorBase {
             "inline" => Some(SelectorBase::Inline),
             "content" => Some(SelectorBase::Content),
             _ => None,
+        }
+    }
+
+    /// Get the content kind this selector matches
+    pub fn content_kind(&self) -> ContentKind {
+        match self {
+            // Block types
+            SelectorBase::Heading
+            | SelectorBase::Paragraph
+            | SelectorBase::CodeBlock
+            | SelectorBase::List
+            | SelectorBase::Blockquote
+            | SelectorBase::Table
+            | SelectorBase::ThematicBreak
+            | SelectorBase::Directive
+            | SelectorBase::Block => ContentKind::Block,
+
+            // Inline types
+            SelectorBase::Text
+            | SelectorBase::Emphasis
+            | SelectorBase::Strong
+            | SelectorBase::Code
+            | SelectorBase::Link
+            | SelectorBase::Image
+            | SelectorBase::Reference
+            | SelectorBase::Math
+            | SelectorBase::Span
+            | SelectorBase::Inline => ContentKind::Inline,
+
+            // Generic
+            SelectorBase::Content => ContentKind::Content,
+        }
+    }
+
+    /// Get valid properties for this selector type
+    pub fn valid_properties(&self) -> &'static [&'static str] {
+        match self {
+            SelectorBase::Heading => &["id", "class", "level"],
+            SelectorBase::Paragraph => &["id", "class"],
+            SelectorBase::CodeBlock => &["id", "class", "lang", "language", "line-numbers"],
+            SelectorBase::List => &["id", "class", "ordered", "start"],
+            SelectorBase::Blockquote => &["id", "class"],
+            SelectorBase::Table => &["id", "class"],
+            SelectorBase::ThematicBreak => &["id", "class"],
+            SelectorBase::Directive => &["id", "class", "name"],
+            SelectorBase::Text => &[],
+            SelectorBase::Emphasis => &["id", "class"],
+            SelectorBase::Strong => &["id", "class"],
+            SelectorBase::Code => &["id", "class"],
+            SelectorBase::Link => &["id", "class", "url", "href", "title"],
+            SelectorBase::Image => &["id", "class", "url", "src", "alt", "title"],
+            SelectorBase::Reference => &["id", "class", "target"],
+            SelectorBase::Math => &["id", "class", "display"],
+            SelectorBase::Span => &["id", "class"],
+            SelectorBase::Block => &["id", "class"],
+            SelectorBase::Inline => &["id", "class"],
+            SelectorBase::Content => &["id", "class"],
         }
     }
 
@@ -202,6 +260,7 @@ fn get_field(content: &Content, field: &str) -> Option<PredicateValue> {
         Content::Block(block) => get_block_field(block, field),
         Content::Inline(inline) => get_inline_field(inline, field),
         Content::Sequence(_) => None,
+        Content::Live(_) => None, // Live cells don't have fields for predicate matching
     }
 }
 
@@ -256,6 +315,32 @@ impl Selector {
         self
     }
 
+    /// Get the content kind this selector targets
+    pub fn content_kind(&self) -> ContentKind {
+        self.base.content_kind()
+    }
+
+    /// Check if a property name is valid for this selector
+    pub fn is_valid_property(&self, property: &str) -> bool {
+        self.base.valid_properties().contains(&property)
+    }
+
+    /// Validate all properties for a set rule
+    pub fn validate_properties(&self, properties: &HashMap<String, SetValue>, span: Span) -> Result<()> {
+        let valid = self.base.valid_properties();
+        for key in properties.keys() {
+            if !valid.contains(&key.as_str()) {
+                return Err(MrlError::InvalidProperty {
+                    span,
+                    property: key.clone(),
+                    selector: format!("{:?}", self.base),
+                    valid_properties: valid.iter().map(|s| s.to_string()).collect(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Check if this selector matches the given content
     pub fn matches(&self, content: &Content) -> bool {
         if !self.base.matches(content) {
@@ -274,13 +359,66 @@ impl Selector {
             Shrubbery::Selector { base, predicate, .. } => {
                 let base_name = symbols.get(&base.id())?;
                 let base = SelectorBase::from_name(base_name)?;
-                // TODO: Parse predicate from shrubbery
-                Some(Selector::new(base))
+                let parsed_pred = predicate.as_ref().and_then(|p| {
+                    Self::parse_predicate(p, symbols)
+                });
+                Some(Selector {
+                    base,
+                    predicate: parsed_pred,
+                })
             }
             Shrubbery::Identifier(sym, _, _) => {
                 let name = symbols.get(&sym.id())?;
                 let base = SelectorBase::from_name(name)?;
                 Some(Selector::new(base))
+            }
+            _ => None,
+        }
+    }
+
+    /// Parse a predicate from shrubbery
+    fn parse_predicate(shrub: &Shrubbery, symbols: &HashMap<u64, String>) -> Option<Predicate> {
+        match shrub {
+            // Binary comparison: field == value
+            Shrubbery::Sequence(items, _) if items.len() == 3 => {
+                let field = match &items[0] {
+                    Shrubbery::Identifier(sym, _, _) => symbols.get(&sym.id())?.clone(),
+                    _ => return None,
+                };
+
+                let op = match &items[1] {
+                    Shrubbery::Operator(sym, _) => symbols.get(&sym.id())?.as_str(),
+                    _ => return None,
+                };
+
+                let value = Self::parse_predicate_value(&items[2])?;
+
+                match op {
+                    "==" | "=" => Some(Predicate::Equals(field, value)),
+                    "!=" => Some(Predicate::NotEquals(field, value)),
+                    "<" => Some(Predicate::LessThan(field, value)),
+                    "<=" => Some(Predicate::LessOrEqual(field, value)),
+                    ">" => Some(Predicate::GreaterThan(field, value)),
+                    ">=" => Some(Predicate::GreaterOrEqual(field, value)),
+                    _ => None,
+                }
+            }
+            // Could extend for AND/OR/NOT combinations
+            _ => None,
+        }
+    }
+
+    /// Parse a predicate value from shrubbery
+    fn parse_predicate_value(shrub: &Shrubbery) -> Option<PredicateValue> {
+        match shrub {
+            Shrubbery::Literal(crate::shrubbery::Literal::Int(i), _) => {
+                Some(PredicateValue::Int(*i))
+            }
+            Shrubbery::Literal(crate::shrubbery::Literal::Bool(b), _) => {
+                Some(PredicateValue::Bool(*b))
+            }
+            Shrubbery::Literal(crate::shrubbery::Literal::String(s), _) => {
+                Some(PredicateValue::String(s.clone()))
             }
             _ => None,
         }
@@ -294,8 +432,23 @@ pub struct ShowRule {
     pub selector: Selector,
     /// Transform function (takes matched element via `it` binding)
     pub transform: Box<Shrubbery>,
+    /// The content kind this rule expects (derived from selector)
+    pub expected_kind: ContentKind,
     /// Source span for error reporting
     pub span: Span,
+}
+
+impl ShowRule {
+    /// Create a new show rule with kind derived from selector
+    pub fn new(selector: Selector, transform: Shrubbery, span: Span) -> Self {
+        let expected_kind = selector.content_kind();
+        ShowRule {
+            selector,
+            transform: Box::new(transform),
+            expected_kind,
+            span,
+        }
+    }
 }
 
 /// A set rule: modifies attributes of matching content
@@ -373,6 +526,9 @@ fn apply_set_rule_recursive(content: &mut Content, rule: &SetRule) {
             for item in items {
                 apply_set_rule_recursive(item, rule);
             }
+        }
+        Content::Live(_) => {
+            // Live cells are not modified by set rules - they're processed at render-time
         }
     }
 }
@@ -501,6 +657,52 @@ where
                 .map(|item| apply_show_rules(item, rules, transform_fn))
                 .collect();
             Ok(Content::Sequence(transformed?))
+        }
+        Content::Live(cell) => {
+            // Live cells pass through unchanged - they're processed at render-time
+            Ok(Content::Live(cell))
+        }
+    }
+}
+
+/// Apply show rules with kind preservation enforcement
+/// The transform function receives the expected ContentKind from the selector
+pub fn apply_show_rules_with_kind<F>(
+    content: Content,
+    rules: &[ShowRule],
+    transform_fn: &mut F,
+) -> Result<Content>
+where
+    F: FnMut(&Content, &Shrubbery, ContentKind) -> Result<Content>,
+{
+    // Find first matching rule (last defined takes precedence, so iterate in reverse)
+    for rule in rules.iter().rev() {
+        if rule.selector.matches(&content) {
+            // Apply the transform with expected kind for preservation check
+            return transform_fn(&content, &rule.transform, rule.expected_kind);
+        }
+    }
+
+    // No matching rule - recurse into children
+    match content {
+        Content::Block(block) => {
+            let transformed = apply_show_rules_to_block_with_kind(block, rules, transform_fn)?;
+            Ok(Content::Block(transformed))
+        }
+        Content::Inline(inline) => {
+            let transformed = apply_show_rules_to_inline_with_kind(inline, rules, transform_fn)?;
+            Ok(Content::Inline(transformed))
+        }
+        Content::Sequence(items) => {
+            let transformed: Result<Vec<_>> = items
+                .into_iter()
+                .map(|item| apply_show_rules_with_kind(item, rules, transform_fn))
+                .collect();
+            Ok(Content::Sequence(transformed?))
+        }
+        Content::Live(cell) => {
+            // Live cells pass through unchanged - they're processed at render-time
+            Ok(Content::Live(cell))
         }
     }
 }
@@ -633,6 +835,135 @@ where
     }
 }
 
+/// Apply show rules to a block with kind preservation
+fn apply_show_rules_to_block_with_kind<F>(
+    block: Block,
+    rules: &[ShowRule],
+    transform_fn: &mut F,
+) -> Result<Block>
+where
+    F: FnMut(&Content, &Shrubbery, ContentKind) -> Result<Content>,
+{
+    match block {
+        Block::Heading { level, body, attrs } => {
+            let transformed = apply_show_rules_to_inline_with_kind(*body, rules, transform_fn)?;
+            Ok(Block::Heading {
+                level,
+                body: Box::new(transformed),
+                attrs,
+            })
+        }
+        Block::Paragraph { body, attrs } => {
+            let transformed = apply_show_rules_to_inline_with_kind(*body, rules, transform_fn)?;
+            Ok(Block::Paragraph {
+                body: Box::new(transformed),
+                attrs,
+            })
+        }
+        Block::Blockquote { body, attrs } => {
+            let transformed = apply_show_rules_with_kind(*body, rules, transform_fn)?;
+            Ok(Block::Blockquote {
+                body: Box::new(transformed),
+                attrs,
+            })
+        }
+        Block::Directive {
+            name,
+            args,
+            body,
+            attrs,
+        } => {
+            let transformed = apply_show_rules_with_kind(*body, rules, transform_fn)?;
+            Ok(Block::Directive {
+                name,
+                args,
+                body: Box::new(transformed),
+                attrs,
+            })
+        }
+        Block::List { items, ordered, attrs } => {
+            let transformed_items: Result<Vec<_>> = items
+                .into_iter()
+                .map(|item| {
+                    let body = apply_show_rules_to_inline_with_kind(item.body, rules, transform_fn)?;
+                    Ok(crate::content::ListItem {
+                        body,
+                        nested: item.nested,
+                        attrs: item.attrs,
+                    })
+                })
+                .collect();
+            Ok(Block::List {
+                items: transformed_items?,
+                ordered,
+                attrs,
+            })
+        }
+        other => Ok(other),
+    }
+}
+
+/// Apply show rules to inline with kind preservation
+fn apply_show_rules_to_inline_with_kind<F>(
+    inline: Inline,
+    rules: &[ShowRule],
+    transform_fn: &mut F,
+) -> Result<Inline>
+where
+    F: FnMut(&Content, &Shrubbery, ContentKind) -> Result<Content>,
+{
+    // First check if the inline itself matches any show rule
+    let content = Content::Inline(inline.clone());
+    for rule in rules.iter().rev() {
+        if rule.selector.matches(&content) {
+            let transformed = transform_fn(&content, &rule.transform, rule.expected_kind)?;
+            return match transformed {
+                Content::Inline(i) => Ok(i),
+                _ => Err(MrlError::KindMismatch {
+                    span: rule.span,
+                    expected: "Inline".to_string(),
+                    got: "Block".to_string(),
+                }),
+            };
+        }
+    }
+
+    // No match - recurse into children
+    match inline {
+        Inline::Emphasis(inner) => {
+            let transformed = apply_show_rules_to_inline_with_kind(*inner, rules, transform_fn)?;
+            Ok(Inline::Emphasis(Box::new(transformed)))
+        }
+        Inline::Strong(inner) => {
+            let transformed = apply_show_rules_to_inline_with_kind(*inner, rules, transform_fn)?;
+            Ok(Inline::Strong(Box::new(transformed)))
+        }
+        Inline::Link { body, url, title } => {
+            let transformed = apply_show_rules_to_inline_with_kind(*body, rules, transform_fn)?;
+            Ok(Inline::Link {
+                body: Box::new(transformed),
+                url,
+                title,
+            })
+        }
+        Inline::Span { body, attrs } => {
+            let transformed = apply_show_rules_to_inline_with_kind(*body, rules, transform_fn)?;
+            Ok(Inline::Span {
+                body: Box::new(transformed),
+                attrs,
+            })
+        }
+        Inline::Sequence(items) => {
+            let transformed: Result<Vec<_>> = items
+                .into_iter()
+                .map(|item| apply_show_rules_to_inline_with_kind(item, rules, transform_fn))
+                .collect();
+            Ok(Inline::Sequence(transformed?))
+        }
+        other => Ok(other),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,5 +1029,86 @@ mod tests {
         } else {
             panic!("Expected paragraph");
         }
+    }
+
+    #[test]
+    fn test_selector_content_kind() {
+        // Block selectors
+        assert_eq!(SelectorBase::Heading.content_kind(), ContentKind::Block);
+        assert_eq!(SelectorBase::Paragraph.content_kind(), ContentKind::Block);
+        assert_eq!(SelectorBase::Block.content_kind(), ContentKind::Block);
+
+        // Inline selectors
+        assert_eq!(SelectorBase::Emphasis.content_kind(), ContentKind::Inline);
+        assert_eq!(SelectorBase::Strong.content_kind(), ContentKind::Inline);
+        assert_eq!(SelectorBase::Inline.content_kind(), ContentKind::Inline);
+
+        // Generic selector
+        assert_eq!(SelectorBase::Content.content_kind(), ContentKind::Content);
+    }
+
+    #[test]
+    fn test_valid_properties() {
+        // Heading has level property
+        assert!(SelectorBase::Heading.valid_properties().contains(&"level"));
+        assert!(SelectorBase::Heading.valid_properties().contains(&"class"));
+
+        // Paragraph doesn't have level
+        assert!(!SelectorBase::Paragraph.valid_properties().contains(&"level"));
+        assert!(SelectorBase::Paragraph.valid_properties().contains(&"class"));
+
+        // Link has url property
+        assert!(SelectorBase::Link.valid_properties().contains(&"url"));
+        assert!(SelectorBase::Link.valid_properties().contains(&"href"));
+    }
+
+    #[test]
+    fn test_property_validation_valid() {
+        let selector = Selector::new(SelectorBase::Heading);
+        let mut properties = HashMap::new();
+        properties.insert("class".to_string(), SetValue::String("title".to_string()));
+        properties.insert("id".to_string(), SetValue::String("main-title".to_string()));
+
+        // Should succeed
+        assert!(selector.validate_properties(&properties, Span::default()).is_ok());
+    }
+
+    #[test]
+    fn test_property_validation_invalid() {
+        let selector = Selector::new(SelectorBase::Paragraph);
+        let mut properties = HashMap::new();
+        properties.insert("level".to_string(), SetValue::Int(1)); // Invalid for paragraph
+
+        // Should fail
+        let result = selector.validate_properties(&properties, Span::default());
+        assert!(result.is_err());
+        if let Err(MrlError::InvalidProperty { property, .. }) = result {
+            assert_eq!(property, "level");
+        } else {
+            panic!("Expected InvalidProperty error");
+        }
+    }
+
+    #[test]
+    fn test_show_rule_expected_kind() {
+        // ShowRule should capture expected kind from selector
+        let selector = Selector::new(SelectorBase::Heading);
+        let transform = crate::shrubbery::Shrubbery::Literal(
+            crate::shrubbery::Literal::None,
+            Span::default(),
+        );
+
+        let rule = ShowRule::new(selector, transform, Span::default());
+        assert_eq!(rule.expected_kind, ContentKind::Block);
+
+        // Inline selector
+        let selector = Selector::new(SelectorBase::Emphasis);
+        let transform = crate::shrubbery::Shrubbery::Literal(
+            crate::shrubbery::Literal::None,
+            Span::default(),
+        );
+
+        let rule = ShowRule::new(selector, transform, Span::default());
+        assert_eq!(rule.expected_kind, ContentKind::Inline);
     }
 }

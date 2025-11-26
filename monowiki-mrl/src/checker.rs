@@ -306,6 +306,10 @@ impl TypeChecker {
                 }
                 Ok(())
             }
+            Content::Live(_) => {
+                // Live cells are not checked for nesting - they're evaluated at render-time
+                Ok(())
+            }
         }
     }
 
@@ -513,6 +517,10 @@ impl TypeChecker {
                     crate::content::Content::Block(_) => Ok(MrlType::Block),
                     crate::content::Content::Inline(_) => Ok(MrlType::Inline),
                     crate::content::Content::Sequence(_) => Ok(MrlType::Content),
+                    crate::content::Content::Live(_) => {
+                        // Live cells produce Content at render-time
+                        Ok(MrlType::Content)
+                    }
                 }
             }
 

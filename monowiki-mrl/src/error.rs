@@ -49,6 +49,14 @@ pub enum MrlError {
 
     #[error("Capability error at {span:?}: {message}")]
     CapabilityError { span: Span, message: String },
+
+    #[error("Invalid property '{property}' for selector {selector} at {span:?}. Valid: {valid_properties:?}")]
+    InvalidProperty {
+        span: Span,
+        property: String,
+        selector: String,
+        valid_properties: Vec<String>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, MrlError>;
@@ -113,6 +121,7 @@ impl<'a> ErrorContext<'a> {
             MrlError::InvalidContentNesting { span } => *span,
             MrlError::StageLevelError { span, .. } => *span,
             MrlError::CapabilityError { span, .. } => *span,
+            MrlError::InvalidProperty { span, .. } => *span,
         }
     }
 }

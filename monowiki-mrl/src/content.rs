@@ -37,6 +37,20 @@ pub enum Content {
     Block(Block),
     Inline(Inline),
     Sequence(Vec<Content>),
+    /// Live cell - deferred execution at render-time
+    /// Contains MRL source that will be sent to MrlKernel
+    Live(LiveCell),
+}
+
+/// A live cell that executes at render-time
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LiveCell {
+    /// The MRL source code to execute
+    pub source: String,
+    /// Dependencies (signal names, etc.)
+    pub deps: Vec<String>,
+    /// Optional cell ID (generated if not provided)
+    pub cell_id: Option<String>,
 }
 
 impl Content {
@@ -68,6 +82,11 @@ impl Content {
     pub fn is_inline(&self) -> bool {
         matches!(self, Content::Inline(_))
     }
+
+    /// Check if this is a live cell
+    pub fn is_live(&self) -> bool {
+        matches!(self, Content::Live(_))
+    }
 }
 
 impl fmt::Display for Content {
@@ -80,6 +99,9 @@ impl fmt::Display for Content {
                     write!(f, "{}", item)?;
                 }
                 Ok(())
+            }
+            Content::Live(cell) => {
+                write!(f, "!live[{}]", cell.source)
             }
         }
     }

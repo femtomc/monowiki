@@ -2,28 +2,65 @@
 //!
 //! Converts monowiki-mrl Content trees to HTML strings for live cell output.
 
-use monowiki_mrl::{Attributes, Block, Content, Inline, ListItem};
+use monowiki_mrl::{Attributes, Block, Content, Inline, ListItem, LiveCell};
 
 /// Render Content to HTML string
 pub fn render_content(content: &Content) -> String {
     let mut output = String::new();
-    render_content_to(&mut output, content);
+    render_content_to(&mut output, content, &mut 0);
     output
 }
 
-fn render_content_to(out: &mut String, content: &Content) {
+fn render_content_to(out: &mut String, content: &Content, live_cell_counter: &mut u32) {
     match content {
-        Content::Block(block) => render_block_to(out, block),
+        Content::Block(block) => render_block_to(out, block, live_cell_counter),
         Content::Inline(inline) => render_inline_to(out, inline),
         Content::Sequence(items) => {
             for item in items {
-                render_content_to(out, item);
+                render_content_to(out, item, live_cell_counter);
             }
+        }
+        Content::Live(cell) => {
+            render_live_cell_to(out, cell, live_cell_counter);
         }
     }
 }
 
-fn render_block_to(out: &mut String, block: &Block) {
+/// Render a live cell as a placeholder that will be populated at runtime
+fn render_live_cell_to(out: &mut String, cell: &LiveCell, counter: &mut u32) {
+    // Generate a unique cell ID if not provided
+    let cell_id = cell.cell_id.clone().unwrap_or_else(|| {
+        let id = format!("live-cell-{}", *counter);
+        *counter += 1;
+        id
+    });
+
+    // Render as a div with data attributes for the runtime to pick up
+    out.push_str("<div class=\"live-cell\" data-cell-id=\"");
+    out.push_str(&escape_attr(&cell_id));
+    out.push_str("\" data-kernel=\"mrl\"");
+
+    // Encode the MRL source as a data attribute
+    out.push_str(" data-source=\"");
+    out.push_str(&escape_attr(&cell.source));
+    out.push('"');
+
+    // Include dependencies if any
+    if !cell.deps.is_empty() {
+        out.push_str(" data-deps=\"");
+        out.push_str(&escape_attr(&cell.deps.join(",")));
+        out.push('"');
+    }
+
+    out.push_str(">");
+
+    // Placeholder content - will be replaced by MrlKernel result
+    out.push_str("<span class=\"live-cell-loading\">Loading...</span>");
+
+    out.push_str("</div>\n");
+}
+
+fn render_block_to(out: &mut String, block: &Block, live_cell_counter: &mut u32) {
     match block {
         Block::Heading { level, body, attrs } => {
             let tag = format!("h{}", level.min(&6));
@@ -82,7 +119,7 @@ fn render_block_to(out: &mut String, block: &Block) {
             out.push_str("<blockquote");
             render_attrs_to(out, attrs);
             out.push_str(">\n");
-            render_content_to(out, body);
+            render_content_to(out, body, live_cell_counter);
             out.push_str("</blockquote>\n");
         }
         Block::Table {
@@ -132,7 +169,7 @@ fn render_block_to(out: &mut String, block: &Block) {
                 out.push('"');
             }
             out.push_str(">\n");
-            render_content_to(out, body);
+            render_content_to(out, body, live_cell_counter);
             out.push_str("</div>\n");
         }
     }
@@ -350,5 +387,36 @@ mod tests {
         let html = render_content(&content);
         assert!(html.contains("<h1>Title</h1>"));
         assert!(html.contains("<p>Body text</p>"));
+    }
+
+    #[test]
+    fn test_render_live_cell() {
+        let live_cell = LiveCell {
+            source: "1 + 2".to_string(),
+            deps: vec!["x".to_string(), "y".to_string()],
+            cell_id: Some("test-cell".to_string()),
+        };
+        let content = Content::Live(live_cell);
+        let html = render_content(&content);
+
+        assert!(html.contains("class=\"live-cell\""));
+        assert!(html.contains("data-cell-id=\"test-cell\""));
+        assert!(html.contains("data-kernel=\"mrl\""));
+        assert!(html.contains("data-source=\"1 + 2\""));
+        assert!(html.contains("data-deps=\"x,y\""));
+    }
+
+    #[test]
+    fn test_render_live_cell_auto_id() {
+        let live_cell = LiveCell {
+            source: "42".to_string(),
+            deps: vec![],
+            cell_id: None,
+        };
+        let content = Content::Live(live_cell);
+        let html = render_content(&content);
+
+        // Should have auto-generated cell ID
+        assert!(html.contains("data-cell-id=\"live-cell-0\""));
     }
 }
