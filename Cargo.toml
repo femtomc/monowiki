@@ -10,6 +10,7 @@ members = [
     "monowiki-incremental",
     "monowiki-mrl",
     "monowiki-runtime",
+    "sammy",
 ]
 
 [workspace.package]

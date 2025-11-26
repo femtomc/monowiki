@@ -1,0 +1,48 @@
+[package]
+name = "sammy"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Syndicated Actor Model runtime for Monowiki (extracted from Slop)"
+
+[dependencies]
+# Preserves data format (core dependency)
+preserves = { version = "5.0.0-rc.7", features = ["serde"] }
+
+# Async runtime
+tokio = { workspace = true }
+futures-util = "0.3"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+
+# Hashing and cryptography
+blake3 = "1.8"
+
+# Concurrency primitives
+parking_lot = "0.12"
+
+# Tracing and logging
+tracing = { workspace = true }
+
+# UUIDs
+uuid = { version = "1.18", features = ["v4", "v5", "serde"] }
+
+# Time utilities
+chrono = { workspace = true }
+
+# Lazy static initialization
+once_cell = { workspace = true }
+
+# Filesystem
+walkdir = { workspace = true }
+tempfile = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.9"
