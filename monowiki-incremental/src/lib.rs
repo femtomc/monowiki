@@ -67,28 +67,27 @@ pub mod metrics;
 pub mod queries;
 
 // Re-export main types
+pub use cache::{CacheError, CacheKey, CacheStats, ContentCache};
 pub use db::Db;
 pub use durability::Durability;
-pub use query::{
-    hash_value, InputQuery, Query, QueryDatabase, QueryKey, Revision,
-};
+pub use invalidation::InvalidationBridge;
 pub use memo::{MemoEntry, MemoStorage, MemoTable};
-pub use cache::{CacheError, CacheKey, CacheStats, ContentCache};
-pub use invalidation::{
-    BlockId, BlockType, DocChange, InvalidationBridge, SectionId, TextRange,
-};
 pub use metrics::{MetricsSnapshot, QueryMetrics};
+pub use monowiki_types::{BlockId, DocChange, DocId};
+pub use queries::SourceStorage;
+pub use query::{hash_value, InputQuery, Query, QueryDatabase, QueryKey, Revision};
 
 /// Prelude module for convenient imports
 pub mod prelude {
     pub use crate::db::Db;
     pub use crate::durability::Durability;
-    pub use crate::query::{InputQuery, Query, QueryDatabase};
-    pub use crate::invalidation::{BlockId, DocChange, InvalidationBridge, SectionId};
+    pub use crate::invalidation::InvalidationBridge;
     pub use crate::queries::{
-        ActiveMacrosQuery, ExpandToContentQuery, LayoutSectionQuery,
-        ParseShrubberyQuery, SourceTextQuery,
+        ActiveMacrosQuery, DocumentSourceQuery, ExpandToContentQuery, LayoutSectionQuery,
+        ParseShrubberyQuery, SourceStorage,
     };
+    pub use crate::query::{InputQuery, Query, QueryDatabase};
+    pub use monowiki_types::{BlockId, DocChange, DocId};
 }
 
 #[cfg(test)]

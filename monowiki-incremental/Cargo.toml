@@ -8,6 +8,9 @@ repository.workspace = true
 description = "Incremental computation engine for monowiki"
 
 [dependencies]
+# Workspace crates
+monowiki-mrl = { path = "../monowiki-mrl" }
+
 # Concurrency
 parking_lot = "0.12"
 dashmap = "6.1"

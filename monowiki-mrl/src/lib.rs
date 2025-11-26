@@ -25,6 +25,8 @@
 
 pub mod checker;
 pub mod content;
+pub mod document;
+pub mod enforest;
 pub mod error;
 pub mod expander;
 pub mod hygiene;
@@ -40,14 +42,19 @@ mod tests;
 // Re-export key types
 pub use checker::TypeChecker;
 pub use content::{Attributes, Block, Content, Inline, ListItem};
-pub use error::{ErrorContext, MrlError, Result, Span};
+pub use document::{parse_document, DocumentElement, DocumentParser};
+pub use enforest::{enforest, Assoc, BinOp, Expr, UnOp};
+pub use error::{ErrorContext, MrlError, Result};
 pub use expander::{ExpandFunction, ExpandValue, Expander};
 pub use hygiene::{Binding, HygieneChecker, HygieneEnv, MacroContext};
 pub use interpreter::{DocumentReflection, Interpreter, OutlineEntry, ReferenceEntry, SectionContext};
 pub use lexer::{tokenize, Lexer, SpannedToken, Token};
 pub use parser::{parse, Parser, SymbolTable};
-pub use shrubbery::{Literal, Scope, ScopeSet, Shrubbery, Symbol};
-pub use types::{ContentKind, MrlType, TypeScheme};
+pub use shrubbery::{Literal, Param, Scope, ScopeSet, Shrubbery, Symbol};
+pub use types::{MrlType, TypeScheme};
+
+// Re-export shared types from monowiki-types
+pub use monowiki_types::{BlockId, ContentKind, DocId, Span};
 
 /// Parse MRL source into shrubbery
 pub fn parse_source(source: &str) -> Result<Shrubbery> {

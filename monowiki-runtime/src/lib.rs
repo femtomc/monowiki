@@ -81,6 +81,7 @@ pub mod abi;
 pub mod dataspace;
 pub mod diagnostics;
 pub mod emitter;
+pub mod engine;
 pub mod host;
 pub mod interpreter;
 pub mod signals;
@@ -99,6 +100,8 @@ pub use diagnostics::{Decoration, Diagnostic, DiagnosticCollector};
 pub use emitter::{
     ExportKind, FuncBody, FuncType, Instruction, ValType, WasmEmitter,
 };
+
+pub use engine::{LiveCellEngine, LiveCellInstance};
 
 pub use host::RuntimeHost;
 

@@ -6,10 +6,6 @@ authors = ["femtomc"]
 license = "MIT"
 publish = false
 
-[features]
-default = []
-loro = ["dep:loro"]
-
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
@@ -34,11 +30,8 @@ uuid = { version = "1", features = ["v4"] }
 # Embedded editor UI
 include_dir = { workspace = true }
 
-# CRDT - yrs 0.24 with sync protocol
-yrs = { version = "0.24", features = ["sync"] }
-
-# CRDT - loro (feature-gated, future default)
-loro = { version = "1.0", optional = true }
+# CRDT - Loro (MovableTree + Fugue + Peritext)
+loro = "1.0"
 
 # Optional: reuse core rendering/parsing logic when turning CRDT -> markdown
 monowiki-core = { path = "../monowiki-core" }

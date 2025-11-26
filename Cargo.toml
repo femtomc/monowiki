@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "monowiki-types",
     "monowiki-core",
     "monowiki-cli",
     "monowiki-render",

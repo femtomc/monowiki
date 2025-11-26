@@ -173,3 +173,183 @@ fn test_parse_sequence() {
         _ => panic!("Expected sequence"),
     }
 }
+
+// ===== Block construct tests =====
+
+#[test]
+fn test_parse_def_simple() {
+    let source = r#"!def greet(name: String):
+  text("Hello")
+"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::DefBlock { params, body, .. } => {
+            assert_eq!(params.len(), 1);
+            assert!(!body.is_empty());
+        }
+        _ => panic!("Expected DefBlock, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_def_no_params() {
+    let source = r#"!def today:
+  text("2024")
+"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::DefBlock { params, body, .. } => {
+            assert_eq!(params.len(), 0);
+            assert!(!body.is_empty());
+        }
+        _ => panic!("Expected DefBlock, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_def_single_line() {
+    let source = r#"!def today = "2024-01-01""#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::DefBlock { body, .. } => {
+            assert_eq!(body.len(), 1);
+        }
+        _ => panic!("Expected DefBlock, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_staged_bracketed() {
+    let source = r#"!staged[for x in items: paragraph(x)]"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::StagedBlock { body, .. } => {
+            assert!(!body.is_empty());
+        }
+        _ => panic!("Expected StagedBlock, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_show_rule_simple() {
+    let source = r#"!show heading: it"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::ShowRule { selector, .. } => {
+            assert!(matches!(**selector, Shrubbery::Selector { .. }));
+        }
+        _ => panic!("Expected ShowRule, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_show_rule_with_where() {
+    let source = r#"!show heading.where(level == 1): it"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::ShowRule { selector, .. } => {
+            match &**selector {
+                Shrubbery::Selector { predicate, .. } => {
+                    assert!(predicate.is_some());
+                }
+                _ => panic!("Expected Selector"),
+            }
+        }
+        _ => panic!("Expected ShowRule, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_set_rule() {
+    let source = r#"!set heading {
+  numbering: "1.",
+  font: "Georgia"
+}"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::SetRule { properties, .. } => {
+            assert_eq!(properties.len(), 2);
+        }
+        _ => panic!("Expected SetRule, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_live_simple() {
+    let source = r#"!live:
+  x = 42
+"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::LiveBlock { deps, body, .. } => {
+            assert!(deps.is_none());
+            assert!(!body.is_empty());
+        }
+        _ => panic!("Expected LiveBlock, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_quote_bracketed() {
+    let source = r#"quote[text("Hello")]"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::Quote { .. } => {}
+        _ => panic!("Expected Quote, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_splice_dollar() {
+    let source = r#"$x"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::Splice { expr, .. } => {
+            assert!(matches!(**expr, Shrubbery::Identifier(_, _, _)));
+        }
+        _ => panic!("Expected Splice, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_if_simple() {
+    let source = r#"if x == 1: text("one")"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    match &shrub {
+        Shrubbery::If { else_branch, .. } => {
+            assert!(else_branch.is_none());
+        }
+        _ => panic!("Expected If, got {:?}", shrub),
+    }
+}
+
+#[test]
+fn test_parse_for_loop() {
+    let source = r#"for item in items: paragraph(item)"#;
+    let tokens = tokenize(source).unwrap();
+    let shrub = parse(&tokens).unwrap();
+
+    assert!(matches!(shrub, Shrubbery::For { .. }));
+}

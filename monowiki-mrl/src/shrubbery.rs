@@ -127,6 +127,36 @@ impl fmt::Display for Literal {
     }
 }
 
+/// Parameter with optional type annotation and default value
+#[derive(Debug, Clone, PartialEq)]
+pub struct Param {
+    pub name: Symbol,
+    pub type_annotation: Option<Box<Shrubbery>>,
+    pub default: Option<Box<Shrubbery>>,
+    pub span: Span,
+}
+
+impl Param {
+    pub fn new(name: Symbol, span: Span) -> Self {
+        Self {
+            name,
+            type_annotation: None,
+            default: None,
+            span,
+        }
+    }
+
+    pub fn with_type(mut self, type_annotation: Shrubbery) -> Self {
+        self.type_annotation = Some(Box::new(type_annotation));
+        self
+    }
+
+    pub fn with_default(mut self, default: Shrubbery) -> Self {
+        self.default = Some(Box::new(default));
+        self
+    }
+}
+
 /// Shrubbery: token tree representation with deferred precedence
 #[derive(Debug, Clone, PartialEq)]
 pub enum Shrubbery {
@@ -156,6 +186,78 @@ pub enum Shrubbery {
 
     /// Sequence of elements (comma or newline separated)
     Sequence(Vec<Shrubbery>, Span),
+
+    // Block-level constructs
+    /// Macro definition: !def name(params): body
+    DefBlock {
+        name: Symbol,
+        params: Vec<Param>,
+        return_type: Option<Box<Shrubbery>>,
+        body: Vec<Shrubbery>,
+        span: Span,
+    },
+
+    /// Staged block: !staged[...] or !staged: indented_body
+    StagedBlock {
+        body: Vec<Shrubbery>,
+        span: Span,
+    },
+
+    /// Show rule: !show selector: transform
+    ShowRule {
+        selector: Box<Shrubbery>,
+        transform: Box<Shrubbery>,
+        span: Span,
+    },
+
+    /// Set rule: !set selector {...}
+    SetRule {
+        selector: Box<Shrubbery>,
+        properties: Vec<(Symbol, Shrubbery)>,
+        span: Span,
+    },
+
+    /// Live code block: !live[...] or !live: indented_body
+    LiveBlock {
+        deps: Option<Vec<Symbol>>,
+        body: Vec<Shrubbery>,
+        span: Span,
+    },
+
+    /// Selector for show/set rules
+    Selector {
+        base: Symbol,
+        predicate: Option<Box<Shrubbery>>,
+        span: Span,
+    },
+
+    /// Quote expression: quote[...] or quote: body
+    Quote {
+        body: Box<Shrubbery>,
+        span: Span,
+    },
+
+    /// Splice expression: $identifier or splice(expr)
+    Splice {
+        expr: Box<Shrubbery>,
+        span: Span,
+    },
+
+    /// If expression: if cond: then else: otherwise
+    If {
+        condition: Box<Shrubbery>,
+        then_branch: Box<Shrubbery>,
+        else_branch: Option<Box<Shrubbery>>,
+        span: Span,
+    },
+
+    /// For expression: for pattern in iterable: body
+    For {
+        pattern: Symbol,
+        iterable: Box<Shrubbery>,
+        body: Box<Shrubbery>,
+        span: Span,
+    },
 }
 
 impl Shrubbery {
@@ -170,6 +272,16 @@ impl Shrubbery {
             Shrubbery::Prose(_, span) => *span,
             Shrubbery::ContentBlock(_, span) => *span,
             Shrubbery::Sequence(_, span) => *span,
+            Shrubbery::DefBlock { span, .. } => *span,
+            Shrubbery::StagedBlock { span, .. } => *span,
+            Shrubbery::ShowRule { span, .. } => *span,
+            Shrubbery::SetRule { span, .. } => *span,
+            Shrubbery::LiveBlock { span, .. } => *span,
+            Shrubbery::Selector { span, .. } => *span,
+            Shrubbery::Quote { span, .. } => *span,
+            Shrubbery::Splice { span, .. } => *span,
+            Shrubbery::If { span, .. } => *span,
+            Shrubbery::For { span, .. } => *span,
         }
     }
 
@@ -187,6 +299,35 @@ impl Shrubbery {
                 for item in items {
                     item.add_scope(scope);
                 }
+            }
+            Shrubbery::DefBlock { body, .. } | Shrubbery::StagedBlock { body, .. } | Shrubbery::LiveBlock { body, .. } => {
+                for item in body {
+                    item.add_scope(scope);
+                }
+            }
+            Shrubbery::ShowRule { selector, transform, .. } => {
+                selector.add_scope(scope);
+                transform.add_scope(scope);
+            }
+            Shrubbery::SetRule { selector, properties, .. } => {
+                selector.add_scope(scope);
+                for (_, prop) in properties {
+                    prop.add_scope(scope);
+                }
+            }
+            Shrubbery::Quote { body, .. } | Shrubbery::Splice { expr: body, .. } => {
+                body.add_scope(scope);
+            }
+            Shrubbery::If { condition, then_branch, else_branch, .. } => {
+                condition.add_scope(scope);
+                then_branch.add_scope(scope);
+                if let Some(else_br) = else_branch {
+                    else_br.add_scope(scope);
+                }
+            }
+            Shrubbery::For { iterable, body, .. } => {
+                iterable.add_scope(scope);
+                body.add_scope(scope);
             }
             _ => {}
         }
@@ -206,6 +347,35 @@ impl Shrubbery {
                 for item in items {
                     item.flip_scope(scope);
                 }
+            }
+            Shrubbery::DefBlock { body, .. } | Shrubbery::StagedBlock { body, .. } | Shrubbery::LiveBlock { body, .. } => {
+                for item in body {
+                    item.flip_scope(scope);
+                }
+            }
+            Shrubbery::ShowRule { selector, transform, .. } => {
+                selector.flip_scope(scope);
+                transform.flip_scope(scope);
+            }
+            Shrubbery::SetRule { selector, properties, .. } => {
+                selector.flip_scope(scope);
+                for (_, prop) in properties {
+                    prop.flip_scope(scope);
+                }
+            }
+            Shrubbery::Quote { body, .. } | Shrubbery::Splice { expr: body, .. } => {
+                body.flip_scope(scope);
+            }
+            Shrubbery::If { condition, then_branch, else_branch, .. } => {
+                condition.flip_scope(scope);
+                then_branch.flip_scope(scope);
+                if let Some(else_br) = else_branch {
+                    else_br.flip_scope(scope);
+                }
+            }
+            Shrubbery::For { iterable, body, .. } => {
+                iterable.flip_scope(scope);
+                body.flip_scope(scope);
             }
             _ => {}
         }
@@ -284,6 +454,47 @@ impl fmt::Display for Shrubbery {
                     write!(f, "{}", item)?;
                 }
                 write!(f, "]")
+            }
+            Shrubbery::DefBlock { name, params, body, .. } => {
+                write!(f, "def:{}(", name.0)?;
+                for (i, _param) in params.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "param")?;
+                }
+                write!(f, "): body[{}]", body.len())
+            }
+            Shrubbery::StagedBlock { body, .. } => {
+                write!(f, "staged[{}]", body.len())
+            }
+            Shrubbery::ShowRule { selector, transform, .. } => {
+                write!(f, "show {} : {}", selector, transform)
+            }
+            Shrubbery::SetRule { selector, properties, .. } => {
+                write!(f, "set {} {{ {} props }}", selector, properties.len())
+            }
+            Shrubbery::LiveBlock { body, .. } => {
+                write!(f, "live[{}]", body.len())
+            }
+            Shrubbery::Selector { base, predicate, .. } => {
+                write!(f, "selector:{}", base.0)?;
+                if predicate.is_some() {
+                    write!(f, ".where(...)")?;
+                }
+                Ok(())
+            }
+            Shrubbery::Quote { body, .. } => {
+                write!(f, "quote[{}]", body)
+            }
+            Shrubbery::Splice { expr, .. } => {
+                write!(f, "splice({})", expr)
+            }
+            Shrubbery::If { condition, then_branch, else_branch, .. } => {
+                write!(f, "if {} then {} else {:?}", condition, then_branch, else_branch)
+            }
+            Shrubbery::For { pattern, iterable, body, .. } => {
+                write!(f, "for {} in {} : {}", pattern.0, iterable, body)
             }
         }
     }

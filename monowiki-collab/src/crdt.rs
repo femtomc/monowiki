@@ -1,23 +1,23 @@
+//! Loro-based CRDT document store for collaborative editing.
+//!
+//! Uses:
+//! - MovableTree for document structure (sections/blocks)
+//! - Richtext (Fugue-based) for per-block text
+//! - Peritext-style marks for formatting
+
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use loro::{ExportMode, LoroDoc, LoroTree};
 use serde_json::Value;
 use tokio::sync::{broadcast, RwLock};
-use tracing::warn;
-use yrs::encoding::read::Cursor;
-use yrs::sync::{Awareness, DefaultProtocol, Message, MessageReader, Protocol, SyncMessage};
-use yrs::updates::decoder::DecoderV1;
-use yrs::updates::encoder::{Encode, Encoder, EncoderV1};
-use yrs::updates::decoder::Decode;
-use yrs::{Doc, GetString, StateVector, Text, Transact, ReadTxn, WriteTxn, Update};
 
-/// Map of slug -> live CRDT document + awareness state.
+/// Map of slug -> live Loro document
 #[derive(Default)]
 pub struct DocStore {
-    docs: RwLock<HashMap<String, Arc<NoteDoc>>>,
+    docs: RwLock<HashMap<String, Arc<LoroNoteDoc>>>,
 }
 
 impl DocStore {
@@ -25,67 +25,54 @@ impl DocStore {
         &self,
         slug: &str,
         site_config: &monowiki_core::Config,
-    ) -> Result<Arc<NoteDoc>> {
+    ) -> Result<Arc<LoroNoteDoc>> {
         if let Some(doc) = self.docs.read().await.get(slug).cloned() {
             return Ok(doc);
         }
 
         let (frontmatter, body) = load_note_from_disk(slug, site_config).await?;
-        let doc = Arc::new(NoteDoc::new(frontmatter, &body));
+        let doc = Arc::new(LoroNoteDoc::new_with_content(frontmatter, &body)?);
 
-        // If a .ydoc exists, hydrate the CRDT state from it (body overrides the markdown body)
-        if let Some(update_bytes) = load_ydoc_from_disk(slug, site_config).await? {
-            let update = Update::decode_v1(&update_bytes)?;
-            let mut txn = doc.awareness.doc().transact_mut();
-            txn.apply_update(update)?;
+        // If a .loro snapshot exists, import it
+        if let Some(snapshot) = load_loro_snapshot(slug, site_config).await? {
+            doc.import_snapshot(&snapshot)?;
         }
 
         let mut guard = self.docs.write().await;
-        Ok(guard.entry(slug.to_string()).or_insert_with(|| doc.clone()).clone())
+        Ok(guard
+            .entry(slug.to_string())
+            .or_insert_with(|| doc.clone())
+            .clone())
     }
 
-    pub async fn snapshot(
-        &self,
-        slug: &str,
-        site_config: &monowiki_core::Config,
-    ) -> Result<(Value, String)> {
+    pub async fn snapshot(&self, slug: &str, site_config: &monowiki_core::Config) -> Result<(Value, String)> {
         let doc = self.get_or_load(slug, site_config).await?;
-        Ok(doc.snapshot().await)
+        doc.snapshot()
     }
 
-    /// Get complete markdown (frontmatter + body) for a slug.
-    pub async fn get_markdown(
-        &self,
-        slug: &str,
-        site_config: &monowiki_core::Config,
-    ) -> Result<String> {
+    pub async fn get_markdown(&self, slug: &str, site_config: &monowiki_core::Config) -> Result<String> {
         let (frontmatter, body) = self.snapshot(slug, site_config).await?;
         let yaml = serde_yaml::to_string(&frontmatter)?;
-        let mut content = String::new();
-        content.push_str("---\n");
-        content.push_str(&yaml);
-        content.push_str("---\n");
-        content.push_str(&body);
-        Ok(content)
+        Ok(format!("---\n{}---\n{}", yaml, body))
     }
 
-    /// Flush all loaded docs to disk (frontmatter + markdown body).
     pub async fn flush_dirty_to_disk(&self, site_config: &monowiki_core::Config) -> Result<()> {
-        let docs: Vec<(String, Arc<NoteDoc>)> = {
-            let guard = self.docs.read().await;
-            guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-        };
+        let docs: Vec<_> = self
+            .docs
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
         for (slug, doc) in docs {
-            if !doc.is_dirty() {
-                continue;
+            if doc.is_dirty() {
+                let (fm, body) = doc.snapshot()?;
+                write_snapshot_to_disk(&slug, &fm, &body, site_config).await?;
+                write_loro_snapshot(&slug, &doc, site_config).await?;
+                doc.mark_clean();
             }
-            let (frontmatter, body) = doc.snapshot().await;
-            write_snapshot_to_disk(&slug, &frontmatter, &body, site_config).await?;
-            write_ydoc_to_disk(&slug, &doc, site_config).await?;
-            doc.mark_clean();
         }
-
         Ok(())
     }
 
@@ -103,80 +90,129 @@ impl DocStore {
     }
 }
 
-/// Represents a single collaborative note.
-pub struct NoteDoc {
-    awareness: Awareness,
+/// A collaborative document using Loro.
+pub struct LoroNoteDoc {
+    doc: LoroDoc,
     frontmatter: RwLock<Value>,
-    tx: broadcast::Sender<BroadcastPacket>,
-    session_counter: AtomicU64,
-    dirty: AtomicBool,
+    tx: broadcast::Sender<SyncPacket>,
+    dirty: std::sync::atomic::AtomicBool,
+    session_counter: std::sync::atomic::AtomicU64,
 }
 
-impl NoteDoc {
-    pub fn new(frontmatter: Value, body: &str) -> Self {
-        let doc = Doc::new();
-        let awareness = Awareness::new(doc.clone());
+impl LoroNoteDoc {
+    /// Create empty document
+    pub fn new() -> Self {
+        let doc = LoroDoc::new();
         let (tx, _) = broadcast::channel(128);
-        let session_counter = AtomicU64::new(1);
-        let note = Self {
-            awareness,
-            frontmatter: RwLock::new(frontmatter),
+        Self {
+            doc,
+            frontmatter: RwLock::new(Value::Object(Default::default())),
             tx,
-            session_counter,
-            dirty: AtomicBool::new(false),
-        };
-        note.replace_text(body);
-        note
+            dirty: std::sync::atomic::AtomicBool::new(false),
+            session_counter: std::sync::atomic::AtomicU64::new(1),
+        }
+    }
+
+    /// Create document with initial content
+    pub fn new_with_content(frontmatter: Value, body: &str) -> Result<Self> {
+        let this = Self::new();
+
+        // Initialize document structure with a single root text container
+        {
+            // For now, use a simple text container for the body
+            // TODO: Implement proper MovableTree structure with blocks
+            let text = this.doc.get_text("body");
+            text.insert(0, body)?;
+        }
+
+        *this.frontmatter.blocking_write() = frontmatter;
+        Ok(this)
     }
 
     pub fn next_session_id(&self) -> u64 {
-        self.session_counter.fetch_add(1, Ordering::Relaxed)
+        self.session_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<BroadcastPacket> {
-        self.tx.subscribe()
+    /// Get document tree structure (future: use MovableTree)
+    pub fn get_tree(&self) -> Result<LoroTree> {
+        // Future: return self.doc.get_tree("structure")
+        Err(anyhow!("Tree structure not yet implemented"))
     }
 
-    pub fn awareness(&self) -> &Awareness {
-        &self.awareness
+    /// Get text for the main body (future: per-block text)
+    pub fn get_body_text(&self) -> String {
+        let text = self.doc.get_text("body");
+        text.to_string()
     }
 
-    /// Produce initial sync payload for a newly connected client.
-    pub fn start_sync_payload(&self) -> Result<Vec<u8>> {
-        let mut encoder = EncoderV1::new();
-        DefaultProtocol.start(self.awareness(), &mut encoder)?;
-        Ok(encoder.to_vec())
+    /// Get text for a specific block (future implementation)
+    pub fn get_block_text(&self, _block_id: &str) -> Result<String> {
+        // Future: get text container for specific block
+        Err(anyhow!("Block-level text not yet implemented"))
     }
 
-    /// Current awareness state as a complete y-protocols Awareness message.
-    pub fn awareness_update(&self) -> Result<Option<Vec<u8>>> {
-        let update = self.awareness.update()?;
-        // Wrap as a y-protocols Awareness message
-        let msg = Message::Awareness(update);
-        Ok(Some(encode_message(msg)))
+    /// Insert text in the main body
+    pub fn insert_text(&self, offset: usize, content: &str) -> Result<()> {
+        let text = self.doc.get_text("body");
+        text.insert(offset, content)?;
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(())
     }
 
-    /// Handle an incoming y-protocols message (sync or awareness), returning responses
-    /// to send back to the sender. Broadcasts relevant messages to other peers.
-    pub fn handle_sync_message(&self, sender_id: u64, data: &[u8]) -> Result<Vec<Vec<u8>>> {
-        // Apply to doc and gather responses for the sender
-        let protocol = DefaultProtocol;
-        let responses = protocol.handle(self.awareness(), data)?;
-        self.dirty.store(true, Ordering::Relaxed);
+    /// Delete text in the main body
+    pub fn delete_text(&self, start: usize, len: usize) -> Result<()> {
+        let text = self.doc.get_text("body");
+        text.delete(start, len)?;
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(())
+    }
 
-        // Encode responses as complete y-protocols messages
-        let mut encoded_responses = Vec::new();
-        for msg in responses {
-            encoded_responses.push(encode_message(msg));
-        }
+    /// Add formatting mark (future: Peritext-style)
+    pub fn add_mark(&self, _mark_type: &str, _start: usize, _end: usize) -> Result<()> {
+        // Future: use Peritext-style marks
+        // text.mark(start..end, mark_type, true.into())?;
+        Err(anyhow!("Marks not yet implemented"))
+    }
 
-        // Broadcast updates/awareness messages to other peers
-        for msg in filter_broadcast_messages(data) {
-            let bytes = encode_message(msg);
-            let _ = self.broadcast(bytes, sender_id);
-        }
+    /// Remove formatting mark (future: Peritext-style)
+    pub fn remove_mark(&self, _mark_type: &str, _start: usize, _end: usize) -> Result<()> {
+        // Future: use Peritext-style marks
+        // text.unmark(start..end, mark_type)?;
+        Err(anyhow!("Marks not yet implemented"))
+    }
 
-        Ok(encoded_responses)
+    /// Export full state for sync
+    pub fn export_snapshot(&self) -> Vec<u8> {
+        self.doc.export(ExportMode::Snapshot)
+    }
+
+    /// Import snapshot from another peer
+    pub fn import_snapshot(&self, data: &[u8]) -> Result<()> {
+        self.doc.import(data)?;
+        self.mark_dirty();
+        Ok(())
+    }
+
+    /// Export updates for sync
+    pub fn export_updates(&self) -> Vec<u8> {
+        // Loro's export format for incremental updates
+        self.export_snapshot()
+    }
+
+    /// Apply updates from another peer
+    pub fn apply_updates(&self, data: &[u8]) -> Result<()> {
+        self.doc.import(data)?;
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(())
+    }
+
+    /// Get current version (for sync protocol)
+    pub fn version(&self) -> Vec<u8> {
+        self.doc.oplog_vv().encode()
     }
 
     /// Replace body/frontmatter and emit a full update for connected peers.
@@ -187,85 +223,72 @@ impl NoteDoc {
         }
         // Overwrite text in the shared doc
         self.replace_text(body);
-        self.dirty.store(true, Ordering::Relaxed);
+        self.mark_dirty();
 
-        // Broadcast full update (from empty state vector) so connected peers refresh.
-        let update = {
-            let txn = self.awareness.doc().transact();
-            txn.encode_state_as_update_v1(&StateVector::default())
-        };
-        let msg = Message::Sync(SyncMessage::Update(update));
-        let bytes = encode_message(msg);
-        let _ = self.broadcast(bytes, 0);
+        // Broadcast full update to connected peers
+        let update = self.export_snapshot();
+        let _ = self.broadcast(update, 0);
     }
 
-    /// Snapshot current frontmatter/body from the CRDT doc.
-    pub async fn snapshot(&self) -> (Value, String) {
-        let fm = self.frontmatter.read().await.clone();
-        let mut txn = self.awareness.doc().transact_mut();
-        let text = txn.get_or_insert_text(TEXT_FIELD);
-        let body = text.get_string(&txn);
-        (fm, body)
+    fn replace_text(&self, body: &str) {
+        let text = self.doc.get_text("body");
+        let len = text.len_utf16();
+        if len > 0 {
+            let _ = text.delete(0, len);
+        }
+        let _ = text.insert(0, body);
+    }
+
+    /// Snapshot to frontmatter + body string
+    pub fn snapshot(&self) -> Result<(Value, String)> {
+        let fm = self.frontmatter.blocking_read().clone();
+        let body = self.get_body_text();
+        Ok((fm, body))
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<SyncPacket> {
+        self.tx.subscribe()
     }
 
     pub fn is_dirty(&self) -> bool {
-        self.dirty.load(Ordering::Relaxed)
+        self.dirty
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn mark_dirty(&self) {
+        self.dirty
+            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn mark_clean(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
+        self.dirty
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn broadcast(&self, payload: Vec<u8>, sender_id: u64) {
-        let _ = self.tx.send(BroadcastPacket {
+        let _ = self.tx.send(SyncPacket {
             sender_id,
             payload,
         });
     }
 
-    fn replace_text(&self, body: &str) {
-        let mut txn = self.awareness.doc().transact_mut();
-        let text = txn.get_or_insert_text(TEXT_FIELD);
-        let len = text.len(&txn);
-        if len > 0 {
-            text.remove_range(&mut txn, 0, len);
-        }
-        text.insert(&mut txn, 0, body);
+    fn broadcast_update(&self) -> Result<()> {
+        let update = self.export_snapshot();
+        let _ = self.tx.send(SyncPacket {
+            payload: update,
+            sender_id: 0,
+        });
+        Ok(())
     }
 }
 
-/// Message sent over broadcast channel (y-protocols encoded payload + sender id).
 #[derive(Clone, Debug)]
-pub struct BroadcastPacket {
+pub struct SyncPacket {
     pub sender_id: u64,
-    /// Complete y-protocols encoded message
     pub payload: Vec<u8>,
 }
 
-fn encode_message(msg: Message) -> Vec<u8> {
-    let mut encoder = EncoderV1::new();
-    msg.encode(&mut encoder);
-    encoder.to_vec()
-}
-
-/// Filter incoming y-protocols data down to messages that should be broadcast to other peers.
-fn filter_broadcast_messages(data: &[u8]) -> Vec<Message> {
-    let mut decoder = DecoderV1::new(Cursor::new(data));
-    let mut reader = MessageReader::new(&mut decoder);
-    let mut msgs = Vec::new();
-    while let Some(res) = reader.next() {
-        match res {
-            Ok(msg @ Message::Sync(SyncMessage::Update(_))) => msgs.push(msg),
-            Ok(msg @ Message::Awareness(_) | msg @ Message::AwarenessQuery) => msgs.push(msg),
-            Ok(_) => {}
-            Err(err) => {
-                warn!(?err, "failed to decode y-protocols message");
-                break;
-            }
-        }
-    }
-    msgs
-}
+// Helper functions for disk I/O
 
 /// Convert a slug to a vault-relative path, rejecting traversal.
 pub fn slug_to_rel(slug: &str) -> Result<PathBuf> {
@@ -295,78 +318,47 @@ pub fn slug_to_rel(slug: &str) -> Result<PathBuf> {
     Ok(clean)
 }
 
-async fn load_note_from_disk(
-    slug: &str,
-    site_config: &monowiki_core::Config,
-) -> Result<(Value, String)> {
-    let rel_path = slug_to_rel(slug)?;
-    let abs_path = site_config.vault_dir().join(&rel_path);
-    let raw = tokio::fs::read_to_string(&abs_path).await?;
-    let (frontmatter, body) = monowiki_core::frontmatter::parse_frontmatter(&raw)?;
-    let frontmatter_json = serde_json::to_value(frontmatter)?;
-    Ok((frontmatter_json, body))
+async fn load_note_from_disk(slug: &str, config: &monowiki_core::Config) -> Result<(Value, String)> {
+    let path = config.vault_dir().join(slug_to_rel(slug)?);
+    let content = tokio::fs::read_to_string(&path).await?;
+    let (fm, body) = monowiki_core::frontmatter::parse_frontmatter(&content)?;
+    Ok((serde_json::to_value(fm)?, body))
 }
 
-async fn load_ydoc_from_disk(
-    slug: &str,
-    site_config: &monowiki_core::Config,
-) -> Result<Option<Vec<u8>>> {
-    let rel_path = slug_to_rel(slug)?;
-    let mut ydoc_rel = PathBuf::from(".collab").join(rel_path);
-    ydoc_rel.set_extension("ydoc");
-    let abs_path = site_config.vault_dir().join(&ydoc_rel);
-    match tokio::fs::read(&abs_path).await {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(e) => {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                Ok(None)
-            } else {
-                Err(e.into())
-            }
-        }
+async fn load_loro_snapshot(slug: &str, config: &monowiki_core::Config) -> Result<Option<Vec<u8>>> {
+    let mut path = PathBuf::from(".collab").join(slug_to_rel(slug)?);
+    path.set_extension("loro");
+    let full = config.vault_dir().join(&path);
+    match tokio::fs::read(&full).await {
+        Ok(data) => Ok(Some(data)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.into()),
     }
 }
 
 async fn write_snapshot_to_disk(
     slug: &str,
-    frontmatter: &Value,
+    fm: &Value,
     body: &str,
-    site_config: &monowiki_core::Config,
+    config: &monowiki_core::Config,
 ) -> Result<()> {
-    let rel_path = slug_to_rel(slug)?;
-    let abs_path = site_config.vault_dir().join(&rel_path);
-    if let Some(parent) = abs_path.parent() {
+    let path = config.vault_dir().join(slug_to_rel(slug)?);
+    if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-
-    let yaml = serde_yaml::to_string(frontmatter)?;
-    let mut content = String::new();
-    content.push_str("---\n");
-    content.push_str(&yaml);
-    content.push_str("---\n");
-    content.push_str(body);
-    tokio::fs::write(&abs_path, content).await?;
+    let yaml = serde_yaml::to_string(fm)?;
+    let content = format!("---\n{}---\n{}", yaml, body);
+    tokio::fs::write(&path, content).await?;
     Ok(())
 }
 
-async fn write_ydoc_to_disk(
-    slug: &str,
-    doc: &NoteDoc,
-    site_config: &monowiki_core::Config,
-) -> Result<()> {
-    let rel_path = slug_to_rel(slug)?;
-    let mut ydoc_rel = PathBuf::from(".collab").join(rel_path);
-    ydoc_rel.set_extension("ydoc");
-    let abs_path = site_config.vault_dir().join(&ydoc_rel);
-    if let Some(parent) = abs_path.parent() {
+async fn write_loro_snapshot(slug: &str, doc: &LoroNoteDoc, config: &monowiki_core::Config) -> Result<()> {
+    let mut path = PathBuf::from(".collab").join(slug_to_rel(slug)?);
+    path.set_extension("loro");
+    let full = config.vault_dir().join(&path);
+    if let Some(parent) = full.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    let update = {
-        let txn = doc.awareness.doc().transact();
-        txn.encode_state_as_update_v1(&StateVector::default())
-    };
-    tokio::fs::write(&abs_path, update).await?;
+    tokio::fs::write(&full, doc.export_snapshot()).await?;
     Ok(())
 }
-
-const TEXT_FIELD: &str = "body";

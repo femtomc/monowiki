@@ -1,33 +1,7 @@
 use std::fmt;
 
-/// Content kind for staged types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ContentKind {
-    Block,
-    Inline,
-    Content,
-}
-
-impl ContentKind {
-    /// Check if this kind is a subkind of another
-    pub fn is_subkind_of(&self, other: &ContentKind) -> bool {
-        match (self, other) {
-            (ContentKind::Block, ContentKind::Content) => true,
-            (ContentKind::Inline, ContentKind::Content) => true,
-            (a, b) => a == b,
-        }
-    }
-}
-
-impl fmt::Display for ContentKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ContentKind::Block => write!(f, "Block"),
-            ContentKind::Inline => write!(f, "Inline"),
-            ContentKind::Content => write!(f, "Content"),
-        }
-    }
-}
+// Re-export ContentKind from shared types
+pub use monowiki_types::ContentKind;
 
 /// MRL type system
 #[derive(Debug, Clone, PartialEq)]

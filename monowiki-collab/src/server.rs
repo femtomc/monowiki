@@ -26,12 +26,12 @@ use crate::{
     auth::{AuthError, AuthState, Capability, MaybeClaims},
     build::{BuildRunner, BuildSummary},
     config::CollabConfig,
+    crdt::{slug_to_rel, DocStore, SyncPacket},
     git::{GitWorkspace, GitWorkspaceSummary},
-    crdt::{BroadcastPacket, DocStore, slug_to_rel},
     ratelimit::RateLimiter,
     render::SharedRenderCache,
 };
-// y-protocols message handling is done in crdt.rs
+// Loro sync protocol: simple binary message passing
 
 use monowiki_core::Frontmatter;
 
@@ -846,23 +846,21 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
     let session_id = doc.next_session_id();
     let mut broadcast_rx = doc.subscribe();
 
-    // Send initial sync payload (already y-protocols encoded by DefaultProtocol.start()).
-    if let Ok(init) = doc.start_sync_payload() {
-        if !init.is_empty() {
-            socket.send(WsMessage::Binary(init.into())).await.ok();
-        }
-    }
-    // Send initial awareness state (already encoded as y-protocols Awareness message).
-    if let Ok(Some(aw)) = doc.awareness_update() {
-        socket.send(WsMessage::Binary(aw.into())).await.ok();
+    // Send initial snapshot for sync
+    let init_snapshot = doc.export_snapshot();
+    if !init_snapshot.is_empty() {
+        socket
+            .send(WsMessage::Binary(init_snapshot.into()))
+            .await
+            .ok();
     }
 
     loop {
         tokio::select! {
-            // Messages from other peers (complete y-protocols messages)
+            // Messages from other peers (Loro updates)
             recv = broadcast_rx.recv() => {
                 match recv {
-                    Ok(BroadcastPacket { sender_id, payload }) => {
+                    Ok(SyncPacket { sender_id, payload }) => {
                         if sender_id != session_id {
                             if socket.send(WsMessage::Binary(payload.into())).await.is_err() {
                                 break;
@@ -879,20 +877,14 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
                     Some(Ok(WsMessage::Binary(bytes))) => {
                         if bytes.is_empty() { continue; }
 
-                        // y-websocket sends raw y-protocols messages.
-                        // Pass entire message to handle_sync_message which will parse
-                        // the message type from the y-protocols encoding.
-                        match doc.handle_sync_message(session_id, &bytes) {
-                            Ok(responses) => {
-                                for resp in responses {
-                                    // Response is already a complete y-protocols message
-                                    if socket.send(WsMessage::Binary(resp.into())).await.is_err() {
-                                        break;
-                                    }
-                                }
+                        // Loro sync: client sends updates, we apply and broadcast
+                        match doc.apply_updates(&bytes) {
+                            Ok(()) => {
+                                // Update applied successfully
+                                // The broadcast happens inside apply_updates
                             }
                             Err(err) => {
-                                warn!(%slug, ?err, "failed to handle y-sync message");
+                                warn!(%slug, ?err, "failed to apply Loro update");
                             }
                         }
                     }

@@ -29,6 +29,7 @@ tracing = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 insta = { workspace = true }
+wat = "1.0"
 
 [features]
 default = []

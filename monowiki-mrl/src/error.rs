@@ -1,38 +1,7 @@
 use std::fmt;
 
-/// Source location span for error reporting
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl Span {
-    pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-
-    pub fn merge(&self, other: &Span) -> Self {
-        Self {
-            start: self.start.min(other.start),
-            end: self.end.max(other.end),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.end.saturating_sub(self.start)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.start >= self.end
-    }
-}
-
-impl Default for Span {
-    fn default() -> Self {
-        Self { start: 0, end: 0 }
-    }
-}
+// Re-export Span from shared types
+pub use monowiki_types::Span;
 
 /// Errors that can occur during MRL processing
 #[derive(Debug, thiserror::Error)]

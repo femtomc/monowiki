@@ -3,13 +3,12 @@
 //! This module provides the standard query implementations for transforming
 //! documents through the read → parse → expand → layout pipeline.
 
-pub mod source;
-pub mod parse;
 pub mod expand;
 pub mod layout;
+pub mod parse;
+pub mod source;
 
-// Re-export common types
-pub use source::SourceTextQuery;
-pub use parse::ParseShrubberyQuery;
-pub use expand::{ActiveMacrosQuery, ExpandToContentQuery};
-pub use layout::LayoutSectionQuery;
+pub use expand::{ActiveMacrosQuery, ExpandResult, ExpandToContentQuery, MacroConfig};
+pub use layout::{Layout, LayoutBox, LayoutSectionQuery};
+pub use parse::{ParseResult, ParseShrubberyQuery};
+pub use source::{BlockSourceQuery, DocumentSourceQuery, SourceStorage};
