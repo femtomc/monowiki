@@ -8,6 +8,7 @@ pub mod github_pages;
 pub mod graph;
 pub mod init;
 pub mod note;
+pub mod pipeline;
 pub mod search;
 pub mod watch;
 
@@ -19,5 +20,6 @@ pub use github_pages::setup_github_pages;
 pub use graph::{graph_neighbors, graph_path};
 pub use init::init_project;
 pub use note::show_note;
+pub use pipeline::{run_execute, run_pipeline, test_invalidation};
 pub use search::{search_site, SearchOptions};
 pub use watch::watch_changes;

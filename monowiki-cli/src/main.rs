@@ -126,6 +126,28 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
+
+    /// Test the MRL document processing pipeline
+    Pipeline {
+        /// Input MRL file
+        input: PathBuf,
+
+        /// Output format (debug, json, html)
+        #[arg(short, long, default_value = "debug")]
+        format: String,
+
+        /// Use incremental caching
+        #[arg(long)]
+        cached: bool,
+
+        /// Execute with full interpreter
+        #[arg(long)]
+        execute: bool,
+
+        /// Test invalidation
+        #[arg(long)]
+        test_invalidation: bool,
+    },
 }
 
 #[tokio::main]
@@ -203,6 +225,21 @@ async fn main() -> anyhow::Result<()> {
         Commands::Editor { port, open } => commands::editor_server(port, open).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
+        }
+        Commands::Pipeline {
+            input,
+            format,
+            cached,
+            execute,
+            test_invalidation,
+        } => {
+            if test_invalidation {
+                commands::test_invalidation(&input)
+            } else if execute {
+                commands::run_execute(&input)
+            } else {
+                commands::run_pipeline(&input, &format, cached)
+            }
         }
     }
 }

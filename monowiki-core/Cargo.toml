@@ -12,7 +12,8 @@ description = "Core library for monowiki static site generator"
 monowiki-types = { path = "../monowiki-types" }
 monowiki-mrl = { path = "../monowiki-mrl" }
 monowiki-incremental = { path = "../monowiki-incremental" }
-monowiki-collab = { path = "../monowiki-collab", optional = true }
+# Note: monowiki-collab is NOT a dependency to avoid circular deps
+# The collab crate depends on core, so core cannot depend on collab
 
 serde.workspace = true
 serde_yaml.workspace = true
@@ -36,7 +37,6 @@ hayagriva.workspace = true
 
 [features]
 default = []
-collab = ["dep:monowiki-collab"]
 
 [dev-dependencies]
 insta.workspace = true

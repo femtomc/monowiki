@@ -20,9 +20,6 @@ use std::sync::Arc;
 pub struct DocumentPipeline {
     /// Incremental query database
     db: Arc<monowiki_incremental::Db>,
-    /// Optional: CRDT document store
-    #[cfg(feature = "collab")]
-    doc_store: Option<Arc<monowiki_collab::DocStore>>,
 }
 
 impl DocumentPipeline {
@@ -30,25 +27,12 @@ impl DocumentPipeline {
     pub fn new() -> Self {
         Self {
             db: Arc::new(monowiki_incremental::Db::new()),
-            #[cfg(feature = "collab")]
-            doc_store: None,
         }
     }
 
     /// Create a pipeline with access to the incremental database
     pub fn with_db(db: Arc<monowiki_incremental::Db>) -> Self {
-        Self {
-            db,
-            #[cfg(feature = "collab")]
-            doc_store: None,
-        }
-    }
-
-    /// Enable collaborative editing (requires 'collab' feature)
-    #[cfg(feature = "collab")]
-    pub fn with_collab(mut self, store: Arc<monowiki_collab::DocStore>) -> Self {
-        self.doc_store = Some(store);
-        self
+        Self { db }
     }
 
     /// Get a reference to the incremental database

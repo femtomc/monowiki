@@ -82,3 +82,69 @@ pub enum DocChange {
         end: usize,
     },
 }
+
+/// Source span for error reporting and source tracking
+///
+/// Represents a range in source text, used for error messages
+/// and tracking where content came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash, Serialize, Deserialize)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+
+    /// Merge two spans to create a span that covers both
+    pub fn merge(&self, other: &Span) -> Self {
+        Self {
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
+    }
+
+    /// Get the length of this span
+    pub fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+
+    /// Check if this span is empty
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+}
+
+/// Content kind for type system
+///
+/// Used in the MRL type system to distinguish between
+/// block-level and inline content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ContentKind {
+    Block,
+    Inline,
+    Content,
+}
+
+impl ContentKind {
+    /// Check if this kind is a subkind of another
+    pub fn is_subkind_of(&self, other: &ContentKind) -> bool {
+        match (self, other) {
+            (ContentKind::Block, ContentKind::Content) => true,
+            (ContentKind::Inline, ContentKind::Content) => true,
+            (a, b) => a == b,
+        }
+    }
+}
+
+impl std::fmt::Display for ContentKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ContentKind::Block => write!(f, "Block"),
+            ContentKind::Inline => write!(f, "Inline"),
+            ContentKind::Content => write!(f, "Content"),
+        }
+    }
+}
