@@ -2949,6 +2949,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "insta",
  "monowiki-mrl",
+ "monowiki-types",
  "parking_lot",
  "serde",
  "serde_json",

@@ -9,6 +9,7 @@ description = "Incremental computation engine for monowiki"
 
 [dependencies]
 # Workspace crates
+monowiki-types = { path = "../monowiki-types" }
 monowiki-mrl = { path = "../monowiki-mrl" }
 
 # Concurrency

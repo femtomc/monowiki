@@ -343,11 +343,12 @@ impl<'a> Parser<'a> {
 
         // Parse name
         let name_token = self.expect(Token::Identifier(String::new()))?;
-        let name = if let Token::Identifier(n) = &name_token.token {
-            self.symbols.intern(n)
+        let name_str = if let Token::Identifier(n) = &name_token.token {
+            n.clone()
         } else {
             unreachable!()
         };
+        let name = self.symbols.intern(&name_str);
 
         // Parse optional parameters
         let params = if self.check(&Token::LParen) {
@@ -420,13 +421,14 @@ impl<'a> Parser<'a> {
             }
 
             let name_token = self.expect(Token::Identifier(String::new()))?;
-            let name = if let Token::Identifier(n) = &name_token.token {
-                self.symbols.intern(n)
+            let (name_str, name_span) = if let Token::Identifier(n) = &name_token.token {
+                (n.clone(), name_token.span)
             } else {
                 unreachable!()
             };
+            let name = self.symbols.intern(&name_str);
 
-            let mut param = Param::new(name, name_token.span);
+            let mut param = Param::new(name, name_span);
 
             // Optional type annotation
             if self.check(&Token::Colon) {
@@ -572,11 +574,12 @@ impl<'a> Parser<'a> {
 
             // Parse property name
             let key_token = self.expect(Token::Identifier(String::new()))?;
-            let key = if let Token::Identifier(k) = &key_token.token {
-                self.symbols.intern(k)
+            let key_str = if let Token::Identifier(k) = &key_token.token {
+                k.clone()
             } else {
                 unreachable!()
             };
+            let key = self.symbols.intern(&key_str);
 
             self.expect(Token::Colon)?;
 
@@ -623,9 +626,12 @@ impl<'a> Parser<'a> {
                     let mut dep_list = Vec::new();
                     while !self.check(&Token::RBracket) && !self.is_eof() {
                         let id_token = self.expect(Token::Identifier(String::new()))?;
-                        if let Token::Identifier(id) = &id_token.token {
-                            dep_list.push(self.symbols.intern(id));
-                        }
+                        let id_str = if let Token::Identifier(id) = &id_token.token {
+                            id.clone()
+                        } else {
+                            continue;
+                        };
+                        dep_list.push(self.symbols.intern(&id_str));
                         if self.check(&Token::Comma) {
                             self.advance();
                         }
@@ -672,12 +678,12 @@ impl<'a> Parser<'a> {
     /// Parse selector for show/set: heading, paragraph, link.where(...), etc.
     fn parse_selector(&mut self) -> Result<Shrubbery> {
         let start_token = self.expect(Token::Identifier(String::new()))?;
-        let start = start_token.span.start;
-        let base = if let Token::Identifier(name) = &start_token.token {
-            self.symbols.intern(name)
+        let (base_name, start) = if let Token::Identifier(name) = &start_token.token {
+            (name.clone(), start_token.span.start)
         } else {
             unreachable!()
         };
+        let base = self.symbols.intern(&base_name);
 
         // Check for .where(predicate)
         let predicate = if self.check(&Token::Dot) {
@@ -829,11 +835,12 @@ impl<'a> Parser<'a> {
 
         // Parse pattern (for now just an identifier)
         let pattern_token = self.expect(Token::Identifier(String::new()))?;
-        let pattern = if let Token::Identifier(p) = &pattern_token.token {
-            self.symbols.intern(p)
+        let pattern_str = if let Token::Identifier(p) = &pattern_token.token {
+            p.clone()
         } else {
             unreachable!()
         };
+        let pattern = self.symbols.intern(&pattern_str);
 
         self.expect(Token::In)?;
 

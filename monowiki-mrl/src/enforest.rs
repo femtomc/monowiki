@@ -177,7 +177,10 @@ pub fn enforest(shrub: &Shrubbery) -> Result<Expr> {
 
         Shrubbery::Brackets(items, span) => {
             // Content block
-            Ok(Expr::Content(Content::Block(Block::Paragraph(Inline::Text("".to_string()))), *span))
+            Ok(Expr::Content(Content::Block(Block::Paragraph {
+                body: Box::new(Inline::Text("".to_string())),
+                attrs: Attributes::default(),
+            }), *span))
         }
 
         Shrubbery::Quote { body, span } => {
