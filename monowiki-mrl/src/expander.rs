@@ -1,6 +1,6 @@
 use crate::content::Content;
 use crate::error::{MrlError, Result, Span};
-use crate::hygiene::{Binding, HygieneEnv, MacroContext};
+use crate::hygiene::{Binding, HygieneEnv, MacroContext, Space, SpaceRegistry};
 use crate::rules::{apply_show_rules, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
 use crate::shrubbery::{Scope, ScopeSet, Shrubbery, Symbol};
 use crate::types::{ContentKind, MrlType};
@@ -124,6 +124,9 @@ pub struct Expander {
     /// Hygiene environment
     hygiene: HygieneEnv,
 
+    /// Space registry for namespace-aware lookup
+    spaces: SpaceRegistry,
+
     /// Next scope ID
     next_scope_id: u64,
 
@@ -135,6 +138,9 @@ pub struct Expander {
 
     /// Symbol table for resolving symbol IDs to names
     symbols: HashMap<u64, String>,
+
+    /// Bindings organized by (symbol_id, space) for space-aware lookup
+    space_bindings: HashMap<(u64, Option<u64>), ExpandValue>,
 }
 
 impl Expander {
@@ -142,16 +148,59 @@ impl Expander {
         let mut expander = Self {
             env: HashMap::new(),
             hygiene: HygieneEnv::new(),
+            spaces: SpaceRegistry::new(),
             next_scope_id: 0,
             macros: HashMap::new(),
             rules: RuleSet::new(),
             symbols: HashMap::new(),
+            space_bindings: HashMap::new(),
         };
 
         // Register built-in functions
         expander.register_builtins();
 
         expander
+    }
+
+    /// Get the space registry
+    pub fn spaces(&self) -> &SpaceRegistry {
+        &self.spaces
+    }
+
+    /// Bind a value in a specific space
+    pub fn bind_in_space(&mut self, sym: Symbol, space: Option<Space>, value: ExpandValue) {
+        let space_id = space.map(|s| s.id());
+        self.space_bindings.insert((sym.id(), space_id), value);
+    }
+
+    /// Look up a value considering spaces in the scope set
+    fn lookup_with_spaces(&self, sym: Symbol, scopes: &ScopeSet) -> Option<ExpandValue> {
+        // Check if any scope in the set matches a space
+        let expr_space_id = self.spaces.expr.id();
+        let bind_space_id = self.spaces.bind.id();
+
+        // Check if scopes contain the expr space
+        let in_expr_space = scopes.iter().any(|s| s.id() == expr_space_id);
+        let in_bind_space = scopes.iter().any(|s| s.id() == bind_space_id);
+
+        // Try space-specific lookup first
+        if in_expr_space {
+            if let Some(v) = self.space_bindings.get(&(sym.id(), Some(expr_space_id))) {
+                return Some(v.clone());
+            }
+        }
+        if in_bind_space {
+            if let Some(v) = self.space_bindings.get(&(sym.id(), Some(bind_space_id))) {
+                return Some(v.clone());
+            }
+        }
+
+        // Fall back to unspaced binding
+        if let Some(v) = self.space_bindings.get(&(sym.id(), None)) {
+            return Some(v.clone());
+        }
+
+        None
     }
 
     /// Set the symbol table for resolving symbol IDs to names
@@ -267,7 +316,12 @@ impl Expander {
             }
 
             Shrubbery::Identifier(sym, scopes, span) => {
-                // First try hygiene-aware resolution
+                // 1. Try space-aware lookup first (uses scope set to determine space)
+                if let Some(value) = self.lookup_with_spaces(*sym, scopes) {
+                    return Ok(value);
+                }
+
+                // 2. Try hygiene-aware resolution via scope sets
                 if let Some(_binding) = self.hygiene.resolve(*sym, scopes) {
                     // Found a binding via scope set resolution
                     // Look up the value by the symbol's registered name
@@ -278,7 +332,7 @@ impl Expander {
                     }
                 }
 
-                // Fallback: look up by registered symbol name directly
+                // 3. Fallback: look up by registered symbol name directly
                 if let Some(name) = self.symbols.get(&sym.id()) {
                     if let Some(value) = self.env.get(name) {
                         return Ok(value.clone());
@@ -289,7 +343,7 @@ impl Expander {
                     });
                 }
 
-                // Legacy fallback for unregistered symbols
+                // 4. Final fallback for unregistered symbols (legacy)
                 let name = format!("id:{}", sym.id());
                 self.env.get(&name).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
                     span: *span,
@@ -459,6 +513,71 @@ impl Expander {
                         self.env.insert(pattern_name.clone(), v);
                     } else {
                         self.env.remove(&pattern_name);
+                    }
+                }
+
+                if results.is_empty() {
+                    Ok(ExpandValue::None)
+                } else if results.len() == 1 {
+                    Ok(ExpandValue::Content(results.into_iter().next().unwrap()))
+                } else {
+                    Ok(ExpandValue::Content(Content::Sequence(results)))
+                }
+            }
+
+            Shrubbery::StagedBlock { body, span: _ } => {
+                // Execute staged code at expand-time
+                // This is the core of the three-phase execution model
+                let mut results = Vec::new();
+                for item in body {
+                    let value = self.expand(item)?;
+                    if let Some(content) = value.as_content() {
+                        results.push(content.clone());
+                    }
+                }
+
+                if results.is_empty() {
+                    Ok(ExpandValue::None)
+                } else if results.len() == 1 {
+                    Ok(ExpandValue::Content(results.into_iter().next().unwrap()))
+                } else {
+                    Ok(ExpandValue::Content(Content::Sequence(results)))
+                }
+            }
+
+            Shrubbery::LiveBlock { deps, body, span: _ } => {
+                // Live blocks produce render-time code
+                // For now, expand the body and wrap in a marker
+                // Full implementation would produce JS/WASM for client-side execution
+                let mut results = Vec::new();
+                for item in body {
+                    let value = self.expand(item)?;
+                    if let Some(content) = value.as_content() {
+                        results.push(content.clone());
+                    }
+                }
+
+                // Return a Live marker with the expanded content
+                // This would be processed by the renderer to generate reactive code
+                let inner = if results.len() == 1 {
+                    results.into_iter().next().unwrap()
+                } else {
+                    Content::Sequence(results)
+                };
+
+                // For now, just return the content - full implementation
+                // would track dependencies and generate reactive bindings
+                let _ = deps; // Will be used for dependency tracking
+                Ok(ExpandValue::Content(inner))
+            }
+
+            Shrubbery::ContentBlock(items, _span) => {
+                // Content block - collect and merge content
+                let mut results = Vec::new();
+                for item in items {
+                    let value = self.expand(item)?;
+                    if let Some(content) = value.as_content() {
+                        results.push(content.clone());
                     }
                 }
 
