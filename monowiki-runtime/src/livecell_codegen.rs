@@ -18,6 +18,17 @@ pub struct LiveCellConfig {
     pub seq: u64,
 }
 
+/// Payload type for live cell code generation
+#[derive(Debug, Clone)]
+pub enum LiveCellPayload {
+    /// Raw WASM bytecode
+    Wasm(Vec<u8>),
+    /// Source code for a language kernel (JS, etc.)
+    Source(String),
+    /// MRL source code with dependencies
+    Mrl { source: String, deps: Vec<String> },
+}
+
 /// Builder for generating live cell WASM modules
 ///
 /// This generates WASM that:
@@ -27,19 +38,16 @@ pub struct LiveCellConfig {
 /// 4. Subscribes to EvalResult for this cell
 pub struct LiveCellCodeGen {
     config: LiveCellConfig,
-    /// Payload to be evaluated (source or WASM bytes)
-    payload: Vec<u8>,
-    /// Whether payload is source code (vs raw WASM)
-    is_source: bool,
+    /// Payload to be evaluated
+    payload: LiveCellPayload,
 }
 
 impl LiveCellCodeGen {
-    /// Create a new live cell code generator with source payload
+    /// Create a new live cell code generator with source payload (for JS, etc.)
     pub fn with_source(config: LiveCellConfig, source: &str) -> Self {
         Self {
             config,
-            payload: source.as_bytes().to_vec(),
-            is_source: true,
+            payload: LiveCellPayload::Source(source.to_string()),
         }
     }
 
@@ -47,8 +55,21 @@ impl LiveCellCodeGen {
     pub fn with_wasm(config: LiveCellConfig, wasm: Vec<u8>) -> Self {
         Self {
             config,
-            payload: wasm,
-            is_source: false,
+            payload: LiveCellPayload::Wasm(wasm),
+        }
+    }
+
+    /// Create a new live cell code generator with MRL payload
+    ///
+    /// This sets kernel_id to "mrl" automatically.
+    pub fn with_mrl(mut config: LiveCellConfig, source: &str, deps: Vec<String>) -> Self {
+        config.kernel_id = "mrl".to_string();
+        Self {
+            config,
+            payload: LiveCellPayload::Mrl {
+                source: source.to_string(),
+                deps,
+            },
         }
     }
 
@@ -146,23 +167,32 @@ impl LiveCellCodeGen {
 
     /// Build the JSON payload for EvalRequest
     fn build_request_json(&self) -> String {
-        let payload_type = if self.is_source { "source" } else { "wasm" };
-        let payload_data = if self.is_source {
-            // Escape the string for JSON
-            serde_json::to_string(&String::from_utf8_lossy(&self.payload)).unwrap_or_default()
-        } else {
-            // Base64 encode for WASM
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            format!("\"{}\"", STANDARD.encode(&self.payload))
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        let payload_json = match &self.payload {
+            LiveCellPayload::Wasm(data) => {
+                format!(r#"{{"type":"wasm","data":"{}"}}"#, STANDARD.encode(data))
+            }
+            LiveCellPayload::Source(data) => {
+                let escaped = serde_json::to_string(data).unwrap_or_default();
+                format!(r#"{{"type":"source","data":{}}}"#, escaped)
+            }
+            LiveCellPayload::Mrl { source, deps } => {
+                let escaped_source = serde_json::to_string(source).unwrap_or_default();
+                let deps_json = serde_json::to_string(deps).unwrap_or("[]".to_string());
+                format!(
+                    r#"{{"type":"mrl","source":{},"deps":{}}}"#,
+                    escaped_source, deps_json
+                )
+            }
         };
 
         format!(
-            r#"{{"kernel_id":"{}","cell_id":"{}","doc_id":"{}","payload":{{"type":"{}","data":{}}},"seq":{}}}"#,
+            r#"{{"kernel_id":"{}","cell_id":"{}","doc_id":"{}","payload":{},"seq":{}}}"#,
             self.config.kernel_id,
             self.config.cell_id,
             self.config.doc_id,
-            payload_type,
-            payload_data,
+            payload_json,
             self.config.seq,
         )
     }
@@ -409,5 +439,26 @@ mod tests {
         let (offset2, len2) = emitter.add_string(" world");
         assert_eq!(offset2, 5);
         assert_eq!(len2, 6);
+    }
+
+    #[test]
+    fn test_request_json_mrl() {
+        let config = LiveCellConfig {
+            cell_id: "cell1".to_string(),
+            doc_id: "doc1".to_string(),
+            kernel_id: "ignored".to_string(), // will be overwritten
+            seq: 1,
+        };
+        let gen = LiveCellCodeGen::with_mrl(
+            config,
+            "#lang mrl\n@hello()",
+            vec!["dep1".to_string(), "dep2".to_string()],
+        );
+        let json = gen.build_request_json();
+
+        assert!(json.contains("\"kernel_id\":\"mrl\""));
+        assert!(json.contains("\"type\":\"mrl\""));
+        assert!(json.contains("\"source\":"));
+        assert!(json.contains("\"deps\":[\"dep1\",\"dep2\"]"));
     }
 }

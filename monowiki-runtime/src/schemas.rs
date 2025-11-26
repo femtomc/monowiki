@@ -141,14 +141,49 @@ pub struct EvalRequest {
 
 /// Payload for evaluation request
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", content = "data")]
+#[serde(tag = "type")]
 pub enum EvalPayload {
     /// WASM bytecode to execute (base64 encoded in JSON)
     #[serde(rename = "wasm")]
-    Wasm(Vec<u8>),
-    /// Source code string (for interpreted kernels)
+    Wasm {
+        #[serde(with = "serde_bytes_base64")]
+        data: Vec<u8>,
+    },
+    /// Source code string (for interpreted kernels like JS)
     #[serde(rename = "source")]
-    Source(String),
+    Source {
+        data: String,
+    },
+    /// MRL source code for the MRL kernel
+    #[serde(rename = "mrl")]
+    Mrl {
+        /// The MRL source code
+        source: String,
+        /// Dependencies (cell IDs this cell depends on)
+        #[serde(default)]
+        deps: Vec<String>,
+    },
+}
+
+/// Helper module for base64 encoding of bytes in serde
+mod serde_bytes_base64 {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        STANDARD.encode(bytes).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        STANDARD.decode(&s).map_err(serde::de::Error::custom)
+    }
 }
 
 impl EvalRequest {
@@ -157,7 +192,7 @@ impl EvalRequest {
             kernel_id,
             cell_id,
             doc_id,
-            payload: EvalPayload::Wasm(wasm),
+            payload: EvalPayload::Wasm { data: wasm },
             seq,
         }
     }
@@ -167,7 +202,18 @@ impl EvalRequest {
             kernel_id,
             cell_id,
             doc_id,
-            payload: EvalPayload::Source(source),
+            payload: EvalPayload::Source { data: source },
+            seq,
+        }
+    }
+
+    /// Create an MRL evaluation request
+    pub fn mrl(cell_id: CellId, doc_id: DocId, source: String, deps: Vec<String>, seq: u64) -> Self {
+        Self {
+            kernel_id: "mrl".to_string(),
+            cell_id,
+            doc_id,
+            payload: EvalPayload::Mrl { source, deps },
             seq,
         }
     }
@@ -203,14 +249,30 @@ pub struct EvalResult {
 
 /// Kind of evaluation result
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", content = "data")]
+#[serde(tag = "type")]
 pub enum EvalResultKind {
-    /// Successful evaluation with output value
+    /// Successful evaluation with raw output bytes
     #[serde(rename = "success")]
-    Success(Vec<u8>),
+    Success {
+        data: Vec<u8>,
+    },
+    /// Successful evaluation with rendered HTML content (from MRL kernel)
+    #[serde(rename = "content")]
+    Content {
+        /// Rendered HTML string
+        html: String,
+        /// Optional JSON representation of the Content tree
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        json: Option<String>,
+    },
     /// Evaluation error
     #[serde(rename = "error")]
-    Error(String),
+    Error {
+        message: String,
+        /// Optional source location info
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        span: Option<(usize, usize)>,
+    },
     /// Evaluation timed out
     #[serde(rename = "timeout")]
     Timeout,
@@ -222,7 +284,27 @@ impl EvalResult {
             cell_id,
             doc_id,
             seq,
-            result: EvalResultKind::Success(output),
+            result: EvalResultKind::Success { data: output },
+        }
+    }
+
+    /// Create a content result with rendered HTML
+    pub fn content(cell_id: CellId, doc_id: DocId, seq: u64, html: String) -> Self {
+        Self {
+            cell_id,
+            doc_id,
+            seq,
+            result: EvalResultKind::Content { html, json: None },
+        }
+    }
+
+    /// Create a content result with rendered HTML and JSON representation
+    pub fn content_with_json(cell_id: CellId, doc_id: DocId, seq: u64, html: String, json: String) -> Self {
+        Self {
+            cell_id,
+            doc_id,
+            seq,
+            result: EvalResultKind::Content { html, json: Some(json) },
         }
     }
 
@@ -231,7 +313,17 @@ impl EvalResult {
             cell_id,
             doc_id,
             seq,
-            result: EvalResultKind::Error(message),
+            result: EvalResultKind::Error { message, span: None },
+        }
+    }
+
+    /// Create an error result with source location
+    pub fn error_with_span(cell_id: CellId, doc_id: DocId, seq: u64, message: String, span: (usize, usize)) -> Self {
+        Self {
+            cell_id,
+            doc_id,
+            seq,
+            result: EvalResultKind::Error { message, span: Some(span) },
         }
     }
 

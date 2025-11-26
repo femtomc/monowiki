@@ -3004,6 +3004,7 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "insta",
+ "monowiki-mrl",
  "parking_lot",
  "preserves",
  "sammy",

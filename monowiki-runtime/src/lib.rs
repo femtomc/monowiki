@@ -83,6 +83,7 @@ pub mod diagnostics;
 pub mod emitter;
 pub mod engine;
 pub mod host;
+pub mod html;
 pub mod interpreter;
 pub mod kernel;
 pub mod livecell_codegen;
@@ -123,9 +124,11 @@ pub use signals::{Signal, SignalStore};
 
 pub use ui::{Widget, WidgetStore};
 
-pub use kernel::{EchoKernel, SourceKernel, SourceKernelEntity, WasmKernel};
+pub use html::render_content;
 
-pub use livecell_codegen::{LiveCellCodeGen, LiveCellConfig, WasmEmitterWithMemory};
+pub use kernel::{EchoKernel, MrlKernel, SourceKernel, SourceKernelEntity, WasmKernel};
+
+pub use livecell_codegen::{LiveCellCodeGen, LiveCellConfig, LiveCellPayload, WasmEmitterWithMemory};
 
 #[cfg(test)]
 mod tests {
