@@ -9,6 +9,6 @@ pub mod parse;
 pub mod source;
 
 pub use expand::{ActiveMacrosQuery, ExpandResult, ExpandToContentQuery, MacroConfig};
-pub use layout::{Layout, LayoutBox, LayoutSectionQuery};
+pub use layout::{ActiveStylesQuery, Layout, LayoutBox, LayoutDocumentQuery, LayoutKind, StyleConfig, Viewport};
 pub use parse::{ParseResult, ParseShrubberyQuery};
 pub use source::{BlockSourceQuery, DocumentSourceQuery, SourceStorage};

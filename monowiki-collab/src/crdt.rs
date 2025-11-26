@@ -185,8 +185,8 @@ impl LoroNoteDoc {
     }
 
     /// Export full state for sync
-    pub fn export_snapshot(&self) -> Vec<u8> {
-        self.doc.export(ExportMode::Snapshot)
+    pub fn export_snapshot(&self) -> Result<Vec<u8>> {
+        self.doc.export(ExportMode::Snapshot).map_err(|e| anyhow!("Export error: {:?}", e))
     }
 
     /// Import snapshot from another peer
@@ -197,7 +197,7 @@ impl LoroNoteDoc {
     }
 
     /// Export updates for sync
-    pub fn export_updates(&self) -> Vec<u8> {
+    pub fn export_updates(&self) -> Result<Vec<u8>> {
         // Loro's export format for incremental updates
         self.export_snapshot()
     }
@@ -226,8 +226,9 @@ impl LoroNoteDoc {
         self.mark_dirty();
 
         // Broadcast full update to connected peers
-        let update = self.export_snapshot();
-        let _ = self.broadcast(update, 0);
+        if let Ok(update) = self.export_snapshot() {
+            let _ = self.broadcast(update, 0);
+        }
     }
 
     fn replace_text(&self, body: &str) {
@@ -273,7 +274,7 @@ impl LoroNoteDoc {
     }
 
     fn broadcast_update(&self) -> Result<()> {
-        let update = self.export_snapshot();
+        let update = self.export_snapshot()?;
         let _ = self.tx.send(SyncPacket {
             payload: update,
             sender_id: 0,
@@ -359,6 +360,6 @@ async fn write_loro_snapshot(slug: &str, doc: &LoroNoteDoc, config: &monowiki_co
     if let Some(parent) = full.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(&full, doc.export_snapshot()).await?;
+    tokio::fs::write(&full, doc.export_snapshot()?).await?;
     Ok(())
 }

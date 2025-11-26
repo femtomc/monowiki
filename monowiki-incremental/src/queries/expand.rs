@@ -4,7 +4,7 @@ use crate::durability::Durability;
 use crate::queries::parse::ParseShrubberyQuery;
 use crate::queries::source::DocId;
 use crate::query::{Query, QueryDatabase};
-use monowiki_mrl::{Content, Expander, TypeChecker};
+use monowiki_mrl::{Content, ExpandValue, Expander, TypeChecker};
 
 /// Expanded content result
 #[derive(Clone, Debug)]
@@ -53,10 +53,17 @@ impl Query for ExpandToContentQuery {
         // Expand
         let mut expander = Expander::new();
         match expander.expand(&shrubbery) {
-            Ok(content) => ExpandResult {
-                content: Some(content),
-                errors: vec![],
-            },
+            Ok(value) => {
+                // Extract Content from ExpandValue
+                let content = match value {
+                    ExpandValue::Content(c) => Some(c),
+                    _ => None,
+                };
+                ExpandResult {
+                    content,
+                    errors: vec![],
+                }
+            }
             Err(e) => ExpandResult {
                 content: None,
                 errors: vec![format!("Expansion error: {}", e)],

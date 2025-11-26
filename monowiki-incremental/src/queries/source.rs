@@ -57,10 +57,13 @@ impl Query for DocumentSourceQuery {
 
     fn execute<DB: QueryDatabase>(db: &DB, key: &Self::Key) -> Self::Value {
         // Get from storage (would be set by CRDT layer)
-        db.get_any("source_storage")
-            .and_then(|any| any.downcast_ref::<Arc<SourceStorage>>())
-            .and_then(|storage| storage.get_document(key))
-            .unwrap_or_default()
+        // Note: get_any returns Box<Arc<SourceStorage>>, so we need to unwrap both layers
+        if let Some(boxed) = db.get_any("source_storage") {
+            if let Some(arc) = boxed.downcast_ref::<Arc<SourceStorage>>() {
+                return arc.get_document(key).unwrap_or_default();
+            }
+        }
+        String::new()
     }
 
     fn durability() -> Durability {
@@ -80,10 +83,13 @@ impl Query for BlockSourceQuery {
     type Value = String;
 
     fn execute<DB: QueryDatabase>(db: &DB, key: &Self::Key) -> Self::Value {
-        db.get_any("source_storage")
-            .and_then(|any| any.downcast_ref::<Arc<SourceStorage>>())
-            .and_then(|storage| storage.get_block(key))
-            .unwrap_or_default()
+        // Note: get_any returns Box<Arc<SourceStorage>>, so we need to unwrap both layers
+        if let Some(boxed) = db.get_any("source_storage") {
+            if let Some(arc) = boxed.downcast_ref::<Arc<SourceStorage>>() {
+                return arc.get_block(key).unwrap_or_default();
+            }
+        }
+        String::new()
     }
 
     fn durability() -> Durability {

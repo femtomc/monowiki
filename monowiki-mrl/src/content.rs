@@ -1,8 +1,9 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
 /// Attributes for content elements
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct Attributes {
     pub id: Option<String>,
     pub classes: Vec<String>,
@@ -31,7 +32,7 @@ impl Attributes {
 }
 
 /// Content: the top-level document tree type
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Content {
     Block(Block),
     Inline(Inline),
@@ -85,7 +86,7 @@ impl fmt::Display for Content {
 }
 
 /// Block-level content
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Block {
     Heading {
         level: u8,
@@ -187,7 +188,7 @@ impl fmt::Display for Block {
 }
 
 /// List item
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ListItem {
     pub body: Inline,
     pub nested: Option<Vec<ListItem>>,
@@ -195,7 +196,7 @@ pub struct ListItem {
 }
 
 /// Inline content
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Inline {
     Text(String),
     Emphasis(Box<Inline>),

@@ -63,10 +63,17 @@ impl DocumentPipeline {
 
         // 4. Expand to content
         let mut expander = monowiki_mrl::Expander::new();
-        let content = expander.expand(&shrubbery)
+        let value = expander.expand(&shrubbery)
             .map_err(PipelineError::Expand)?;
 
-        Ok(content)
+        // Extract Content from ExpandValue
+        match value {
+            monowiki_mrl::ExpandValue::Content(content) => Ok(content),
+            _ => Err(PipelineError::Expand(monowiki_mrl::MrlError::ExpansionError {
+                span: monowiki_mrl::Span::default(),
+                message: "Expansion did not produce content".to_string(),
+            })),
+        }
     }
 
     /// Process a document with incremental caching
@@ -75,7 +82,7 @@ impl DocumentPipeline {
     /// Only recomputes when the source changes.
     pub fn process_cached(&self, doc_id: &DocId, source: &str) -> Result<monowiki_mrl::Content, PipelineError> {
         use monowiki_incremental::prelude::*;
-        use monowiki_incremental::queries::source::{DocumentSourceQuery, SourceStorage};
+        use monowiki_incremental::queries::source::SourceStorage;
 
         // Set source text (input query)
         let storage = Arc::new(SourceStorage::new());
@@ -83,9 +90,23 @@ impl DocumentPipeline {
         self.db.set_any("source_storage".to_string(), Box::new(storage));
 
         // Query for expanded content (automatically memoized)
-        let content = self.db.query::<monowiki_incremental::queries::ExpandToContentQuery>(doc_id.clone());
+        let result = self.db.query::<monowiki_incremental::queries::ExpandToContentQuery>(doc_id.clone());
 
-        Ok(content)
+        // Extract content from ExpandResult
+        match result.content {
+            Some(content) => Ok(content),
+            None => {
+                let error_msg = result.errors.join("; ");
+                Err(PipelineError::Expand(monowiki_mrl::MrlError::ExpansionError {
+                    span: monowiki_mrl::Span::default(),
+                    message: if error_msg.is_empty() {
+                        "Expansion produced no content".to_string()
+                    } else {
+                        error_msg
+                    },
+                }))
+            }
+        }
     }
 
     /// Handle a CRDT change event

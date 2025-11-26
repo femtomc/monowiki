@@ -847,12 +847,13 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
     let mut broadcast_rx = doc.subscribe();
 
     // Send initial snapshot for sync
-    let init_snapshot = doc.export_snapshot();
-    if !init_snapshot.is_empty() {
-        socket
-            .send(WsMessage::Binary(init_snapshot.into()))
-            .await
-            .ok();
+    if let Ok(init_snapshot) = doc.export_snapshot() {
+        if !init_snapshot.is_empty() {
+            socket
+                .send(WsMessage::Binary(init_snapshot.into()))
+                .await
+                .ok();
+        }
     }
 
     loop {

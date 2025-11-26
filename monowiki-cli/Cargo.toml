@@ -16,6 +16,7 @@ monowiki-core = { path = "../monowiki-core" }
 monowiki-render = { path = "../monowiki-render" }
 monowiki-collab = { path = "../monowiki-collab" }
 monowiki-adapters = { path = "../monowiki-adapters" }
+monowiki-types = { path = "../monowiki-types" }
 
 clap.workspace = true
 anyhow.workspace = true

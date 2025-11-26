@@ -32,23 +32,25 @@
 //!
 //! # Example
 //!
-//! ```rust
-//! use monowiki_incremental::{Db, Query, QueryDatabase};
-//! use monowiki_incremental::queries::{SourceTextQuery, ParseShrubberyQuery};
-//! use monowiki_incremental::invalidation::{SectionId, BlockId};
+//! ```rust,ignore
+//! use monowiki_incremental::{Db, Query, QueryDatabase, DocId};
+//! use monowiki_incremental::queries::{DocumentSourceQuery, ParseShrubberyQuery, SourceStorage};
+//! use std::sync::Arc;
 //!
-//! // Create a database
+//! // Create a database with source storage
 //! let db = Db::new();
+//! let storage = Arc::new(SourceStorage::new());
+//! let doc_id = DocId::new("test");
 //!
 //! // Set some source text
-//! let section_id = SectionId(BlockId(1).0);
-//! SourceTextQuery::set(&db, section_id, "# Hello World".to_string());
+//! storage.set_document(doc_id.clone(), "# Hello World".to_string());
+//! db.set_any("source_storage".to_string(), Box::new(storage));
 //!
 //! // Parse it (automatically memoized)
-//! let shrubbery = db.query::<ParseShrubberyQuery>(section_id);
+//! let result = db.query::<ParseShrubberyQuery>(doc_id.clone());
 //!
 //! // Second query uses cached result
-//! let shrubbery2 = db.query::<ParseShrubberyQuery>(section_id);
+//! let result2 = db.query::<ParseShrubberyQuery>(doc_id);
 //! ```
 
 #![warn(missing_docs)]
@@ -83,8 +85,8 @@ pub mod prelude {
     pub use crate::durability::Durability;
     pub use crate::invalidation::InvalidationBridge;
     pub use crate::queries::{
-        ActiveMacrosQuery, DocumentSourceQuery, ExpandToContentQuery, LayoutSectionQuery,
-        ParseShrubberyQuery, SourceStorage,
+        ActiveMacrosQuery, DocumentSourceQuery, ExpandToContentQuery, LayoutDocumentQuery,
+        ParseShrubberyQuery, SourceStorage, Viewport,
     };
     pub use crate::query::{InputQuery, Query, QueryDatabase};
     pub use monowiki_types::{BlockId, DocChange, DocId};

@@ -2869,6 +2869,7 @@ dependencies = [
  "monowiki-collab",
  "monowiki-core",
  "monowiki-render",
+ "monowiki-types",
  "notify",
  "open",
  "predicates",

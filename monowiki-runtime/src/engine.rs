@@ -311,17 +311,22 @@ impl LiveCellEngine {
                     _ => return -1,
                 };
 
-                let data = mem.data(&caller);
-                let pattern_bytes =
-                    &data[pattern_ptr as usize..(pattern_ptr + pattern_len) as usize];
-                let value = &data[value_ptr as usize..(value_ptr + value_len) as usize];
+                // Copy data out before releasing the borrow on caller
+                let (pattern_str, value) = {
+                    let data = mem.data(&caller);
+                    let pattern_bytes =
+                        &data[pattern_ptr as usize..(pattern_ptr + pattern_len) as usize];
+                    let value_bytes = &data[value_ptr as usize..(value_ptr + value_len) as usize];
 
-                let pattern_str = match std::str::from_utf8(pattern_bytes) {
-                    Ok(s) => s,
-                    Err(_) => return -1,
+                    let pattern_str = match std::str::from_utf8(pattern_bytes) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => return -1,
+                    };
+                    let value = value_bytes.to_vec();
+                    (pattern_str, value)
                 };
 
-                match caller.data_mut().dataspace_publish(pattern_str, value) {
+                match caller.data_mut().dataspace_publish(&pattern_str, &value) {
                     Ok(id) => id as i64,
                     Err(_) => -1,
                 }
@@ -350,18 +355,21 @@ impl LiveCellEngine {
                     _ => return -1,
                 };
 
-                let data = mem.data(&caller);
-                let pattern_bytes =
-                    &data[pattern_ptr as usize..(pattern_ptr + pattern_len) as usize];
+                // Copy data out before releasing the borrow on caller
+                let pattern_str = {
+                    let data = mem.data(&caller);
+                    let pattern_bytes =
+                        &data[pattern_ptr as usize..(pattern_ptr + pattern_len) as usize];
 
-                let pattern_str = match std::str::from_utf8(pattern_bytes) {
-                    Ok(s) => s,
-                    Err(_) => return -1,
+                    match std::str::from_utf8(pattern_bytes) {
+                        Ok(s) => s.to_string(),
+                        Err(_) => return -1,
+                    }
                 };
 
                 match caller
                     .data_mut()
-                    .dataspace_subscribe(pattern_str, callback_id as u64)
+                    .dataspace_subscribe(&pattern_str, callback_id as u64)
                 {
                     Ok(id) => id as i64,
                     Err(_) => -1,

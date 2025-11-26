@@ -3,97 +3,99 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use monowiki_incremental::prelude::*;
 use monowiki_incremental::queries::{
-    ExpandToContentQuery, LayoutSectionQuery, ParseShrubberyQuery, SourceTextQuery,
+    ExpandToContentQuery, LayoutDocumentQuery, ParseShrubberyQuery, SourceStorage,
 };
 use monowiki_incremental::queries::layout::Viewport;
-use monowiki_incremental::invalidation::BlockId;
+use std::sync::Arc;
 
-fn bench_source_text_query(c: &mut Criterion) {
+/// Helper to set up a database with source storage
+fn setup_db_with_source(doc_id: &DocId, source: &str) -> (Db, Arc<SourceStorage>) {
     let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
+    let storage = Arc::new(SourceStorage::new());
+    storage.set_document(doc_id.clone(), source.to_string());
+    db.set_any("source_storage".to_string(), Box::new(storage.clone()));
+    (db, storage)
+}
 
-    c.bench_function("source_text_set", |b| {
+fn bench_source_storage(c: &mut Criterion) {
+    let doc_id = DocId::new("test");
+    let storage = SourceStorage::new();
+
+    c.bench_function("source_storage_set", |b| {
         b.iter(|| {
-            SourceTextQuery::set(
-                &db,
-                section_id,
+            storage.set_document(
+                doc_id.clone(),
                 black_box("# Test Heading\n\nParagraph.".to_string()),
             );
         })
     });
 
-    SourceTextQuery::set(&db, section_id, "# Test".to_string());
+    storage.set_document(doc_id.clone(), "# Test".to_string());
 
-    c.bench_function("source_text_query", |b| {
+    c.bench_function("source_storage_get", |b| {
         b.iter(|| {
-            let text = db.query::<SourceTextQuery>(black_box(section_id));
+            let text = storage.get_document(black_box(&doc_id));
             black_box(text);
         })
     });
 }
 
 fn bench_parse_query(c: &mut Criterion) {
-    let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
-
+    let doc_id = DocId::new("test");
     let source = "# Heading\n\nParagraph text.\n\n## Subheading\n\nMore text.";
-    SourceTextQuery::set(&db, section_id, source.to_string());
+    let (db, storage) = setup_db_with_source(&doc_id, source);
 
     c.bench_function("parse_query_cold", |b| {
         b.iter(|| {
             db.clear_all();
-            SourceTextQuery::set(&db, section_id, source.to_string());
-            let shrubbery = db.query::<ParseShrubberyQuery>(black_box(section_id));
+            db.set_any("source_storage".to_string(), Box::new(storage.clone()));
+            let shrubbery = db.query::<ParseShrubberyQuery>(black_box(doc_id.clone()));
             black_box(shrubbery);
         })
     });
 
     c.bench_function("parse_query_hot", |b| {
         b.iter(|| {
-            let shrubbery = db.query::<ParseShrubberyQuery>(black_box(section_id));
+            let shrubbery = db.query::<ParseShrubberyQuery>(black_box(doc_id.clone()));
             black_box(shrubbery);
         })
     });
 }
 
 fn bench_expand_query(c: &mut Criterion) {
-    let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
-
+    let doc_id = DocId::new("test");
     let source = "# Heading\n\nParagraph.\n\n```rust\nfn main() {}\n```";
-    SourceTextQuery::set(&db, section_id, source.to_string());
+    let (db, storage) = setup_db_with_source(&doc_id, source);
 
     c.bench_function("expand_query_cold", |b| {
         b.iter(|| {
             db.clear_all();
-            SourceTextQuery::set(&db, section_id, source.to_string());
-            let content = db.query::<ExpandToContentQuery>(black_box(section_id));
+            db.set_any("source_storage".to_string(), Box::new(storage.clone()));
+            let content = db.query::<ExpandToContentQuery>(black_box(doc_id.clone()));
             black_box(content);
         })
     });
 
     c.bench_function("expand_query_hot", |b| {
         b.iter(|| {
-            let content = db.query::<ExpandToContentQuery>(black_box(section_id));
+            let content = db.query::<ExpandToContentQuery>(black_box(doc_id.clone()));
             black_box(content);
         })
     });
 }
 
 fn bench_layout_query(c: &mut Criterion) {
-    let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
+    let doc_id = DocId::new("test");
     let viewport = Viewport::new(800, 600);
-
     let source = "# Title\n\nParagraph.\n\n## Section\n\nMore text.";
-    SourceTextQuery::set(&db, section_id, source.to_string());
+    let (db, storage) = setup_db_with_source(&doc_id, source);
 
     c.bench_function("layout_query_cold", |b| {
         b.iter(|| {
             db.clear_all();
-            SourceTextQuery::set(&db, section_id, source.to_string());
+            db.set_any("source_storage".to_string(), Box::new(storage.clone()));
             let layout =
-                db.query::<LayoutSectionQuery>(black_box((section_id, viewport)));
+                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
@@ -101,58 +103,58 @@ fn bench_layout_query(c: &mut Criterion) {
     c.bench_function("layout_query_hot", |b| {
         b.iter(|| {
             let layout =
-                db.query::<LayoutSectionQuery>(black_box((section_id, viewport)));
+                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
 }
 
 fn bench_full_pipeline(c: &mut Criterion) {
-    let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
+    let doc_id = DocId::new("test");
     let viewport = Viewport::new(800, 600);
-
     let source = "# Introduction\n\nThis is a test document with some content.";
+    let (db, storage) = setup_db_with_source(&doc_id, source);
 
     c.bench_function("full_pipeline_cold", |b| {
         b.iter(|| {
             db.clear_all();
-            SourceTextQuery::set(&db, section_id, source.to_string());
+            db.set_any("source_storage".to_string(), Box::new(storage.clone()));
 
-            let _shrubbery = db.query::<ParseShrubberyQuery>(section_id);
-            let _content = db.query::<ExpandToContentQuery>(section_id);
-            let layout = db.query::<LayoutSectionQuery>((section_id, viewport));
+            let _shrubbery = db.query::<ParseShrubberyQuery>(doc_id.clone());
+            let _content = db.query::<ExpandToContentQuery>(doc_id.clone());
+            let layout = db.query::<LayoutDocumentQuery>((doc_id.clone(), viewport));
             black_box(layout);
         })
     });
 
-    SourceTextQuery::set(&db, section_id, source.to_string());
-
     c.bench_function("full_pipeline_hot", |b| {
         b.iter(|| {
-            let _shrubbery = db.query::<ParseShrubberyQuery>(black_box(section_id));
-            let _content = db.query::<ExpandToContentQuery>(black_box(section_id));
+            let _shrubbery = db.query::<ParseShrubberyQuery>(black_box(doc_id.clone()));
+            let _content = db.query::<ExpandToContentQuery>(black_box(doc_id.clone()));
             let layout =
-                db.query::<LayoutSectionQuery>(black_box((section_id, viewport)));
+                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
 }
 
 fn bench_invalidation(c: &mut Criterion) {
-    let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
+    let doc_id = DocId::new("test");
     let viewport = Viewport::new(800, 600);
+    let storage = Arc::new(SourceStorage::new());
+    let db = Db::new();
+    db.set_any("source_storage".to_string(), Box::new(storage.clone()));
 
     c.bench_function("invalidate_and_recompute", |b| {
         let mut counter = 0;
         b.iter(|| {
             // Change source slightly
             let source = format!("# Version {}\n\nContent.", counter);
-            SourceTextQuery::set(&db, section_id, source);
+            storage.set_document(doc_id.clone(), source);
+            db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
 
             // Recompute pipeline
-            let layout = db.query::<LayoutSectionQuery>((section_id, viewport));
+            let layout = db.query::<LayoutDocumentQuery>((doc_id.clone(), viewport));
             black_box(layout);
 
             counter += 1;
@@ -160,29 +162,31 @@ fn bench_invalidation(c: &mut Criterion) {
     });
 }
 
-fn bench_multiple_sections(c: &mut Criterion) {
-    let mut group = c.benchmark_group("multiple_sections");
+fn bench_multiple_documents(c: &mut Criterion) {
+    let mut group = c.benchmark_group("multiple_documents");
 
-    for num_sections in [1, 10, 50, 100].iter() {
+    for num_docs in [1, 10, 50, 100].iter() {
         group.bench_with_input(
-            BenchmarkId::from_parameter(num_sections),
-            num_sections,
-            |b, &num_sections| {
+            BenchmarkId::from_parameter(num_docs),
+            num_docs,
+            |b, &num_docs| {
                 let db = Db::new();
+                let storage = Arc::new(SourceStorage::new());
+                db.set_any("source_storage".to_string(), Box::new(storage.clone()));
 
-                // Set up sections
-                for i in 0..num_sections {
-                    let section_id = SectionId(BlockId(i).0);
-                    let source = format!("# Section {}\n\nContent for section {}.", i, i);
-                    SourceTextQuery::set(&db, section_id, source);
+                // Set up documents
+                for i in 0..num_docs {
+                    let doc_id = DocId::new(format!("doc_{}", i));
+                    let source = format!("# Document {}\n\nContent for document {}.", i, i);
+                    storage.set_document(doc_id, source);
                 }
 
                 b.iter(|| {
-                    // Query all sections
-                    for i in 0..num_sections {
-                        let section_id = SectionId(BlockId(i).0);
+                    // Query all documents
+                    for i in 0..num_docs {
+                        let doc_id = DocId::new(format!("doc_{}", i));
                         let content =
-                            db.query::<ExpandToContentQuery>(black_box(section_id));
+                            db.query::<ExpandToContentQuery>(black_box(doc_id));
                         black_box(content);
                     }
                 })
@@ -194,37 +198,41 @@ fn bench_multiple_sections(c: &mut Criterion) {
 }
 
 fn bench_early_cutoff(c: &mut Criterion) {
+    let doc_id = DocId::new("test");
+    let storage = Arc::new(SourceStorage::new());
     let db = Db::new();
-    let section_id = SectionId(BlockId(1).0);
+    db.set_any("source_storage".to_string(), Box::new(storage.clone()));
 
     // Set initial content
-    SourceTextQuery::set(&db, section_id, "# Test".to_string());
-    let _initial = db.query::<ExpandToContentQuery>(section_id);
+    storage.set_document(doc_id.clone(), "# Test".to_string());
+    let _initial = db.query::<ExpandToContentQuery>(doc_id.clone());
 
     c.bench_function("early_cutoff_benefit", |b| {
         b.iter(|| {
             // Change source but result is same (whitespace)
-            SourceTextQuery::set(&db, section_id, "# Test  ".to_string());
+            storage.set_document(doc_id.clone(), "# Test  ".to_string());
+            db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
 
             // This should benefit from early cutoff
-            let content = db.query::<ExpandToContentQuery>(black_box(section_id));
+            let content = db.query::<ExpandToContentQuery>(black_box(doc_id.clone()));
             black_box(content);
 
             // Reset
-            SourceTextQuery::set(&db, section_id, "# Test".to_string());
+            storage.set_document(doc_id.clone(), "# Test".to_string());
+            db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
         })
     });
 }
 
 criterion_group!(
     benches,
-    bench_source_text_query,
+    bench_source_storage,
     bench_parse_query,
     bench_expand_query,
     bench_layout_query,
     bench_full_pipeline,
     bench_invalidation,
-    bench_multiple_sections,
+    bench_multiple_documents,
     bench_early_cutoff,
 );
 
