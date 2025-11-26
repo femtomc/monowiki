@@ -6,7 +6,7 @@ draft: true
 # Agent Brief – Sprints
 
 ## Purpose
-Guide agents who maintain or execute sprint plans. Sprint docs live in `vault/sprints/` and align with `vault/design.md`.
+Guide agents who maintain or execute sprint plans. Sprint docs live in `vault/sprints/` and align with `vault/design/design.md`.
 
 ## How to use the sprint docs
 - Each `sprint-XX-*.md` lists goals, deliverables, parallel workstreams, and exit criteria. Keep those sections up to date when scope shifts.

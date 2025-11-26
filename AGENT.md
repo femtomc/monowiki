@@ -1,7 +1,7 @@
 # Agent Brief for monowiki
 
 ## Purpose
-Quick orientation for coding/ops agents working in this repo. Source of truth for architecture: `vault/design.md`. Active sprint plan: `vault/sprints/`.
+Quick orientation for coding/ops agents working in this repo. Source of truth for architecture: `vault/design/design.md`. Active sprint plan: `vault/sprints/`.
 
 ## What this project is
 - Static site generator evolving into a typed, staged document calculus with incremental queries, CRDT-backed operational state, and an actor runtime for plugins/kernels.
@@ -24,5 +24,5 @@ Quick orientation for coding/ops agents working in this repo. Source of truth fo
 - Plugins/kernels run as actors with capability-gated WIT interfaces; document semantics must not depend on plugins.
 
 ## When in doubt
-- Cross-check decisions against `vault/design.md`.
+- Cross-check decisions against `vault/design/design.md`.
 - Align changes with the nearest sprint doc in `vault/sprints/`; note any deviations.

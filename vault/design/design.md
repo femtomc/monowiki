@@ -268,9 +268,6 @@ _Djot-style_ inline formatting with MyST-style extensibility.
 Executable code blocks support both expand-time and render-time evaluation:
 
 ```{javascript}
-#| name: fig-plot
-#| caption: A simple plot
-#| live: true
 const x = [1, 2, 3, 4, 5];
 const y = x.map(v => v * v);
 ui.show({ x, y });
@@ -306,8 +303,8 @@ The system architecture showing the three-phase pipeline.
   quote:
     directive(
       "div",
-      attrs = { "class": "theorem-box" },
-      body = strong(text("Theorem (") + text(splice(title)) + text("). ")) + splice(expand(body)),
+      attrs: { "class": "theorem-box" },
+      body: strong(text("Theorem (") + text(splice(title)) + text("). ")) + splice(expand(body)),
     )
 
 !theorem(title: "Fundamental Theorem")[Every document is a value.]
@@ -355,6 +352,7 @@ To ensure unambiguous, local parsing:
 │  │   │   ├── CodeBlock(lang: String?, code: String, opts: Map)  │
 │  │   │   ├── List(items: Array<ListItem>)                       │
 │  │   │   ├── Blockquote(body: Content)                          │
+│  │   │   ├── Table                                              │
 │  │   │   └── ThematicBreak                                      │
 │  │   │                                                          │
 │  │   └── Inline                                                 │
@@ -369,7 +367,7 @@ To ensure unambiguous, local parsing:
 │  │       └── Span(body: Inline, attrs: Attributes)              │
 │  │                                                              │
 │  ├── Primitive                                                  │
-│  │   ├── Unit                                                   │
+│  │   ├── None                                                   │
 │  │   ├── Bool                                                   │
 │  │   ├── Int                                                    │
 │  │   ├── Float                                                  │
@@ -387,6 +385,9 @@ To ensure unambiguous, local parsing:
 │  └── Staged                                                     │
 │      └── Code<K> where K : ContentKind                          │
 │          (quoted code that produces Content of kind K)          │
+│  ├── Reactive                                                   │
+│  │   ├── Signal<T>                                              │
+│  │   └── Effect                                                 │
 │                                                                 │
 │  ContentKind = Block | Inline | Content                         │
 │                                                                 │
@@ -455,7 +456,7 @@ Staging uses `Code<K>` to represent quoted code that will produce content of kin
 ```text
 !def section_header(title: String, level: Int) -> Code<Block>:
   quote:
-    heading(level = splice(level), body = text(splice(title)))
+    heading(level: splice(level), body: text(splice(title)))
 
 // Usage in document:
 !staged
@@ -492,7 +493,7 @@ Show and set rules have restricted types for safety:
 ──────────────────────────────────────────────────────────  (Set-Rule)
          Γ ⊢ set(selector, props) : SetRule<K>
 
-Γ ⊢ selector : Selector<K>    Γ ⊢ transform : K -> Content
+Γ ⊢ selector : Selector<K>    Γ ⊢ transform : K -> K
 ────────────────────────────────────────────────────────────  (Show-Rule)
           Γ ⊢ show(selector, transform) : ShowRule<K>
 ```
@@ -717,7 +718,7 @@ Use !abbr(title: "HyperText Markup Language")[HTML] inline.
 !staged[
 outline = doc.outline()
 for h in outline:
-  paragraph(f"{h.level}. {h.title}")
+  paragraph(text(str(h.level) + ". ") + h.title)
 ]
 ```
 
@@ -725,6 +726,7 @@ for h in outline:
 - `!def f(...) -> Code<K> = ...` defines a `Macro<K>` (Type Rule: Macro-Type).
 - `!name(args)[content]` enforces precedence/enforestation, producing a `Shrubbery` applied via Macro-Apply.
 - `quote`/`splice`/`eval_expand` correspond to Code<K>, Splice, Eval-Expand rules.
+Show rules bind the matched element implicitly as `it` and must return the same kind (`K -> K`).
 
 ### 5.3 Hygiene
 
@@ -764,6 +766,7 @@ For users who need styling without full macro power:
 
 // Show rules: transform rendering
 !show heading:
+  # implicit binding: it = matched element
   if it.level == 1:
     page_break() + it
   else:
@@ -1568,7 +1571,7 @@ async fn validate_operations(
 
 ### Language Detail References
 
-- **Monowiki Reflective Language (MRL):** see `vault/mrl.md` for the staged language spec (single `!` escape, Python-flavored macros, JS/WASM render-time).
+- **Monowiki Reflective Language (MRL):** see `vault/design/mrl.md` for the staged language spec (single `!` escape, Python-flavored macros, JS/WASM render-time).
 
 ### 8.1 High-Level Data and Actor Flow
 
@@ -1683,7 +1686,7 @@ async fn validate_operations(
        │  RENDER-TIME
        │  
        │  • Layout computation
-       │  • Live code execution (#| live: true)
+       │  • Live code execution (!live)
        │  • Interactive widget binding
        │  • User event handling
        │  ════════════════════════════════════════════
@@ -1897,8 +1900,7 @@ Key flows:
 
 * [ ] WASM-sandboxed code execution
 * [ ] JS/WASM support (default render-time runtime)
-* [ ] JavaScript support
-* [ ] `#| live: true` reactive cells
+* [ ] `!live` reactive cells (replaces `#| live: true`)
 * [ ] Dependency tracking between cells
 * [ ] Output caching (don't sync computed values)
 * [ ] Timeout and resource limits

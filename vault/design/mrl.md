@@ -142,8 +142,13 @@ block_def    = "!def", identifier, [ "(", params, ")" ], [ ":", type ],
              | "!def", identifier, [ "(", params, ")" ], [ ":", type ],
                "=", expr ;
 
+block_body   = { stmt, newline }, expr ;
+
+stmt         = identifier, "=", expr
+             | expr ;
+
 block_staged = "!staged", newline, indent, block_body, dedent
-             | "!staged", "[", expr, "]" ;
+             | "!staged", "[", block_body, "]" ;
 
 block_show   = "!show", selector, ":", transform_expr, newline
              | "!show", selector, newline, indent, transform_body, dedent ;
@@ -172,7 +177,8 @@ expr         = literal
              | "(" expr ")" ;
 
 quote_expr   = "quote", ":", newline, indent, expr, dedent
-             | "quote", "[", content_block, "]" ;
+             | "quote", "[", content_block, "]"
+             | "'[", content_block, "]" ;  (* type rules use '[...] as shorthand *)
 
 splice_expr  = "splice", "(", expr, ")"              (* splice expr *)
              | "$", identifier                       (* short splice *)
@@ -200,12 +206,13 @@ predicate_expr = identifier, "==", literal
 
 (* ===== Primitives ===== *)
 
-literal      = int_lit | float_lit | string_lit | bool_lit | none_lit ;
+literal      = int_lit | float_lit | string_lit | bool_lit | none_lit | symbol_lit ;
 int_lit      = [ "-" ], digit, { digit } ;
 float_lit    = [ "-" ], digit, { digit }, ".", digit, { digit } ;
 string_lit   = '"', { string_char }, '"' ;
 bool_lit     = "true" | "false" ;
 none_lit     = "none" ;
+symbol_lit   = "'", identifier ;
 
 identifier   = ( letter | "_" ), { letter | digit | "_" | "-" } ;
 binop        = "+" | "-" | "*" | "/" | "%" | "==" | "!=" | "<" | ">"
@@ -224,6 +231,7 @@ type         = "Int" | "Float" | "String" | "Bool" | "None"
              | "Map" "<" type "," type ">"
              | "Code" "<" kind ">"
              | "Selector" "<" kind ">"
+             | "Signal" "<" type ">" | "Effect"
              | "Dyn"
              | identifier ;
 
@@ -307,7 +315,8 @@ Here's a macro call with content:
   │   │   ├── CodeBlock
   │   │   ├── List
   │   │   ├── Blockquote
-  │   │   └── Table
+  │   │   ├── Table
+  │   │   └── ThematicBreak
   │   │
   │   └── Inline                 (* inline content *)
   │       ├── Text
@@ -316,6 +325,7 @@ Here's a macro call with content:
   │       ├── Code
   │       ├── Link
   │       ├── Image
+  │       ├── Reference
   │       ├── Math
   │       └── Span
   │
@@ -536,6 +546,7 @@ Forbidden: nondeterministic sources (random, time), network I/O without capabili
 ### 5.4 Show/Set Rule Evaluation
 
 Show/set run at expand-time only. They operate on typed elements, not shrubbery. They cannot shell out or run staged code.
+Show rules bind the matched element implicitly as `it` and must return the same kind (`K -> K`).
 
 ---
 
@@ -596,11 +607,12 @@ Capability schema for expand-time (file/env/fetch) and render-time (fetch/ui/dia
 
 ## 12. Implementation Roadmap
 
-- Phase 1: Parser + expand-time interpreter basics
-- Phase 2: Macros + quote/splice + hygiene
-- Phase 3: Show/set + selectors
-- Phase 4: WASM codegen + runtime ABI
-- Phase 5: Integration with queries/CRDT/dataspaces
-- Phase 6: Polish, errors, perf, tests, docs
+For up-to-date planning, see `vault/design/design.md` and `vault/sprints/`. This section is non-authoritative and kept minimal:
+- Core parser + expand-time interpreter
+- Macros + quote/splice + hygiene
+- Show/set + selectors
+- WASM codegen + runtime ABI
+- Integration with queries/CRDT/dataspaces
+- Polish: errors, perf, tests, docs
 
 ---

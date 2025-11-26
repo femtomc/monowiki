@@ -5,7 +5,7 @@ draft: true
 
 # Sprint 01 – Semantic Core & Operational Boundary
 
-**Depends on:** `vault/design.md`
+**Depends on:** `vault/design/design.md`
 
 ## Goals
 - Establish the typed `Content` model with value semantics.
