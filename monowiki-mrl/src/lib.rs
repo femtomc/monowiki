@@ -44,10 +44,13 @@ mod tests;
 pub use checker::TypeChecker;
 pub use content::{Attributes, Block, Content, Inline, ListItem};
 pub use document::{parse_document, DocumentElement, DocumentParser};
-pub use enforest::{enforest, Assoc, BinOp, Expr, UnOp};
+pub use enforest::{
+    enforest, enforest_with_env, Assoc, BinOp, Enforester, Expr, ImplicitOp, InfixOperator,
+    OperatorEnv, PrecResult, PrefixOperator, Protocol, Relation, UnOp,
+};
 pub use error::{ErrorContext, MrlError, Result};
 pub use expander::{ExpandFunction, ExpandValue, Expander};
-pub use hygiene::{Binding, HygieneChecker, HygieneEnv, MacroContext};
+pub use hygiene::{Binding, HygieneChecker, HygieneEnv, MacroContext, Space, SpaceRegistry};
 pub use interpreter::{DocumentReflection, Interpreter, OutlineEntry, ReferenceEntry, SectionContext};
 pub use lexer::{tokenize, Lexer, SpannedToken, Token};
 pub use parser::{parse, Parser, SymbolTable};
