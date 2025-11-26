@@ -33,6 +33,7 @@ pub mod hygiene;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
+pub mod rules;
 pub mod shrubbery;
 pub mod types;
 
@@ -50,6 +51,7 @@ pub use hygiene::{Binding, HygieneChecker, HygieneEnv, MacroContext};
 pub use interpreter::{DocumentReflection, Interpreter, OutlineEntry, ReferenceEntry, SectionContext};
 pub use lexer::{tokenize, Lexer, SpannedToken, Token};
 pub use parser::{parse, Parser, SymbolTable};
+pub use rules::{Predicate, PredicateValue, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
 pub use shrubbery::{Literal, Param, Scope, ScopeSet, Shrubbery, Symbol};
 pub use types::{MrlType, TypeScheme};
 

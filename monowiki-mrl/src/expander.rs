@@ -1,6 +1,7 @@
 use crate::content::Content;
 use crate::error::{MrlError, Result, Span};
 use crate::hygiene::{HygieneEnv, MacroContext};
+use crate::rules::{apply_show_rules, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
 use crate::shrubbery::{Scope, Shrubbery};
 use crate::types::{ContentKind, MrlType};
 use std::collections::HashMap;
@@ -124,6 +125,12 @@ pub struct Expander {
 
     /// Macro definitions
     macros: HashMap<String, ExpandFunction>,
+
+    /// Collected show/set rules
+    rules: RuleSet,
+
+    /// Symbol table for resolving symbol IDs to names
+    symbols: HashMap<u64, String>,
 }
 
 impl Expander {
@@ -133,12 +140,34 @@ impl Expander {
             hygiene: HygieneEnv::new(),
             next_scope_id: 0,
             macros: HashMap::new(),
+            rules: RuleSet::new(),
+            symbols: HashMap::new(),
         };
 
         // Register built-in functions
         expander.register_builtins();
 
         expander
+    }
+
+    /// Set the symbol table for resolving symbol IDs to names
+    pub fn set_symbols(&mut self, symbols: HashMap<u64, String>) {
+        self.symbols = symbols;
+    }
+
+    /// Register a symbol
+    pub fn register_symbol(&mut self, id: u64, name: String) {
+        self.symbols.insert(id, name);
+    }
+
+    /// Get the collected rules
+    pub fn rules(&self) -> &RuleSet {
+        &self.rules
+    }
+
+    /// Get mutable access to the rules
+    pub fn rules_mut(&mut self) -> &mut RuleSet {
+        &mut self.rules
     }
 
     /// Create a fresh scope
@@ -259,10 +288,230 @@ impl Expander {
                 ))))
             }
 
+            Shrubbery::ShowRule { selector, transform, span } => {
+                // Collect the show rule
+                let sel = self.parse_selector(selector)?;
+                self.rules.add_show_rule(ShowRule {
+                    selector: sel,
+                    transform: transform.clone(),
+                    span: *span,
+                });
+                Ok(ExpandValue::None)
+            }
+
+            Shrubbery::SetRule { selector, properties, span } => {
+                // Collect the set rule
+                let sel = self.parse_selector(selector)?;
+                let mut props = HashMap::new();
+                for (sym, value_shrub) in properties {
+                    let name = self.symbols.get(&sym.id())
+                        .cloned()
+                        .unwrap_or_else(|| format!("prop_{}", sym.id()));
+                    let value = self.expand(value_shrub)?;
+                    let set_value = match value {
+                        ExpandValue::String(s) => SetValue::String(s),
+                        ExpandValue::Int(i) => SetValue::Int(i),
+                        ExpandValue::Bool(b) => SetValue::Bool(b),
+                        _ => SetValue::String(format!("{:?}", value)),
+                    };
+                    props.insert(name, set_value);
+                }
+                self.rules.add_set_rule(SetRule {
+                    selector: sel,
+                    properties: props,
+                    span: *span,
+                });
+                Ok(ExpandValue::None)
+            }
+
+            Shrubbery::DefBlock { name, params, body, span, .. } => {
+                // Define a macro
+                let name_str = self.symbols.get(&name.id())
+                    .cloned()
+                    .unwrap_or_else(|| format!("macro_{}", name.id()));
+                let param_names: Vec<String> = params.iter()
+                    .map(|p| self.symbols.get(&p.name.id())
+                        .cloned()
+                        .unwrap_or_else(|| format!("param_{}", p.name.id())))
+                    .collect();
+
+                // Wrap body in a sequence if multiple items
+                let body_shrub = if body.len() == 1 {
+                    body[0].clone()
+                } else {
+                    Shrubbery::Sequence(body.clone(), *span)
+                };
+
+                self.define_macro(name_str, param_names, body_shrub);
+                Ok(ExpandValue::None)
+            }
+
+            Shrubbery::Quote { body, .. } => {
+                // Return quoted code
+                Ok(ExpandValue::Code(body.clone(), ContentKind::Content))
+            }
+
+            Shrubbery::Splice { expr, span } => {
+                // Evaluate and splice
+                let value = self.expand(expr)?;
+                match value {
+                    ExpandValue::Code(shrub, _) => self.expand(&shrub),
+                    _ => Err(MrlError::ExpansionError {
+                        span: *span,
+                        message: "Splice requires quoted code".to_string(),
+                    }),
+                }
+            }
+
+            Shrubbery::If { condition, then_branch, else_branch, span } => {
+                let cond = self.expand(condition)?;
+                let is_true = match cond {
+                    ExpandValue::Bool(b) => b,
+                    ExpandValue::None => false,
+                    ExpandValue::Int(i) => i != 0,
+                    ExpandValue::String(s) => !s.is_empty(),
+                    _ => true,
+                };
+                if is_true {
+                    self.expand(then_branch)
+                } else if let Some(else_br) = else_branch {
+                    self.expand(else_br)
+                } else {
+                    Ok(ExpandValue::None)
+                }
+            }
+
+            Shrubbery::For { pattern, iterable, body, span } => {
+                let iter_val = self.expand(iterable)?;
+                let items = match iter_val {
+                    ExpandValue::Array(arr) => arr,
+                    _ => return Err(MrlError::ExpansionError {
+                        span: *span,
+                        message: "For loop requires array".to_string(),
+                    }),
+                };
+
+                let pattern_name = self.symbols.get(&pattern.id())
+                    .cloned()
+                    .unwrap_or_else(|| format!("var_{}", pattern.id()));
+
+                let mut results = Vec::new();
+                for item in items {
+                    // Bind pattern to item
+                    let saved = self.env.insert(pattern_name.clone(), item);
+                    let result = self.expand(body)?;
+                    if let Some(content) = result.as_content() {
+                        results.push(content.clone());
+                    }
+                    // Restore
+                    if let Some(v) = saved {
+                        self.env.insert(pattern_name.clone(), v);
+                    } else {
+                        self.env.remove(&pattern_name);
+                    }
+                }
+
+                if results.is_empty() {
+                    Ok(ExpandValue::None)
+                } else if results.len() == 1 {
+                    Ok(ExpandValue::Content(results.into_iter().next().unwrap()))
+                } else {
+                    Ok(ExpandValue::Content(Content::Sequence(results)))
+                }
+            }
+
             _ => {
                 // Other forms not yet implemented
                 Ok(ExpandValue::Shrubbery(Box::new(shrub.clone())))
             }
+        }
+    }
+
+    /// Parse a selector from shrubbery
+    fn parse_selector(&self, shrub: &Shrubbery) -> Result<Selector> {
+        match shrub {
+            Shrubbery::Selector { base, predicate, span } => {
+                let base_name = self.symbols.get(&base.id())
+                    .ok_or_else(|| MrlError::ExpansionError {
+                        span: *span,
+                        message: format!("Unknown selector base: {}", base.id()),
+                    })?;
+                let base = SelectorBase::from_name(base_name)
+                    .ok_or_else(|| MrlError::ExpansionError {
+                        span: *span,
+                        message: format!("Invalid selector type: {}", base_name),
+                    })?;
+                // TODO: Parse predicate
+                Ok(Selector::new(base))
+            }
+            Shrubbery::Identifier(sym, _, span) => {
+                let name = self.symbols.get(&sym.id())
+                    .ok_or_else(|| MrlError::ExpansionError {
+                        span: *span,
+                        message: format!("Unknown identifier: {}", sym.id()),
+                    })?;
+                let base = SelectorBase::from_name(name)
+                    .ok_or_else(|| MrlError::ExpansionError {
+                        span: *span,
+                        message: format!("Invalid selector type: {}", name),
+                    })?;
+                Ok(Selector::new(base))
+            }
+            _ => Err(MrlError::ExpansionError {
+                span: shrub.span(),
+                message: "Expected selector".to_string(),
+            }),
+        }
+    }
+
+    /// Expand shrubbery and apply collected rules to the result
+    pub fn expand_with_rules(&mut self, shrub: &Shrubbery) -> Result<ExpandValue> {
+        // First pass: expand and collect rules
+        let value = self.expand(shrub)?;
+
+        // If we have content and rules, apply them
+        if let ExpandValue::Content(content) = value {
+            let mut content = content;
+
+            // Apply set rules first (they modify attributes)
+            self.rules.apply_set_rules(&mut content);
+
+            // Apply show rules (they transform content)
+            if !self.rules.show_rules.is_empty() {
+                let rules = self.rules.show_rules.clone();
+                content = apply_show_rules(content, &rules, &mut |matched, transform| {
+                    self.apply_show_transform(matched, transform)
+                })?;
+            }
+
+            Ok(ExpandValue::Content(content))
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// Apply a show rule transform with `it` bound to the matched element
+    fn apply_show_transform(&mut self, matched: &Content, transform: &Shrubbery) -> Result<Content> {
+        // Bind `it` to the matched content
+        let saved_it = self.env.insert("it".to_string(), ExpandValue::Content(matched.clone()));
+
+        // Expand the transform
+        let result = self.expand(transform)?;
+
+        // Restore `it`
+        if let Some(v) = saved_it {
+            self.env.insert("it".to_string(), v);
+        } else {
+            self.env.remove("it");
+        }
+
+        // Extract content from result
+        match result {
+            ExpandValue::Content(c) => Ok(c),
+            _ => Err(MrlError::ExpansionError {
+                span: transform.span(),
+                message: "Show rule transform must produce content".to_string(),
+            }),
         }
     }
 

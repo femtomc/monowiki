@@ -301,7 +301,11 @@ mod tests {
     fn test_enforest_identifier() {
         let shrub = Shrubbery::Identifier(Symbol::new(1), ScopeSet::new(), Span::new(0, 3));
         let expr = enforest(&shrub).unwrap();
-        assert!(matches!(expr, Expr::Var(Symbol(1), _)));
+        if let Expr::Var(sym, _) = expr {
+            assert_eq!(sym.id(), 1);
+        } else {
+            panic!("Expected Expr::Var");
+        }
     }
 
     #[test]
