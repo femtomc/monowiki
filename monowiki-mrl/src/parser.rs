@@ -949,6 +949,37 @@ pub fn parse(tokens: &[SpannedToken]) -> Result<Shrubbery> {
     parser.parse()
 }
 
+/// Parse tokens and return both the shrubbery and symbol table
+pub fn parse_with_symbols(tokens: &[SpannedToken]) -> Result<(Shrubbery, SymbolTable)> {
+    let mut parser = Parser::new(tokens);
+    let shrub = parser.parse()?;
+    Ok((shrub, parser.into_symbol_table()))
+}
+
+impl<'a> Parser<'a> {
+    /// Consume the parser and return its symbol table
+    pub fn into_symbol_table(self) -> SymbolTable {
+        self.symbols
+    }
+
+    /// Get a reference to the symbol table
+    pub fn symbol_table(&self) -> &SymbolTable {
+        &self.symbols
+    }
+}
+
+impl SymbolTable {
+    /// Get the reverse mapping from Symbol to name
+    pub fn reverse_map(&self) -> std::collections::HashMap<Symbol, String> {
+        self.symbols.iter().map(|(k, v)| (*v, k.clone())).collect()
+    }
+
+    /// Get the symbols map
+    pub fn symbols(&self) -> &std::collections::HashMap<String, Symbol> {
+        &self.symbols
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

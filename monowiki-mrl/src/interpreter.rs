@@ -1,8 +1,9 @@
 use crate::checker::TypeChecker;
 use crate::content::Content;
+use crate::enforest::enforest;
 use crate::error::Result;
 use crate::expander::{ExpandValue, Expander};
-use crate::parser::Parser;
+use crate::parser::{parse_with_symbols, SymbolTable};
 use crate::shrubbery::Shrubbery;
 
 /// Expand-time interpreter
@@ -21,9 +22,14 @@ impl Interpreter {
         }
     }
 
-    /// Execute a staged block
+    /// Register symbols for reverse lookup during type checking
+    pub fn register_symbols(&mut self, symbols: &SymbolTable) {
+        self.checker.register_symbols(symbols.symbols());
+    }
+
+    /// Execute a staged block (legacy - shrubbery only)
     pub fn execute_staged(&mut self, shrub: &Shrubbery) -> Result<Content> {
-        // First, type check
+        // First, type check shrubbery
         let _ty = self.checker.check(shrub)?;
 
         // Then expand
@@ -39,15 +45,38 @@ impl Interpreter {
         }
     }
 
+    /// Execute a staged block with full Expr type checking
+    pub fn execute_staged_checked(&mut self, shrub: &Shrubbery) -> Result<Content> {
+        // Enforest to Expr
+        let expr = enforest(shrub)?;
+
+        // Type check the enforested expression
+        let _ty = self.checker.check_expr(&expr)?;
+
+        // Expand (still uses Shrubbery for now)
+        let value = self.expander.expand(shrub)?;
+
+        // Extract content
+        match value {
+            ExpandValue::Content(c) => Ok(c),
+            _ => {
+                Ok(Content::text(format!("{:?}", value)))
+            }
+        }
+    }
+
     /// Execute an entire document
     pub fn execute_document(&mut self, source: &str) -> Result<Content> {
         use crate::lexer::tokenize;
-        use crate::parser::parse;
 
         let tokens = tokenize(source)?;
-        let shrub = parse(&tokens)?;
+        let (shrub, symbols) = parse_with_symbols(&tokens)?;
 
-        self.execute_staged(&shrub)
+        // Register symbols for reverse lookup
+        self.register_symbols(&symbols);
+
+        // Use full Expr type checking
+        self.execute_staged_checked(&shrub)
     }
 
     /// Get document reflection methods

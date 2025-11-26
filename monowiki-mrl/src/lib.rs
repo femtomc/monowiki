@@ -53,7 +53,7 @@ pub use expander::{ExpandFunction, ExpandValue, Expander};
 pub use hygiene::{Binding, HygieneChecker, HygieneEnv, MacroContext, Space, SpaceRegistry};
 pub use interpreter::{DocumentReflection, Interpreter, OutlineEntry, ReferenceEntry, SectionContext};
 pub use lexer::{tokenize, Lexer, SpannedToken, Token};
-pub use parser::{parse, Parser, SymbolTable};
+pub use parser::{parse, parse_with_symbols, Parser, SymbolTable};
 pub use rules::{Predicate, PredicateValue, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
 pub use shrubbery::{Literal, Param, Scope, ScopeSet, Shrubbery, Symbol};
 pub use types::{MrlType, TypeScheme};
@@ -74,7 +74,29 @@ pub fn execute(source: &str) -> Result<Content> {
 }
 
 /// Type check MRL source
+///
+/// This parses the source, enforests it into Expr form, and type checks
+/// using the full Expr type checker (including show/set/live/def/staged).
 pub fn typecheck(source: &str) -> Result<MrlType> {
+    let tokens = tokenize(source)?;
+    let (shrub, symbols) = parse_with_symbols(&tokens)?;
+
+    // Create checker and register symbol names for reverse lookup
+    let mut checker = TypeChecker::new();
+    checker.register_symbols(symbols.symbols());
+
+    // Enforest to get Expr form
+    let expr = enforest(&shrub)?;
+
+    // Type check the enforested expression
+    checker.check_expr(&expr)
+}
+
+/// Type check MRL source (legacy shrubbery-only check)
+///
+/// This only checks the raw Shrubbery form without enforesting.
+/// Use `typecheck` for full Expr type checking.
+pub fn typecheck_shrubbery(source: &str) -> Result<MrlType> {
     let tokens = tokenize(source)?;
     let shrub = parse(&tokens)?;
     let mut checker = TypeChecker::new();

@@ -6,10 +6,19 @@ use crate::shrubbery::{Literal, Shrubbery, Symbol};
 use crate::types::{ContentKind, MrlType};
 use std::collections::HashMap;
 
+/// A binding with its type and stage level
+#[derive(Debug, Clone)]
+pub struct TypeBinding {
+    pub ty: MrlType,
+    /// Stage level at which this binding was introduced
+    /// 0 = expand-time, 1+ = within quote
+    pub stage: usize,
+}
+
 /// Type environment for type checking
 #[derive(Debug, Clone)]
 pub struct TypeEnv {
-    bindings: HashMap<String, MrlType>,
+    bindings: HashMap<String, TypeBinding>,
 }
 
 impl TypeEnv {
@@ -19,12 +28,38 @@ impl TypeEnv {
         }
     }
 
-    pub fn bind(&mut self, name: String, ty: MrlType) {
-        self.bindings.insert(name, ty);
+    /// Bind a name with type and stage level
+    pub fn bind_at_stage(&mut self, name: String, ty: MrlType, stage: usize) {
+        self.bindings.insert(name, TypeBinding { ty, stage });
     }
 
+    /// Bind a name at stage 0 (convenience method)
+    pub fn bind(&mut self, name: String, ty: MrlType) {
+        self.bind_at_stage(name, ty, 0);
+    }
+
+    /// Look up a binding's type (stage-unaware)
     pub fn lookup(&self, name: &str) -> Option<&MrlType> {
+        self.bindings.get(name).map(|b| &b.ty)
+    }
+
+    /// Look up a binding with stage information
+    pub fn lookup_binding(&self, name: &str) -> Option<&TypeBinding> {
         self.bindings.get(name)
+    }
+
+    /// Look up and check stage constraints (CSP)
+    ///
+    /// A binding at stage n can be used at stage m iff n <= m.
+    /// This is Cross-Stage Persistence (CSP).
+    pub fn lookup_at_stage(&self, name: &str, current_stage: usize) -> Option<&MrlType> {
+        self.bindings.get(name).and_then(|binding| {
+            if binding.stage <= current_stage {
+                Some(&binding.ty)
+            } else {
+                None // Stage violation
+            }
+        })
     }
 
     pub fn child(&self) -> Self {
@@ -45,6 +80,8 @@ pub struct TypeChecker {
     env: TypeEnv,
     /// Current stage level (0 = expand-time, 1+ = quoted)
     stage_level: usize,
+    /// Reverse mapping from Symbol to name for Var lookup fallback
+    symbol_names: HashMap<Symbol, String>,
 }
 
 impl TypeChecker {
@@ -52,9 +89,22 @@ impl TypeChecker {
         let mut checker = Self {
             env: TypeEnv::new(),
             stage_level: 0,
+            symbol_names: HashMap::new(),
         };
         checker.register_builtins();
         checker
+    }
+
+    /// Register a symbol's name for reverse lookup during Var type checking
+    pub fn register_symbol(&mut self, sym: Symbol, name: &str) {
+        self.symbol_names.insert(sym, name.to_string());
+    }
+
+    /// Register multiple symbols from a symbol table
+    pub fn register_symbols(&mut self, symbols: &HashMap<String, Symbol>) {
+        for (name, sym) in symbols {
+            self.symbol_names.insert(*sym, name.clone());
+        }
     }
 
     fn register_builtins(&mut self) {
@@ -300,11 +350,46 @@ impl TypeChecker {
             Expr::Literal(lit, _span) => Ok(self.type_of_literal(lit)),
 
             Expr::Var(sym, _scopes, span) => {
-                // Look up in environment by symbol id
+                // Look up in environment by symbol id first
                 let key = format!("id:{}", sym.id());
-                self.env.lookup(&key).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
+                let name = self.symbol_names.get(sym).cloned().unwrap_or_else(|| key.clone());
+
+                // Try id-based lookup with stage check
+                if let Some(binding) = self.env.lookup_binding(&key) {
+                    // CSP check: binding stage must be <= current stage
+                    if binding.stage <= self.stage_level {
+                        return Ok(binding.ty.clone());
+                    } else {
+                        return Err(MrlError::StageLevelError {
+                            span: *span,
+                            message: format!(
+                                "Cannot use '{}' at stage {} (bound at stage {}). \
+                                 CSP violation: bindings from higher stages cannot be used at lower stages.",
+                                name, self.stage_level, binding.stage
+                            ),
+                        });
+                    }
+                }
+
+                // Fall back to name-based lookup (for implicit bindings like `it`)
+                if let Some(binding) = self.env.lookup_binding(&name) {
+                    if binding.stage <= self.stage_level {
+                        return Ok(binding.ty.clone());
+                    } else {
+                        return Err(MrlError::StageLevelError {
+                            span: *span,
+                            message: format!(
+                                "Cannot use '{}' at stage {} (bound at stage {}). \
+                                 CSP violation: bindings from higher stages cannot be used at lower stages.",
+                                name, self.stage_level, binding.stage
+                            ),
+                        });
+                    }
+                }
+
+                Err(MrlError::UnboundIdentifier {
                     span: *span,
-                    name: key,
+                    name,
                 })
             }
 
@@ -357,7 +442,7 @@ impl TypeChecker {
                 }
             }
 
-            Expr::For(var, iterable, body, span) => {
+            Expr::For(var, iterable, body, _span) => {
                 let iter_ty = self.check_expr(iterable)?;
 
                 // Get element type from iterable
@@ -366,9 +451,13 @@ impl TypeChecker {
                     _ => MrlType::Dyn, // Allow iterating over Dyn
                 };
 
-                // Bind loop variable
+                // Bind loop variable at current stage
                 let mut child_env = self.env.child();
-                child_env.bind(format!("id:{}", var.id()), elem_ty);
+                child_env.bind_at_stage(
+                    format!("id:{}", var.id()),
+                    elem_ty,
+                    self.stage_level,
+                );
 
                 // Check body in extended environment
                 let old_env = std::mem::replace(&mut self.env, child_env);
@@ -380,14 +469,30 @@ impl TypeChecker {
             }
 
             Expr::Quote(inner, _span) => {
+                // Quote increases stage level - bindings inside are at higher stage
+                self.stage_level += 1;
                 let inner_ty = self.check_expr(inner)?;
+                self.stage_level -= 1;
+
                 // Quote produces Code<K> where K is the content kind
                 let kind = inner_ty.as_content_kind().unwrap_or(ContentKind::Content);
                 Ok(MrlType::Code(kind))
             }
 
             Expr::Splice(inner, span) => {
+                // Splice decreases stage level - must have stage > 0
+                if self.stage_level == 0 {
+                    return Err(MrlError::StageLevelError {
+                        span: *span,
+                        message: "Cannot splice at stage 0 (expand-time). \
+                                  Splices can only appear inside quotes.".to_string(),
+                    });
+                }
+
+                self.stage_level -= 1;
                 let inner_ty = self.check_expr(inner)?;
+                self.stage_level += 1;
+
                 // Splice unwraps Code<K> to K
                 match inner_ty {
                     MrlType::Code(kind) => Ok(match kind {
@@ -663,10 +768,14 @@ impl TypeChecker {
             MrlType::Dyn
         };
 
-        // Create child environment with parameters bound
+        // Create child environment with parameters bound at current stage
         let mut child_env = self.env.child();
         for (param, ty) in params.iter().zip(param_tys.iter()) {
-            child_env.bind(format!("id:{}", param.name.id()), ty.clone());
+            child_env.bind_at_stage(
+                format!("id:{}", param.name.id()),
+                ty.clone(),
+                self.stage_level,
+            );
         }
 
         // Check body in extended environment
@@ -691,8 +800,12 @@ impl TypeChecker {
             ret: Box::new(body_ty),
         };
 
-        // Bind the function name in the environment
-        self.env.bind(format!("id:{}", name.id()), func_ty.clone());
+        // Bind the function name at current stage
+        self.env.bind_at_stage(
+            format!("id:{}", name.id()),
+            func_ty.clone(),
+            self.stage_level,
+        );
 
         // Definitions return None (they're statements)
         Ok(MrlType::None)
@@ -744,9 +857,9 @@ impl TypeChecker {
             ContentKind::Content => MrlType::Content,
         };
 
-        // Create child environment with `it` bound
+        // Create child environment with `it` bound at current stage
         let mut child_env = self.env.child();
-        child_env.bind("it".to_string(), it_ty.clone());
+        child_env.bind_at_stage("it".to_string(), it_ty.clone(), self.stage_level);
 
         // Check transform in extended environment
         let old_env = std::mem::replace(&mut self.env, child_env);
@@ -983,10 +1096,79 @@ mod tests {
         let ty = checker.check_expr(&quote_expr).unwrap();
         assert_eq!(ty, MrlType::Code(ContentKind::Inline));
 
-        // Splice unwraps Code<Inline> to Inline
-        let splice_expr = Expr::Splice(Box::new(quote_expr), Span::new(0, 10));
-        let ty = checker.check_expr(&splice_expr).unwrap();
-        assert_eq!(ty, MrlType::Inline);
+        // Test that splice at stage 0 is disallowed
+        let splice_at_0 = Expr::Splice(Box::new(quote_expr.clone()), Span::new(0, 10));
+        let result = checker.check_expr(&splice_at_0);
+        assert!(result.is_err()); // CSP: cannot splice at stage 0
+    }
+
+    #[test]
+    fn test_check_expr_splice_inside_quote() {
+        let mut checker = TypeChecker::new();
+
+        // Bind a variable x with type Code<Inline> at stage 0
+        let x_sym = Symbol::new(100);
+        checker.bind_symbol(x_sym, MrlType::Code(ContentKind::Inline));
+        checker.register_symbol(x_sym, "x");
+
+        // quote[ $x ] - splice x inside a quote (valid: stage 1, splice to stage 0)
+        // The splice accesses x at stage 0, which is valid (0 <= 1 after splice decrements)
+        let expr = Expr::Quote(
+            Box::new(Expr::Splice(
+                Box::new(Expr::Var(x_sym, ScopeSet::new(), Span::new(8, 9))),
+                Span::new(7, 10),
+            )),
+            Span::new(0, 12),
+        );
+
+        let ty = checker.check_expr(&expr).unwrap();
+        // The splice unwraps Code<Inline> to Inline, then Quote wraps to Code<Inline>
+        assert_eq!(ty, MrlType::Code(ContentKind::Inline));
+    }
+
+    #[test]
+    fn test_check_expr_csp_violation() {
+        let mut checker = TypeChecker::new();
+
+        // Bind x at stage 1 (inside a quote)
+        let x_sym = Symbol::new(100);
+        checker.register_symbol(x_sym, "x");
+
+        // Create an expression that binds x inside a quote and tries to use it outside
+        // This is: quote[ for x in [...]: $x ]
+        // where $x tries to access x, but x is bound at stage 1, and after splice we're at stage 0
+        // This should fail CSP: binding stage (1) > current stage (0)
+
+        // Simpler test: just test binding lookup with explicit stage setup
+        // Bind x at stage 1
+        checker.env.bind_at_stage(format!("id:{}", x_sym.id()), MrlType::Int, 1);
+
+        // Try to access x at stage 0 - should fail
+        let var_expr = Expr::Var(x_sym, ScopeSet::new(), Span::new(0, 1));
+        let result = checker.check_expr(&var_expr);
+        assert!(result.is_err(), "CSP violation: cannot use stage-1 binding at stage 0");
+    }
+
+    #[test]
+    fn test_check_expr_csp_valid_higher_stage() {
+        let mut checker = TypeChecker::new();
+
+        // Bind x at stage 0
+        let x_sym = Symbol::new(100);
+        checker.bind_symbol(x_sym, MrlType::Int);
+        checker.register_symbol(x_sym, "x");
+
+        // Access x inside a quote (stage 1) - should succeed
+        // CSP: binding stage (0) <= current stage (1)
+        let expr = Expr::Quote(
+            Box::new(Expr::Var(x_sym, ScopeSet::new(), Span::new(7, 8))),
+            Span::new(0, 10),
+        );
+
+        let ty = checker.check_expr(&expr).unwrap();
+        // Quote wraps Int to... well, Int isn't content, so it defaults to Code<Content>
+        // Actually, let's check what type we get
+        assert_eq!(ty, MrlType::Code(ContentKind::Content));
     }
 
     #[test]
@@ -1041,19 +1223,7 @@ mod tests {
         let heading_sym = Symbol::new(50);
         checker.bind_symbol(heading_sym, MrlType::Selector(ContentKind::Block));
 
-        // !show heading: strong(it)
-        // The transform uses 'it' which is implicitly bound
-        let expr = Expr::ShowRule {
-            selector: Box::new(Expr::Var(heading_sym, ScopeSet::new(), Span::new(5, 12))),
-            transform: Box::new(Expr::Var(Symbol::new(999), ScopeSet::new(), Span::new(14, 16))),
-            span: Span::new(0, 20),
-        };
-
-        // For this test, bind 'it' to test the transform check
-        // Actually, the checker should bind 'it' automatically, but the transform
-        // just returns 'it' which won't be found... let's simplify
-
-        // Simpler test: show rule with Content literal transform
+        // Show rule with Content literal transform
         let expr = Expr::ShowRule {
             selector: Box::new(Expr::Var(heading_sym, ScopeSet::new(), Span::new(5, 12))),
             transform: Box::new(Expr::Content(
@@ -1068,6 +1238,68 @@ mod tests {
 
         let ty = checker.check_expr(&expr).unwrap();
         assert_eq!(ty, MrlType::None);
+    }
+
+    #[test]
+    fn test_check_expr_show_rule_with_it() {
+        let mut checker = TypeChecker::new();
+
+        // Bind 'heading' as a Block selector
+        let heading_sym = Symbol::new(50);
+        checker.bind_symbol(heading_sym, MrlType::Selector(ContentKind::Block));
+
+        // Symbol for 'it' (as would be created by parser)
+        let it_sym = Symbol::new(51);
+        checker.register_symbol(it_sym, "it");
+
+        // !show heading: it
+        // Transform just returns `it` directly - should type as Block
+        let expr = Expr::ShowRule {
+            selector: Box::new(Expr::Var(heading_sym, ScopeSet::new(), Span::new(5, 12))),
+            transform: Box::new(Expr::Var(it_sym, ScopeSet::new(), Span::new(14, 16))),
+            span: Span::new(0, 20),
+        };
+
+        // This should succeed: `it` is implicitly bound to Block, transform returns Block
+        let ty = checker.check_expr(&expr).unwrap();
+        assert_eq!(ty, MrlType::None);
+    }
+
+    #[test]
+    fn test_check_expr_show_rule_it_wrong_kind() {
+        let mut checker = TypeChecker::new();
+
+        // Bind 'heading' as a Block selector
+        let heading_sym = Symbol::new(50);
+        checker.bind_symbol(heading_sym, MrlType::Selector(ContentKind::Block));
+
+        // Symbol for 'it'
+        let it_sym = Symbol::new(51);
+        checker.register_symbol(it_sym, "it");
+
+        // Symbol for a function that returns Inline
+        let text_fn_sym = Symbol::new(52);
+        checker.bind_symbol(text_fn_sym, MrlType::Function {
+            params: vec![MrlType::Block],
+            ret: Box::new(MrlType::Inline),
+        });
+        checker.register_symbol(text_fn_sym, "extract_text");
+
+        // !show heading: extract_text(it)
+        // Transform returns Inline but selector is Block - should fail
+        let expr = Expr::ShowRule {
+            selector: Box::new(Expr::Var(heading_sym, ScopeSet::new(), Span::new(5, 12))),
+            transform: Box::new(Expr::Call(
+                Box::new(Expr::Var(text_fn_sym, ScopeSet::new(), Span::new(14, 26))),
+                vec![Expr::Var(it_sym, ScopeSet::new(), Span::new(27, 29))],
+                Span::new(14, 30),
+            )),
+            span: Span::new(0, 30),
+        };
+
+        // Should fail: transform returns Inline, but selector expects Block
+        let result = checker.check_expr(&expr);
+        assert!(result.is_err());
     }
 
     #[test]
