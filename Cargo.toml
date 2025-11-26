@@ -6,6 +6,9 @@ members = [
     "monowiki-render",
     "monowiki-adapters",
     "monowiki-collab",
+    "monowiki-incremental",
+    "monowiki-mrl",
+    "monowiki-runtime",
 ]
 
 [workspace.package]

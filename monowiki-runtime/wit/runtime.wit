@@ -1,0 +1,94 @@
+package monowiki:runtime@0.1.0;
+
+interface signals {
+    /// Create a new signal with initial value
+    signal-create: func(initial: list<u8>) -> u64;
+
+    /// Get current signal value
+    signal-get: func(id: u64) -> list<u8>;
+
+    /// Set signal value (triggers reactivity)
+    signal-set: func(id: u64, value: list<u8>);
+
+    /// Subscribe to signal changes
+    signal-subscribe: func(id: u64, callback-id: u64);
+}
+
+interface ui {
+    /// Create a slider widget
+    slider: func(min: f64, max: f64, initial: f64) -> u64;
+
+    /// Create a text input
+    text-input: func(placeholder: string, initial: string) -> u64;
+
+    /// Create a button
+    button: func(label: string) -> u64;
+
+    /// Show a value in the output area
+    show: func(value: list<u8>);
+}
+
+interface diagnostics {
+    record span {
+        start-line: u32,
+        start-col: u32,
+        end-line: u32,
+        end-col: u32,
+    }
+
+    enum severity {
+        error,
+        warning,
+        info,
+        hint,
+    }
+
+    /// Emit a diagnostic message
+    emit-diagnostic: func(severity: severity, span: span, message: string);
+
+    /// Add a decoration to the document
+    add-decoration: func(span: span, class: string);
+}
+
+interface fetch {
+    record http-request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: option<list<u8>>,
+    }
+
+    record http-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// Perform HTTP fetch (capability-gated)
+    fetch: func(request: http-request) -> result<http-response, string>;
+}
+
+interface dataspace {
+    /// Publish an assertion
+    publish: func(pattern: string, value: list<u8>) -> u64;
+
+    /// Retract an assertion
+    retract: func(assertion-id: u64);
+
+    /// Subscribe to a pattern
+    subscribe: func(pattern: string, callback-id: u64) -> u64;
+
+    /// Unsubscribe
+    unsubscribe: func(subscription-id: u64);
+}
+
+world live-cell {
+    import signals;
+    import ui;
+    import diagnostics;
+    import fetch;
+    import dataspace;
+
+    /// Main entry point for live cell
+    export run: func();
+}

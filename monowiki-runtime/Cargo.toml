@@ -1,0 +1,36 @@
+[package]
+name = "monowiki-runtime"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Render-time WASM runtime and host functions for monowiki live cells"
+
+[dependencies]
+# WASM runtime
+wasmtime = "28.0.0"
+wit-bindgen = "0.38.0"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Utilities
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+insta = { workspace = true }
+
+[features]
+default = []
+# Enable dataspace integration (requires syndicate runtime)
+dataspace = []
