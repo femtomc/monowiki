@@ -10,6 +10,11 @@ impl Scope {
     pub fn new(id: u64) -> Self {
         Self(id)
     }
+
+    /// Get the scope's unique ID
+    pub fn id(&self) -> u64 {
+        self.0
+    }
 }
 
 /// A set of scopes for hygiene tracking

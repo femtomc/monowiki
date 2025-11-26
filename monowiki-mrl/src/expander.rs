@@ -1,8 +1,8 @@
 use crate::content::Content;
 use crate::error::{MrlError, Result, Span};
-use crate::hygiene::{HygieneEnv, MacroContext};
+use crate::hygiene::{Binding, HygieneEnv, MacroContext};
 use crate::rules::{apply_show_rules, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
-use crate::shrubbery::{Scope, Shrubbery};
+use crate::shrubbery::{Scope, ScopeSet, Shrubbery, Symbol};
 use crate::types::{ContentKind, MrlType};
 use std::collections::HashMap;
 
@@ -104,10 +104,14 @@ pub enum ExpandFunction {
         handler: fn(&[ExpandValue]) -> Result<ExpandValue>,
     },
 
-    /// User-defined macro
+    /// User-defined macro with hygiene support
     Macro {
+        name: String,
         params: Vec<String>,
         body: Box<Shrubbery>,
+        /// The scope introduced by this macro definition
+        macro_scope: Scope,
+        /// Captured hygiene environment
         env: HygieneEnv,
     },
 }
@@ -209,14 +213,40 @@ impl Expander {
         );
     }
 
-    /// Define a macro
+    /// Define a macro with hygiene support
+    ///
+    /// Each macro gets its own scope, used to maintain hygiene during expansion.
+    /// The macro scope is added to all identifiers in the macro body, then flipped
+    /// at expansion time to distinguish macro-internal from user-visible bindings.
     pub fn define_macro(&mut self, name: String, params: Vec<String>, body: Shrubbery) {
+        // Each macro definition gets a fresh scope
+        let macro_scope = self.fresh_scope();
+
+        // Add the macro scope to all identifiers in the body
+        let mut body = body;
+        body.add_scope(macro_scope);
+
+        // Add parameter bindings to the hygiene environment
+        let mut macro_env = self.hygiene.child();
+        for (i, param) in params.iter().enumerate() {
+            // Create a binding for each parameter with the macro scope
+            let param_symbol = Symbol::new(i as u64);
+            let mut param_scopes = ScopeSet::new();
+            param_scopes.add(macro_scope);
+            macro_env.add_binding(Binding::new(param_symbol, param_scopes, Span::default()));
+
+            // Also register the symbol name for lookup
+            self.symbols.insert(i as u64, param.clone());
+        }
+
         self.macros.insert(
             name.clone(),
             ExpandFunction::Macro {
+                name: name.clone(),
                 params,
                 body: Box::new(body),
-                env: self.hygiene.child(),
+                macro_scope,
+                env: macro_env,
             },
         );
     }
@@ -237,12 +267,33 @@ impl Expander {
             }
 
             Shrubbery::Identifier(sym, scopes, span) => {
-                // Look up in environment
-                // For now, simplified lookup without full hygiene
+                // First try hygiene-aware resolution
+                if let Some(_binding) = self.hygiene.resolve(*sym, scopes) {
+                    // Found a binding via scope set resolution
+                    // Look up the value by the symbol's registered name
+                    if let Some(name) = self.symbols.get(&sym.id()) {
+                        if let Some(value) = self.env.get(name) {
+                            return Ok(value.clone());
+                        }
+                    }
+                }
+
+                // Fallback: look up by registered symbol name directly
+                if let Some(name) = self.symbols.get(&sym.id()) {
+                    if let Some(value) = self.env.get(name) {
+                        return Ok(value.clone());
+                    }
+                    return Err(MrlError::UnboundIdentifier {
+                        span: *span,
+                        name: name.clone(),
+                    });
+                }
+
+                // Legacy fallback for unregistered symbols
                 let name = format!("id:{}", sym.id());
                 self.env.get(&name).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
                     span: *span,
-                    name: name.clone(),
+                    name,
                 })
             }
 
@@ -264,7 +315,7 @@ impl Expander {
                 }
             }
 
-            Shrubbery::Brackets(items, span) => {
+            Shrubbery::Brackets(items, _span) => {
                 // Content literal - collect prose and inline content
                 let mut content_items = Vec::new();
                 for item in items {
@@ -363,7 +414,7 @@ impl Expander {
                 }
             }
 
-            Shrubbery::If { condition, then_branch, else_branch, span } => {
+            Shrubbery::If { condition, then_branch, else_branch, span: _ } => {
                 let cond = self.expand(condition)?;
                 let is_true = match cond {
                     ExpandValue::Bool(b) => b,
@@ -430,7 +481,7 @@ impl Expander {
     /// Parse a selector from shrubbery
     fn parse_selector(&self, shrub: &Shrubbery) -> Result<Selector> {
         match shrub {
-            Shrubbery::Selector { base, predicate, span } => {
+            Shrubbery::Selector { base, predicate: _, span } => {
                 let base_name = self.symbols.get(&base.id())
                     .ok_or_else(|| MrlError::ExpansionError {
                         span: *span,
@@ -524,9 +575,12 @@ impl Expander {
             });
         }
 
-        // Get function name
-        let func_name = if let Shrubbery::Identifier(sym, _, _) = &items[0] {
-            format!("id:{}", sym.id())
+        // Get function name from identifier
+        let func_name = if let Shrubbery::Identifier(sym, _scopes, _) = &items[0] {
+            // Try to resolve via symbol table first
+            self.symbols.get(&sym.id())
+                .cloned()
+                .unwrap_or_else(|| format!("id:{}", sym.id()))
         } else {
             return Err(MrlError::ExpansionError {
                 span,
@@ -534,7 +588,15 @@ impl Expander {
             });
         };
 
-        // Look up function
+        // First check if this is a macro
+        if self.macros.contains_key(&func_name) {
+            // Expand arguments
+            let args: Result<Vec<_>> = items[1..].iter().map(|arg| self.expand(arg)).collect();
+            let args = args?;
+            return self.expand_macro(&func_name, &args, span);
+        }
+
+        // Look up function in environment
         let func = self.env.get(&func_name).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
             span,
             name: func_name.clone(),
@@ -557,7 +619,7 @@ impl Expander {
                 handler(&args)
             }
             ExpandValue::Function(ExpandFunction::Macro { .. }) => {
-                // Macro expansion requires special handling
+                // Macro expansion (shouldn't reach here since we check above, but handle anyway)
                 self.expand_macro(&func_name, &args, span)
             }
             _ => Err(MrlError::ExpansionError {
@@ -567,7 +629,14 @@ impl Expander {
         }
     }
 
-    /// Expand a macro invocation
+    /// Expand a macro invocation with hygiene
+    ///
+    /// This implements the Rhombus-style scope-flipping algorithm:
+    /// 1. Create a fresh use-site scope for this invocation
+    /// 2. Add use-site scope to all arguments
+    /// 3. Substitute arguments into the body
+    /// 4. Apply scope flipping via MacroContext
+    /// 5. Expand the hygienically-adjusted body
     fn expand_macro(&mut self, name: &str, args: &[ExpandValue], span: Span) -> Result<ExpandValue> {
         let macro_def = self.macros.get(name).cloned().ok_or_else(|| MrlError::ExpansionError {
             span,
@@ -575,17 +644,40 @@ impl Expander {
         })?;
 
         match macro_def {
-            ExpandFunction::Macro { params, body, env: _ } => {
-                // Bind parameters
+            ExpandFunction::Macro { params, body, macro_scope, env: macro_env, .. } => {
+                // Step 1: Create a fresh use-site scope for this invocation
+                let use_scope = self.fresh_scope();
+
+                // Step 2: Create the MacroContext for hygiene application
+                let ctx = MacroContext::new(macro_scope, use_scope, macro_env.clone());
+
+                // Step 3: Bind parameters in the value environment
+                // The parameters were already registered with the macro scope when the macro was defined.
+                // Now we bind them to the actual argument values.
                 let mut new_env = self.env.clone();
                 for (param, arg) in params.iter().zip(args.iter()) {
                     new_env.insert(param.clone(), arg.clone());
                 }
 
-                // Expand body in new environment
+                // Step 4: Clone the body and apply hygiene (scope flipping)
+                // The body already has macro_scope added during define_macro.
+                // apply_hygiene will add macro_scope again and then flip it,
+                // leaving identifiers introduced by the macro unmarked by macro_scope,
+                // while identifiers from arguments (which had use_scope added) remain distinguishable.
+                let hygienic_body = ctx.apply_hygiene((*body).clone(), &Shrubbery::Sequence(vec![], span));
+
+                // Step 5: Merge the macro's hygiene env into our current one for resolution
+                let child_hygiene = self.hygiene.child();
+                let saved_hygiene = std::mem::replace(&mut self.hygiene, child_hygiene);
+                self.hygiene.merge(&macro_env);
+
+                // Step 6: Expand the hygienically-adjusted body in the new value environment
                 let saved_env = std::mem::replace(&mut self.env, new_env);
-                let result = self.expand(&body);
+                let result = self.expand(&hygienic_body);
+
+                // Restore environments
                 self.env = saved_env;
+                self.hygiene = saved_hygiene;
 
                 result
             }
@@ -784,5 +876,55 @@ mod tests {
         let shrub = parse(&tokens).unwrap();
         let result = expander.expand(&shrub).unwrap();
         assert!(matches!(result, ExpandValue::String(_)));
+    }
+
+    #[test]
+    fn test_define_macro_creates_scope() {
+        let mut expander = Expander::new();
+
+        // Define a simple macro
+        let body = Shrubbery::Literal(crate::shrubbery::Literal::Int(42), Span::new(0, 2));
+        expander.define_macro("test_macro".to_string(), vec!["x".to_string()], body);
+
+        // Verify the macro was registered
+        assert!(expander.macros.contains_key("test_macro"));
+
+        // Verify the macro has a scope assigned
+        if let Some(ExpandFunction::Macro { macro_scope, .. }) = expander.macros.get("test_macro") {
+            assert!(macro_scope.id() < expander.next_scope_id);
+        } else {
+            panic!("Expected Macro");
+        }
+    }
+
+    #[test]
+    fn test_expander_fresh_scope_increments() {
+        let mut expander = Expander::new();
+
+        let s1 = expander.fresh_scope();
+        let s2 = expander.fresh_scope();
+        let s3 = expander.fresh_scope();
+
+        // Each scope should have a unique, incrementing ID
+        assert_eq!(s1.id(), 0);
+        assert_eq!(s2.id(), 1);
+        assert_eq!(s3.id(), 2);
+    }
+
+    #[test]
+    fn test_symbol_registration() {
+        let mut expander = Expander::new();
+
+        expander.register_symbol(42, "my_var".to_string());
+        assert_eq!(expander.symbols.get(&42), Some(&"my_var".to_string()));
+
+        // Set multiple symbols at once
+        let mut symbols = std::collections::HashMap::new();
+        symbols.insert(1, "x".to_string());
+        symbols.insert(2, "y".to_string());
+        expander.set_symbols(symbols);
+
+        assert_eq!(expander.symbols.get(&1), Some(&"x".to_string()));
+        assert_eq!(expander.symbols.get(&2), Some(&"y".to_string()));
     }
 }
