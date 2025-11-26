@@ -146,6 +146,18 @@ impl Capabilities {
             Capability::Dataspace => self.dataspace,
         }
     }
+
+    /// Create capabilities with all permissions enabled
+    pub fn all() -> Self {
+        Self {
+            read: true,
+            write: true,
+            network: true,
+            ui: true,
+            diagnostics: true,
+            dataspace: true,
+        }
+    }
 }
 
 /// Runtime limits for WASM execution
@@ -207,6 +219,9 @@ pub enum RuntimeError {
 
     #[error("Dataspace error: {0}")]
     DataspaceError(String),
+
+    #[error("Capability error: {0}")]
+    CapabilityError(String),
 }
 
 pub type RuntimeResult<T> = Result<T, RuntimeError>;

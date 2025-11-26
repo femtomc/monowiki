@@ -9,7 +9,7 @@
 mod entity;
 mod facet;
 
-pub use entity::{CollectingEntity, Entity, EntityContext, LoggingEntity, NoopEntity};
+pub use entity::{CollectingEntity, Entity, EntityContext, EntityError, LoggingEntity, NoopEntity};
 pub use facet::Facet;
 
 use crate::dataspace::{Dataspace, DataspaceRef};

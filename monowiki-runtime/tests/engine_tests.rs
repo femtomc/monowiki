@@ -16,7 +16,7 @@ fn test_load_and_run_wasm() {
     instance.run().unwrap();
 
     // Check that ui.show was called
-    let outputs = instance.host().take_output();
+    let outputs = instance.host_mut().take_output();
     assert!(!outputs.is_empty());
     assert_eq!(outputs[0], b"Hello, World!");
 }
@@ -73,7 +73,7 @@ fn test_signal_roundtrip() {
     instance.run().unwrap();
 
     // Check that the signal value was read back correctly
-    let outputs = instance.host().take_output();
+    let outputs = instance.host_mut().take_output();
     assert_eq!(outputs.len(), 1);
     // The output should be the i32 value 42 in little-endian: [0x2a, 0x00, 0x00, 0x00]
     assert_eq!(outputs[0], vec![0x2a, 0x00, 0x00, 0x00]);
@@ -139,7 +139,7 @@ fn test_diagnostics_emission() {
     let wat = r#"
         (module
           (import "monowiki:runtime/diagnostics" "emit-diagnostic"
-            (func $emit (param i32 u32 u32 u32 u32 i32 i32)))
+            (func $emit (param i32 i32 i32 i32 i32 i32 i32)))
 
           (memory (export "memory") 1)
           (data (i32.const 0) "Test error message")

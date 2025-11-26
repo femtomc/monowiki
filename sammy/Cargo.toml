@@ -9,7 +9,7 @@ description = "Syndicated Actor Model runtime for Monowiki (extracted from Slop)
 
 [dependencies]
 # Preserves data format (core dependency)
-preserves = { version = "5.0.0-rc.7", features = ["serde"] }
+preserves = { workspace = true }
 
 # Async runtime
 tokio = { workspace = true }

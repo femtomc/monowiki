@@ -3002,7 +3002,11 @@ name = "monowiki-runtime"
 version = "0.2.8"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "insta",
+ "parking_lot",
+ "preserves",
+ "sammy",
  "serde",
  "serde_json",
  "tempfile",

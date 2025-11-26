@@ -8,12 +8,15 @@ use crate::dataspace::DataspaceClient;
 use crate::diagnostics::DiagnosticCollector;
 use crate::signals::SignalStore;
 use crate::ui::WidgetStore;
+use parking_lot::RwLock;
+use sammy::assertion::OrSetStore;
+use sammy::dataspace::LocalDataspace;
+use std::sync::Arc;
 
 /// Host functions for WASM runtime
 ///
 /// This struct holds all the state needed to execute live cell WASM modules
 /// and provides implementations of all host functions defined in the WIT interface.
-#[derive(Debug)]
 pub struct RuntimeHost {
     pub signals: SignalStore,
     pub widgets: WidgetStore,
@@ -25,7 +28,29 @@ pub struct RuntimeHost {
 impl RuntimeHost {
     pub fn new(capabilities: Capabilities) -> Self {
         let dataspace_client = if capabilities.dataspace {
-            Some(DataspaceClient::new())
+            // Create a default local dataspace for standalone use
+            let ds = Arc::new(RwLock::new(LocalDataspace::<OrSetStore>::new("default")));
+            Some(DataspaceClient::new(ds))
+        } else {
+            None
+        };
+
+        Self {
+            signals: SignalStore::new(),
+            widgets: WidgetStore::new(),
+            diagnostics: DiagnosticCollector::new(),
+            dataspace_client,
+            capabilities,
+        }
+    }
+
+    /// Create a runtime host with an existing dataspace
+    pub fn with_dataspace(
+        capabilities: Capabilities,
+        dataspace: Arc<RwLock<LocalDataspace<OrSetStore>>>,
+    ) -> Self {
+        let dataspace_client = if capabilities.dataspace {
+            Some(DataspaceClient::new(dataspace))
         } else {
             None
         };
@@ -148,7 +173,7 @@ impl RuntimeHost {
             RuntimeError::DataspaceError("Dataspace client not initialized".to_string())
         })?;
 
-        Ok(client.publish(pattern.to_string(), value.to_vec()))
+        client.publish(pattern.to_string(), value.to_vec())
     }
 
     /// Retract an assertion from the dataspace
@@ -170,7 +195,7 @@ impl RuntimeHost {
             RuntimeError::DataspaceError("Dataspace client not initialized".to_string())
         })?;
 
-        Ok(client.subscribe(pattern.to_string(), callback_id))
+        client.subscribe(pattern.to_string(), callback_id)
     }
 
     /// Unsubscribe from a dataspace pattern

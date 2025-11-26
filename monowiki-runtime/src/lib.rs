@@ -84,6 +84,10 @@ pub mod emitter;
 pub mod engine;
 pub mod host;
 pub mod interpreter;
+pub mod kernel;
+pub mod livecell_codegen;
+pub mod sammy_config;
+pub mod schemas;
 pub mod signals;
 pub mod ui;
 
@@ -94,6 +98,14 @@ pub use abi::{
 };
 
 pub use dataspace::{Assertion, DataspaceClient, Subscription};
+
+pub use sammy_config::{MonowikiConfig, MonowikiRuntime};
+
+pub use schemas::{
+    CapabilityGrant, DiagnosticAssertion, DiagnosticSeverity, EvalPayload,
+    EvalRequest, EvalResult, EvalResultKind, PluginRegistered,
+};
+pub use schemas::Decoration as DecorationAssertion;
 
 pub use diagnostics::{Decoration, Diagnostic, DiagnosticCollector};
 
@@ -110,6 +122,10 @@ pub use interpreter::{BinOp, Interpreter, SimpleExpr, Stmt, UnOp, Value};
 pub use signals::{Signal, SignalStore};
 
 pub use ui::{Widget, WidgetStore};
+
+pub use kernel::{EchoKernel, SourceKernel, SourceKernelEntity, WasmKernel};
+
+pub use livecell_codegen::{LiveCellCodeGen, LiveCellConfig, WasmEmitterWithMemory};
 
 #[cfg(test)]
 mod tests {
