@@ -59,6 +59,27 @@ pub enum MrlError {
     },
 }
 
+impl MrlError {
+    /// Get the span associated with this error
+    pub fn span(&self) -> Span {
+        match self {
+            MrlError::LexerError { span, .. } => *span,
+            MrlError::ParserError { span, .. } => *span,
+            MrlError::TypeError { span, .. } => *span,
+            MrlError::HygieneError { span, .. } => *span,
+            MrlError::ExpansionError { span, .. } => *span,
+            MrlError::EvaluationError { span, .. } => *span,
+            MrlError::UnboundIdentifier { span, .. } => *span,
+            MrlError::ArityMismatch { span, .. } => *span,
+            MrlError::KindMismatch { span, .. } => *span,
+            MrlError::InvalidContentNesting { span } => *span,
+            MrlError::StageLevelError { span, .. } => *span,
+            MrlError::CapabilityError { span, .. } => *span,
+            MrlError::InvalidProperty { span, .. } => *span,
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, MrlError>;
 
 /// Display context for better error messages

@@ -235,6 +235,23 @@ fn layout_content(
                 layout_content(item, styles, layout, y, width);
             }
         }
+        Content::Live(cell) => {
+            // Live cells get a placeholder box that will be populated at runtime
+            let height = 48; // Default height for live cell placeholder
+
+            layout.push(LayoutBox {
+                x: 0,
+                y: *y,
+                width,
+                height,
+                kind: LayoutKind::CodeBlock {
+                    code: format!("[live: {}]", cell.source),
+                    lang: Some("mrl".to_string()),
+                },
+            });
+
+            *y += height + 12;
+        }
     }
 }
 
@@ -403,6 +420,7 @@ fn content_to_text(content: &Content) -> String {
             .map(content_to_text)
             .collect::<Vec<_>>()
             .join("\n"),
+        Content::Live(cell) => format!("[live: {}]", cell.source),
     }
 }
 

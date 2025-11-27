@@ -83,7 +83,7 @@ fn test_invalidation_on_change() {
     bridge.on_change(
         &doc_id,
         DocChange::TextChanged {
-            block_id: BlockId("block1".to_string()),
+            block_id: BlockId(1),
             start: 5,
             end: 5,
             new_text: " World".to_string(),
@@ -186,13 +186,13 @@ fn test_batch_invalidation() {
 
     let changes = vec![
         DocChange::TextChanged {
-            block_id: BlockId("block1".to_string()),
+            block_id: BlockId(1),
             start: 0,
             end: 7,
             new_text: "Changed".to_string(),
         },
         DocChange::MarkChanged {
-            block_id: BlockId("block1".to_string()),
+            block_id: BlockId(1),
             mark_type: "bold".to_string(),
             start: 0,
             end: 7,

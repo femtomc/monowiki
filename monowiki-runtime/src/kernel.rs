@@ -44,17 +44,31 @@ pub struct WasmKernel {
     engine: Arc<LiveCellEngine>,
     /// Execution timeout
     timeout: Duration,
+    /// Default capabilities for cells executed by this kernel
+    default_capabilities: Capabilities,
     /// Pending results to publish (handle -> result)
     pending_results: Vec<EvalResult>,
 }
 
 impl WasmKernel {
-    /// Create a new WASM kernel
+    /// Create a new WASM kernel with default (safe) capabilities
     pub fn new(kernel_id: impl Into<String>) -> Self {
         Self {
             kernel_id: kernel_id.into(),
             engine: Arc::new(LiveCellEngine::new().expect("Failed to create WASM engine")),
             timeout: Duration::from_secs(30),
+            default_capabilities: Capabilities::new().with_ui().with_diagnostics(),
+            pending_results: Vec::new(),
+        }
+    }
+
+    /// Create a WASM kernel with full capabilities (use with caution)
+    pub fn with_full_capabilities(kernel_id: impl Into<String>) -> Self {
+        Self {
+            kernel_id: kernel_id.into(),
+            engine: Arc::new(LiveCellEngine::new().expect("Failed to create WASM engine")),
+            timeout: Duration::from_secs(30),
+            default_capabilities: Capabilities::all(),
             pending_results: Vec::new(),
         }
     }
@@ -71,14 +85,20 @@ impl WasmKernel {
         self
     }
 
+    /// Create with specific capabilities
+    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
+        self.default_capabilities = capabilities;
+        self
+    }
+
     /// Process an evaluation request
     fn process_request(&mut self, request: &EvalRequest) -> EvalResult {
         let start = Instant::now();
 
         match &request.payload {
             EvalPayload::Wasm { data: wasm_bytes } => {
-                // Create a host with full capabilities for the kernel
-                let host = RuntimeHost::new(Capabilities::all());
+                // Create a host with the kernel's configured capabilities
+                let host = RuntimeHost::new(self.default_capabilities.clone());
 
                 match self.engine.instantiate(wasm_bytes, host) {
                     Ok(mut instance) => {
@@ -395,13 +415,9 @@ impl Default for MrlKernel {
 
 /// Extract error message and optional span from MrlError
 fn extract_mrl_error(err: &monowiki_mrl::MrlError) -> (String, Option<(usize, usize)>) {
-    // MrlError provides Display, use that for the message
     let message = err.to_string();
-
-    // Try to extract span from the error context if available
-    // For now, just return the message without span
-    // TODO: Enhance MrlError to provide span information
-    (message, None)
+    let span = err.span();
+    (message, Some((span.start, span.end)))
 }
 
 impl Entity<LocalDataspace<OrSetStore>> for MrlKernel {
