@@ -137,3 +137,27 @@ fn test_type_scheme() {
     let poly_scheme = TypeScheme::poly(vec![0, 1], MrlType::Var(0));
     assert_eq!(poly_scheme.vars.len(), 2);
 }
+
+#[test]
+fn test_record_type() {
+    let record = MrlType::Record(vec![
+        ("name".to_string(), MrlType::String),
+        ("age".to_string(), MrlType::Int),
+    ]);
+    assert_eq!(record.to_string(), "{ name: String, age: Int }");
+}
+
+#[test]
+fn test_record_subtyping() {
+    let record1 = MrlType::Record(vec![
+        ("name".to_string(), MrlType::String),
+    ]);
+    let record2 = MrlType::Record(vec![
+        ("name".to_string(), MrlType::String),
+    ]);
+    // Same record is subtype of itself
+    assert!(record1.is_subtype_of(&record2));
+
+    // Any record is subtype of Dyn
+    assert!(record1.is_subtype_of(&MrlType::Dyn));
+}

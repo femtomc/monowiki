@@ -415,9 +415,9 @@ impl TypeChecker {
                 self.check_call_expr(&func_ty, &arg_tys, *span)
             }
 
-            Expr::FieldAccess(_base, _field, span) => {
-                // TODO: Implement record field access typing
-                Ok(MrlType::Dyn)
+            Expr::FieldAccess(base, field, span) => {
+                let base_ty = self.check_expr(base)?;
+                self.check_field_access(&base_ty, *field, *span)
             }
 
             Expr::Subscript(base, index, span) => {
@@ -732,6 +732,177 @@ impl TypeChecker {
         }
     }
 
+    /// Check field access operation
+    fn check_field_access(&self, base: &MrlType, field: Symbol, span: Span) -> Result<MrlType> {
+        let field_name = self.symbol_names.get(&field)
+            .cloned()
+            .unwrap_or_else(|| format!("field_{}", field.id()));
+
+        match base {
+            // Record types - look up field directly
+            MrlType::Record(fields) => {
+                for (name, ty) in fields {
+                    if name == &field_name {
+                        return Ok(ty.clone());
+                    }
+                }
+                Err(MrlError::TypeError {
+                    span,
+                    message: format!("Record has no field '{}'", field_name),
+                })
+            }
+
+            // Content/Block types have known fields
+            MrlType::Block | MrlType::Content => {
+                match field_name.as_str() {
+                    "attrs" => Ok(MrlType::Record(vec![
+                        ("id".to_string(), MrlType::String),
+                        ("classes".to_string(), MrlType::Array(Box::new(MrlType::String))),
+                    ])),
+                    _ => Ok(MrlType::Dyn) // Allow dynamic access for other fields
+                }
+            }
+
+            // Inline types
+            MrlType::Inline => {
+                match field_name.as_str() {
+                    "attrs" => Ok(MrlType::Record(vec![
+                        ("id".to_string(), MrlType::String),
+                        ("classes".to_string(), MrlType::Array(Box::new(MrlType::String))),
+                    ])),
+                    _ => Ok(MrlType::Dyn)
+                }
+            }
+
+            // Dyn allows any field access
+            MrlType::Dyn => Ok(MrlType::Dyn),
+
+            // Other types don't support field access
+            _ => Err(MrlError::TypeError {
+                span,
+                message: format!("Type {} does not support field access", base),
+            }),
+        }
+    }
+
+    /// Interpret a type expression from shrubbery
+    /// Converts parsed type annotations to MrlType
+    fn interpret_type(&self, shrub: &crate::shrubbery::Shrubbery) -> MrlType {
+        use crate::shrubbery::Shrubbery;
+
+        match shrub {
+            Shrubbery::Identifier(sym, _, _) => {
+                let name = self.symbol_names.get(sym)
+                    .cloned()
+                    .unwrap_or_else(|| format!("type_{}", sym.id()));
+
+                // Match known type names
+                match name.as_str() {
+                    "None" | "none" => MrlType::None,
+                    "Bool" | "bool" => MrlType::Bool,
+                    "Int" | "int" => MrlType::Int,
+                    "Float" | "float" => MrlType::Float,
+                    "String" | "string" | "str" => MrlType::String,
+                    "Symbol" | "symbol" => MrlType::Symbol,
+                    "Content" | "content" => MrlType::Content,
+                    "Block" | "block" => MrlType::Block,
+                    "Inline" | "inline" => MrlType::Inline,
+                    "Dyn" | "dyn" | "Any" | "any" => MrlType::Dyn,
+                    _ => MrlType::Dyn // Unknown type defaults to Dyn
+                }
+            }
+
+            // Array<T> or [T]
+            Shrubbery::Brackets(items, _) if items.len() == 1 => {
+                let elem = self.interpret_type(&items[0]);
+                MrlType::Array(Box::new(elem))
+            }
+
+            // Generic type application: Array<Int>, Code<Block>, etc.
+            Shrubbery::Sequence(items, _) if items.len() >= 2 => {
+                if let Some((sym, _)) = items[0].as_identifier() {
+                    let name = self.symbol_names.get(&sym)
+                        .cloned()
+                        .unwrap_or_default();
+
+                    match name.as_str() {
+                        "Array" | "List" => {
+                            if items.len() > 1 {
+                                let elem = self.interpret_type(&items[1]);
+                                return MrlType::Array(Box::new(elem));
+                            }
+                        }
+                        "Code" => {
+                            if items.len() > 1 {
+                                let kind = self.interpret_content_kind(&items[1]);
+                                return MrlType::Code(kind);
+                            }
+                        }
+                        "Signal" => {
+                            if items.len() > 1 {
+                                let inner = self.interpret_type(&items[1]);
+                                return MrlType::Signal(Box::new(inner));
+                            }
+                        }
+                        "Selector" => {
+                            if items.len() > 1 {
+                                let kind = self.interpret_content_kind(&items[1]);
+                                return MrlType::Selector(kind);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                MrlType::Dyn
+            }
+
+            // Record type: { field: Type, ... }
+            Shrubbery::Braces(items, _) => {
+                let mut fields = Vec::new();
+                for item in items {
+                    // Look for `name: type` patterns
+                    if let Shrubbery::Sequence(parts, _) = item {
+                        if parts.len() >= 2 {
+                            if let Some((sym, _)) = parts[0].as_identifier() {
+                                let field_name = self.symbol_names.get(&sym)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("f{}", sym.id()));
+                                let field_ty = self.interpret_type(&parts[1]);
+                                fields.push((field_name, field_ty));
+                            }
+                        }
+                    }
+                }
+                if fields.is_empty() {
+                    MrlType::Dyn
+                } else {
+                    MrlType::Record(fields)
+                }
+            }
+
+            // Function type: (A, B) -> C
+            // For now, default to Dyn
+            _ => MrlType::Dyn,
+        }
+    }
+
+    /// Interpret a ContentKind from a type expression
+    fn interpret_content_kind(&self, shrub: &crate::shrubbery::Shrubbery) -> ContentKind {
+        if let Some((sym, _)) = shrub.as_identifier() {
+            let name = self.symbol_names.get(&sym)
+                .cloned()
+                .unwrap_or_default();
+
+            match name.as_str() {
+                "Block" | "block" => ContentKind::Block,
+                "Inline" | "inline" => ContentKind::Inline,
+                _ => ContentKind::Content,
+            }
+        } else {
+            ContentKind::Content
+        }
+    }
+
     /// Unify two types, returning their common type
     fn unify_types(&self, t1: &MrlType, t2: &MrlType, span: Span) -> Result<MrlType> {
         if t1.is_subtype_of(t2) {
@@ -763,15 +934,37 @@ impl TypeChecker {
         let param_tys: Vec<MrlType> = params
             .iter()
             .map(|p| {
-                // TODO: Parse type annotations from Param
-                MrlType::Dyn
+                if let Some(type_ann) = &p.type_annotation {
+                    self.interpret_type(type_ann)
+                } else {
+                    MrlType::Dyn
+                }
             })
             .collect();
 
         // Expected return type from annotation
         let expected_ret = if let Some(rt_expr) = return_type {
-            // TODO: Interpret type expression
-            MrlType::Dyn
+            // Return type is an Expr, need to convert if it's a type expression
+            // For now, check if it's an identifier and interpret as type
+            match rt_expr {
+                Expr::Var(sym, _, _) => {
+                    let name = self.symbol_names.get(sym)
+                        .cloned()
+                        .unwrap_or_default();
+                    match name.as_str() {
+                        "None" | "none" => MrlType::None,
+                        "Bool" | "bool" => MrlType::Bool,
+                        "Int" | "int" => MrlType::Int,
+                        "Float" | "float" => MrlType::Float,
+                        "String" | "string" | "str" => MrlType::String,
+                        "Content" | "content" => MrlType::Content,
+                        "Block" | "block" => MrlType::Block,
+                        "Inline" | "inline" => MrlType::Inline,
+                        _ => MrlType::Dyn
+                    }
+                }
+                _ => MrlType::Dyn
+            }
         } else {
             MrlType::Dyn
         };
@@ -1424,5 +1617,156 @@ mod tests {
         let ty = checker.check_expr(&expr).unwrap();
         // For produces Array<body_type>
         assert_eq!(ty, MrlType::Array(Box::new(MrlType::String)));
+    }
+
+    #[test]
+    fn test_check_field_access_record() {
+        let mut checker = TypeChecker::new();
+
+        // Create a record variable
+        let rec_sym = Symbol::new(100);
+        let record_ty = MrlType::Record(vec![
+            ("name".to_string(), MrlType::String),
+            ("age".to_string(), MrlType::Int),
+        ]);
+        checker.bind_symbol(rec_sym, record_ty);
+
+        // Register field symbols
+        let name_sym = Symbol::new(101);
+        let age_sym = Symbol::new(102);
+        checker.register_symbol(name_sym, "name");
+        checker.register_symbol(age_sym, "age");
+
+        // Test: rec.name should be String
+        let expr = Expr::FieldAccess(
+            Box::new(Expr::Var(rec_sym, ScopeSet::new(), Span::new(0, 3))),
+            name_sym,
+            Span::new(0, 8),
+        );
+        let ty = checker.check_expr(&expr).unwrap();
+        assert_eq!(ty, MrlType::String);
+
+        // Test: rec.age should be Int
+        let expr2 = Expr::FieldAccess(
+            Box::new(Expr::Var(rec_sym, ScopeSet::new(), Span::new(0, 3))),
+            age_sym,
+            Span::new(0, 7),
+        );
+        let ty2 = checker.check_expr(&expr2).unwrap();
+        assert_eq!(ty2, MrlType::Int);
+    }
+
+    #[test]
+    fn test_check_field_access_record_error() {
+        let mut checker = TypeChecker::new();
+
+        // Create a record variable
+        let rec_sym = Symbol::new(100);
+        let record_ty = MrlType::Record(vec![
+            ("name".to_string(), MrlType::String),
+        ]);
+        checker.bind_symbol(rec_sym, record_ty);
+
+        // Register a field symbol that doesn't exist on the record
+        let invalid_sym = Symbol::new(999);
+        checker.register_symbol(invalid_sym, "missing_field");
+
+        // Test: rec.missing_field should error
+        let expr = Expr::FieldAccess(
+            Box::new(Expr::Var(rec_sym, ScopeSet::new(), Span::new(0, 3))),
+            invalid_sym,
+            Span::new(0, 17),
+        );
+        let result = checker.check_expr(&expr);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_field_access_block_attrs() {
+        let mut checker = TypeChecker::new();
+
+        // Create a Block variable
+        let block_sym = Symbol::new(100);
+        checker.bind_symbol(block_sym, MrlType::Block);
+
+        // Register attrs field
+        let attrs_sym = Symbol::new(101);
+        checker.register_symbol(attrs_sym, "attrs");
+
+        // Test: block.attrs should return a record type
+        let expr = Expr::FieldAccess(
+            Box::new(Expr::Var(block_sym, ScopeSet::new(), Span::new(0, 5))),
+            attrs_sym,
+            Span::new(0, 11),
+        );
+        let ty = checker.check_expr(&expr).unwrap();
+        assert!(matches!(ty, MrlType::Record(_)));
+    }
+
+    #[test]
+    fn test_check_field_access_dyn() {
+        let mut checker = TypeChecker::new();
+
+        // Create a Dyn variable
+        let dyn_sym = Symbol::new(100);
+        checker.bind_symbol(dyn_sym, MrlType::Dyn);
+
+        // Register any field
+        let any_sym = Symbol::new(101);
+        checker.register_symbol(any_sym, "anything");
+
+        // Test: dyn.anything should be Dyn
+        let expr = Expr::FieldAccess(
+            Box::new(Expr::Var(dyn_sym, ScopeSet::new(), Span::new(0, 3))),
+            any_sym,
+            Span::new(0, 12),
+        );
+        let ty = checker.check_expr(&expr).unwrap();
+        assert_eq!(ty, MrlType::Dyn);
+    }
+
+    #[test]
+    fn test_check_def_with_type_annotations() {
+        let mut checker = TypeChecker::new();
+
+        // Create symbols
+        let func_name = Symbol::new(100);
+        let param_name = Symbol::new(101);
+        let string_type_sym = Symbol::new(102);
+
+        // Register symbols
+        checker.register_symbol(func_name, "greet");
+        checker.register_symbol(param_name, "name");
+        checker.register_symbol(string_type_sym, "String");
+
+        // Create type annotation shrubbery for String
+        let type_ann = Shrubbery::Identifier(string_type_sym, ScopeSet::new(), Span::new(6, 12));
+
+        // Create param with type annotation
+        let param = Param::new(param_name, Span::new(0, 4))
+            .with_type(type_ann);
+
+        // def greet(name: String): "Hello"
+        let expr = Expr::Def {
+            name: func_name,
+            params: vec![param],
+            return_type: None,
+            body: Box::new(Expr::Literal(Literal::String("Hello".to_string()), Span::new(20, 27))),
+            span: Span::new(0, 27),
+        };
+
+        let ty = checker.check_expr(&expr).unwrap();
+        assert_eq!(ty, MrlType::None);
+
+        // Check the bound function has correct type
+        let func_ty = checker.env.lookup(&format!("id:{}", func_name.id())).unwrap();
+        match func_ty {
+            MrlType::Function { params, ret } => {
+                assert_eq!(params.len(), 1);
+                assert_eq!(params[0], MrlType::String); // Type annotation was respected
+                assert_eq!(**ret, MrlType::String);
+            }
+            _ => panic!("Expected function type"),
+        }
     }
 }
