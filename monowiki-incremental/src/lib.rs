@@ -84,10 +84,13 @@ pub mod prelude {
     pub use crate::db::Db;
     pub use crate::durability::Durability;
     pub use crate::invalidation::InvalidationBridge;
+    // Document-level queries
     pub use crate::queries::{
         ActiveMacrosQuery, DocumentSourceQuery, ExpandToContentQuery, LayoutDocumentQuery,
         ParseShrubberyQuery, SourceStorage, Viewport,
     };
+    // Block-level queries (for fine-grained invalidation)
+    pub use crate::queries::{ExpandBlockQuery, LayoutBlockQuery, ParseBlockQuery};
     pub use crate::query::{InputQuery, Query, QueryDatabase};
     pub use monowiki_types::{BlockId, DocChange, DocId};
 }

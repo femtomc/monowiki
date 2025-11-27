@@ -253,14 +253,9 @@ impl QueryDatabase for Db {
             .push(from);
     }
 
-    fn get_any(&self, key: &str) -> Option<Box<dyn Any + Send + Sync>> {
+    fn get_any(&self, key: &str) -> Option<Arc<dyn Any + Send + Sync>> {
         self.dynamic_storage.get(key).map(|entry| {
-            // Convert Arc to Box by cloning the Arc and using the inner value
-            let arc = entry.value().clone();
-            // We can't directly convert Arc<dyn Any> to Box<dyn Any>
-            // So we return a boxed reference
-            // This is a workaround - in practice, we'd use Arc throughout
-            Box::new(arc) as Box<dyn Any + Send + Sync>
+            entry.value().clone()
         })
     }
 

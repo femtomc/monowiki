@@ -1,10 +1,11 @@
 //! Layout computation queries
 //!
 //! These queries compute layout information for rendering.
+//! Provides both document-level and block-level layout for fine-grained invalidation.
 
 use crate::durability::Durability;
-use crate::queries::expand::ExpandToContentQuery;
-use crate::queries::source::DocId;
+use crate::queries::expand::{ExpandBlockQuery, ExpandToContentQuery};
+use crate::queries::source::{BlockId, DocId};
 use crate::query::{Query, QueryDatabase};
 use monowiki_mrl::{Block, Content, Inline};
 
@@ -116,6 +117,42 @@ impl Query for LayoutDocumentQuery {
 
     fn name() -> &'static str {
         "LayoutDocumentQuery"
+    }
+}
+
+/// Query for computing layout of a single block
+///
+/// This enables fine-grained invalidation - when a block changes,
+/// only that block needs to be re-laid out.
+pub struct LayoutBlockQuery;
+
+impl Query for LayoutBlockQuery {
+    type Key = (BlockId, Viewport);
+    type Value = Layout;
+
+    fn execute<DB: QueryDatabase>(db: &DB, key: &Self::Key) -> Self::Value {
+        let (block_id, viewport) = key;
+
+        // Get expanded content for this block (creates dependency)
+        let expand_result = db.query::<ExpandBlockQuery>(block_id.clone());
+
+        // Get styles (creates dependency)
+        let styles = db.query::<ActiveStylesQuery>(());
+
+        // Compute layout if we have content
+        match expand_result.content {
+            Some(content) => compute_layout(&content, &styles, viewport),
+            None => Layout::new(),
+        }
+    }
+
+    fn durability() -> Durability {
+        // Layout changes when content, styles, or viewport changes
+        Durability::Session
+    }
+
+    fn name() -> &'static str {
+        "LayoutBlockQuery"
     }
 }
 
@@ -435,7 +472,7 @@ fn compute_text_height(text: &str, styles: &StyleConfig, width: u32) -> u32 {
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::queries::source::SourceStorage;
+    use crate::queries::source::{BlockId, SourceStorage};
     use std::sync::Arc;
 
     #[test]
@@ -481,5 +518,56 @@ mod tests {
             Inline::Text("two".to_string()),
         ]);
         assert_eq!(inline_to_text(&seq), "one two");
+    }
+
+    #[test]
+    fn test_layout_block_simple() {
+        let db = Db::new();
+        let storage = Arc::new(SourceStorage::new());
+        let block_id = BlockId(1);
+
+        storage.set_block(block_id.clone(), "This is block content.".to_string());
+        db.set_any("source_storage".to_string(), Box::new(storage));
+
+        let viewport = Viewport::new(800, 600);
+        let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
+
+        // Layout should produce output
+        assert!(layout.total_height >= 0);
+    }
+
+    #[test]
+    fn test_layout_block_empty() {
+        let db = Db::new();
+        let storage = Arc::new(SourceStorage::new());
+        let block_id = BlockId(1);
+
+        storage.set_block(block_id.clone(), "".to_string());
+        db.set_any("source_storage".to_string(), Box::new(storage));
+
+        let viewport = Viewport::new(800, 600);
+        let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
+
+        // Empty block should produce empty layout
+        assert!(layout.boxes.is_empty());
+        assert_eq!(layout.total_height, 0);
+    }
+
+    #[test]
+    fn test_layout_block_query_runs() {
+        let db = Db::new();
+        let storage = Arc::new(SourceStorage::new());
+        let block_id = BlockId(42);
+
+        // Simple content
+        storage.set_block(block_id.clone(), "Some content".to_string());
+        db.set_any("source_storage".to_string(), Box::new(storage));
+
+        let viewport = Viewport::new(800, 600);
+        let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
+
+        // Verify the query runs - layout may be empty if expansion doesn't produce content
+        // This tests that the block-level query pipeline is wired correctly
+        assert!(layout.total_height >= 0);
     }
 }

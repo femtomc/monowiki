@@ -57,9 +57,9 @@ impl Query for DocumentSourceQuery {
 
     fn execute<DB: QueryDatabase>(db: &DB, key: &Self::Key) -> Self::Value {
         // Get from storage (would be set by CRDT layer)
-        // Note: get_any returns Box<Arc<SourceStorage>>, so we need to unwrap both layers
-        if let Some(boxed) = db.get_any("source_storage") {
-            if let Some(arc) = boxed.downcast_ref::<Arc<SourceStorage>>() {
+        // get_any returns Arc<dyn Any>, and the inner value is Arc<SourceStorage>
+        if let Some(arc_any) = db.get_any("source_storage") {
+            if let Some(arc) = arc_any.downcast_ref::<Arc<SourceStorage>>() {
                 return arc.get_document(key).unwrap_or_default();
             }
         }
@@ -83,9 +83,9 @@ impl Query for BlockSourceQuery {
     type Value = String;
 
     fn execute<DB: QueryDatabase>(db: &DB, key: &Self::Key) -> Self::Value {
-        // Note: get_any returns Box<Arc<SourceStorage>>, so we need to unwrap both layers
-        if let Some(boxed) = db.get_any("source_storage") {
-            if let Some(arc) = boxed.downcast_ref::<Arc<SourceStorage>>() {
+        // get_any returns Arc<dyn Any>, and the inner value is Arc<SourceStorage>
+        if let Some(arc_any) = db.get_any("source_storage") {
+            if let Some(arc) = arc_any.downcast_ref::<Arc<SourceStorage>>() {
                 return arc.get_block(key).unwrap_or_default();
             }
         }

@@ -208,10 +208,23 @@ impl TypeChecker {
             }
 
             Shrubbery::Identifier(sym, _, span) => {
-                let name = format!("id:{}", sym.id());
-                self.env.lookup(&name).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
+                // First try to resolve symbol ID to actual name
+                if let Some(name) = self.symbol_names.get(sym).cloned() {
+                    // Look up by actual name (handles builtins like "text", "emphasis", etc.)
+                    if let Some(ty) = self.env.lookup(&name) {
+                        return Ok(ty.clone());
+                    }
+                    // Name found but not in env
+                    return Err(MrlError::UnboundIdentifier {
+                        span: *span,
+                        name,
+                    });
+                }
+                // Fallback: try "id:N" format
+                let id_name = format!("id:{}", sym.id());
+                self.env.lookup(&id_name).cloned().ok_or_else(|| MrlError::UnboundIdentifier {
                     span: *span,
-                    name,
+                    name: id_name,
                 })
             }
 

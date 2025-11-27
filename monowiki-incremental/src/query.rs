@@ -7,6 +7,7 @@ use crate::durability::Durability;
 use std::any::{Any, TypeId};
 use std::fmt;
 use std::hash::Hash;
+use std::sync::Arc;
 
 /// Unique identifier for a query invocation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -116,7 +117,7 @@ pub trait QueryDatabase: Send + Sync + 'static {
     fn register_dependency(&self, from: QueryKey, to: QueryKey);
 
     /// Get any value as dynamic (for extension)
-    fn get_any(&self, key: &str) -> Option<Box<dyn Any + Send + Sync>>;
+    fn get_any(&self, key: &str) -> Option<Arc<dyn Any + Send + Sync>>;
 
     /// Set any value as dynamic (for extension)
     fn set_any(&self, key: String, value: Box<dyn Any + Send + Sync>);

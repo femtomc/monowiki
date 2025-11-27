@@ -4,6 +4,7 @@ use crate::shrubbery::{Literal, Param, Scope, ScopeSet, Shrubbery, Symbol};
 use std::collections::HashMap;
 
 /// Symbol table for interning identifiers
+#[derive(Clone, Debug)]
 pub struct SymbolTable {
     symbols: HashMap<String, Symbol>,
     next_id: u64,
