@@ -327,6 +327,7 @@ impl LoroNoteDoc {
         // Initialize the structure containers
         let _ = doc.get_list("blocks");
         let _ = doc.get_map("texts");
+        let _ = doc.get_map("marks");
         let _ = doc.get_map("frontmatter");
 
         Self {
@@ -379,6 +380,11 @@ impl LoroNoteDoc {
     /// Get the texts map
     fn get_texts_map(&self) -> LoroMap {
         self.doc.get_map("texts")
+    }
+
+    /// Get the marks map (block_id -> JSON array of marks)
+    fn get_marks_map(&self) -> LoroMap {
+        self.doc.get_map("marks")
     }
 
     /// Get all blocks as BlockData
@@ -558,9 +564,14 @@ impl LoroNoteDoc {
     /// Insert text in a block at offset
     pub fn insert_block_text(&self, block_id: &str, offset: usize, content: &str) -> Result<()> {
         let current = self.get_block_text(block_id);
+        let actual_offset = offset.min(current.len());
         let mut new_text = current;
-        new_text.insert_str(offset.min(new_text.len()), content);
+        new_text.insert_str(actual_offset, content);
         self.set_block_text(block_id, &new_text)?;
+
+        // Adjust mark positions according to Peritext anchor semantics
+        self.adjust_marks_for_insert(block_id, actual_offset, content.len())?;
+
         self.broadcast_update()?;
         Ok(())
     }
@@ -570,10 +581,17 @@ impl LoroNoteDoc {
         let current = self.get_block_text(block_id);
         let mut new_text = current;
         let end = (start + len).min(new_text.len());
+        let actual_len = end.saturating_sub(start);
         if start < new_text.len() {
             new_text.drain(start..end);
         }
         self.set_block_text(block_id, &new_text)?;
+
+        // Adjust mark positions for deletion
+        if actual_len > 0 {
+            self.adjust_marks_for_delete(block_id, start, actual_len)?;
+        }
+
         self.broadcast_update()?;
         Ok(())
     }
@@ -582,25 +600,217 @@ impl LoroNoteDoc {
     // Mark Operations (Peritext layer)
     // -------------------------------------------------------------------------
 
+    /// Get marks for a block from the CRDT store
+    fn get_block_marks_internal(&self, block_id: &str) -> Vec<Mark> {
+        let marks_map = self.get_marks_map();
+        if let Some(value) = marks_map.get(block_id) {
+            if let loro::ValueOrContainer::Value(loro_val) = value {
+                if let Some(json_str) = loro_val.as_string() {
+                    if let Ok(marks) = serde_json::from_str::<Vec<Mark>>(json_str) {
+                        return marks;
+                    }
+                }
+            }
+        }
+        Vec::new()
+    }
+
+    /// Save marks for a block to the CRDT store
+    fn set_block_marks_internal(&self, block_id: &str, marks: &[Mark]) -> Result<()> {
+        let marks_map = self.get_marks_map();
+        let json_str = serde_json::to_string(marks)?;
+        marks_map.insert(block_id, json_str)?;
+        Ok(())
+    }
+
     /// Add a formatting mark to a block
-    pub fn add_mark(&self, _block_id: &str, _mark: &Mark) -> Result<()> {
-        // TODO: Implement proper mark support using Loro's rich text marks
-        // For now, marks are not persisted
+    ///
+    /// Marks are stored with Peritext-style anchor semantics that determine
+    /// how they expand/contract when text is inserted at boundaries.
+    pub fn add_mark(&self, block_id: &str, mark: &Mark) -> Result<()> {
+        let mut marks = self.get_block_marks_internal(block_id);
+
+        // Check for overlapping marks of the same type and merge/replace
+        marks.retain(|m| {
+            // Remove if same type and overlapping
+            !(m.mark_type == mark.mark_type
+                && m.start < mark.end
+                && m.end > mark.start)
+        });
+
+        marks.push(mark.clone());
+
+        // Sort marks by start position for consistent ordering
+        marks.sort_by_key(|m| (m.start, m.end));
+
+        self.set_block_marks_internal(block_id, &marks)?;
         self.mark_dirty();
+        self.broadcast_update()?;
         Ok(())
     }
 
     /// Remove a formatting mark from a block
-    pub fn remove_mark(&self, _block_id: &str, _mark_type: &str, _start: usize, _end: usize) -> Result<()> {
-        // TODO: Implement proper mark support
+    ///
+    /// Removes marks of the given type that overlap with the specified range.
+    /// If a mark partially overlaps, it will be split or truncated.
+    pub fn remove_mark(&self, block_id: &str, mark_type: &str, start: usize, end: usize) -> Result<()> {
+        let mut marks = self.get_block_marks_internal(block_id);
+        let mut new_marks = Vec::new();
+
+        for mark in marks.drain(..) {
+            if mark.mark_type != mark_type {
+                // Different type, keep as-is
+                new_marks.push(mark);
+            } else if mark.end <= start || mark.start >= end {
+                // No overlap, keep as-is
+                new_marks.push(mark);
+            } else if mark.start >= start && mark.end <= end {
+                // Completely contained, remove (don't add to new_marks)
+            } else if mark.start < start && mark.end > end {
+                // Removal range is inside mark - split into two
+                let left = Mark {
+                    mark_type: mark.mark_type.clone(),
+                    start: mark.start,
+                    end: start,
+                    start_anchor: mark.start_anchor.clone(),
+                    end_anchor: Anchor::After,
+                    attrs: mark.attrs.clone(),
+                };
+                let right = Mark {
+                    mark_type: mark.mark_type,
+                    start: end,
+                    end: mark.end,
+                    start_anchor: Anchor::Before,
+                    end_anchor: mark.end_anchor,
+                    attrs: mark.attrs,
+                };
+                new_marks.push(left);
+                new_marks.push(right);
+            } else if mark.start < start {
+                // Overlaps on the left - truncate
+                let truncated = Mark {
+                    end: start,
+                    ..mark
+                };
+                new_marks.push(truncated);
+            } else {
+                // Overlaps on the right - truncate
+                let truncated = Mark {
+                    start: end,
+                    ..mark
+                };
+                new_marks.push(truncated);
+            }
+        }
+
+        // Sort and save
+        new_marks.sort_by_key(|m| (m.start, m.end));
+        self.set_block_marks_internal(block_id, &new_marks)?;
         self.mark_dirty();
+        self.broadcast_update()?;
         Ok(())
     }
 
     /// Get all marks for a block
-    pub fn get_marks(&self, _block_id: &str) -> Vec<Mark> {
-        // TODO: Implement proper mark support
-        Vec::new()
+    pub fn get_marks(&self, block_id: &str) -> Vec<Mark> {
+        self.get_block_marks_internal(block_id)
+    }
+
+    /// Adjust mark positions after text insertion
+    ///
+    /// Called internally when text is inserted to update mark boundaries
+    /// according to their anchor semantics.
+    pub fn adjust_marks_for_insert(&self, block_id: &str, offset: usize, len: usize) -> Result<()> {
+        let mut marks = self.get_block_marks_internal(block_id);
+        let mut changed = false;
+
+        for mark in &mut marks {
+            // Adjust start position
+            if offset < mark.start {
+                // Insertion before mark - shift mark right
+                mark.start += len;
+                mark.end += len;
+                changed = true;
+            } else if offset == mark.start {
+                // Insertion at start boundary - check anchor
+                match mark.start_anchor {
+                    Anchor::Before => {
+                        // Expand to include new text
+                        mark.end += len;
+                        changed = true;
+                    }
+                    Anchor::After => {
+                        // Don't expand - shift mark right
+                        mark.start += len;
+                        mark.end += len;
+                        changed = true;
+                    }
+                }
+            } else if offset < mark.end {
+                // Insertion inside mark - expand
+                mark.end += len;
+                changed = true;
+            } else if offset == mark.end {
+                // Insertion at end boundary - check anchor
+                match mark.end_anchor {
+                    Anchor::Before => {
+                        // Don't expand
+                    }
+                    Anchor::After => {
+                        // Expand to include new text
+                        mark.end += len;
+                        changed = true;
+                    }
+                }
+            }
+            // else: insertion after mark - no change
+        }
+
+        if changed {
+            self.set_block_marks_internal(block_id, &marks)?;
+        }
+        Ok(())
+    }
+
+    /// Adjust mark positions after text deletion
+    pub fn adjust_marks_for_delete(&self, block_id: &str, start: usize, len: usize) -> Result<()> {
+        let mut marks = self.get_block_marks_internal(block_id);
+        let end = start + len;
+        let mut new_marks = Vec::new();
+
+        for mut mark in marks.drain(..) {
+            if mark.end <= start {
+                // Mark is entirely before deletion - keep as-is
+                new_marks.push(mark);
+            } else if mark.start >= end {
+                // Mark is entirely after deletion - shift left
+                mark.start -= len;
+                mark.end -= len;
+                new_marks.push(mark);
+            } else if mark.start >= start && mark.end <= end {
+                // Mark is entirely within deletion - remove
+            } else if mark.start < start && mark.end > end {
+                // Deletion is inside mark - shrink
+                mark.end -= len;
+                new_marks.push(mark);
+            } else if mark.start < start {
+                // Mark overlaps on left - truncate at deletion start
+                mark.end = start;
+                if mark.start < mark.end {
+                    new_marks.push(mark);
+                }
+            } else {
+                // Mark overlaps on right - truncate and shift
+                mark.start = start;
+                mark.end -= len;
+                if mark.start < mark.end {
+                    new_marks.push(mark);
+                }
+            }
+        }
+
+        self.set_block_marks_internal(block_id, &new_marks)?;
+        Ok(())
     }
 
     // -------------------------------------------------------------------------
@@ -1213,5 +1423,123 @@ mod tests {
         // Delete text
         doc.delete_block_text(para_id, 5, 6).unwrap();
         assert_eq!(doc.get_block_text(para_id), "Hello");
+    }
+
+    #[test]
+    fn test_add_and_get_marks() {
+        let doc = LoroNoteDoc::new_with_content(
+            Value::Object(Default::default()),
+            "# Test\n\nHello World",
+        )
+        .unwrap();
+
+        let block_ids = doc.get_block_ids();
+        let para_id = &block_ids[1];
+
+        // Add a bold mark
+        let mark = Mark::new("strong", 0, 5);
+        doc.add_mark(para_id, &mark).unwrap();
+
+        let marks = doc.get_marks(para_id);
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].mark_type, "strong");
+        assert_eq!(marks[0].start, 0);
+        assert_eq!(marks[0].end, 5);
+    }
+
+    #[test]
+    fn test_remove_mark() {
+        let doc = LoroNoteDoc::new_with_content(
+            Value::Object(Default::default()),
+            "# Test\n\nHello World",
+        )
+        .unwrap();
+
+        let block_ids = doc.get_block_ids();
+        let para_id = &block_ids[1];
+
+        // Add marks
+        doc.add_mark(para_id, &Mark::new("strong", 0, 5)).unwrap();
+        doc.add_mark(para_id, &Mark::new("emphasis", 6, 11)).unwrap();
+
+        // Remove the strong mark
+        doc.remove_mark(para_id, "strong", 0, 5).unwrap();
+
+        let marks = doc.get_marks(para_id);
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].mark_type, "emphasis");
+    }
+
+    #[test]
+    fn test_mark_split_on_partial_remove() {
+        let doc = LoroNoteDoc::new_with_content(
+            Value::Object(Default::default()),
+            "# Test\n\nHello World Test",
+        )
+        .unwrap();
+
+        let block_ids = doc.get_block_ids();
+        let para_id = &block_ids[1];
+
+        // Add a mark spanning the whole text
+        doc.add_mark(para_id, &Mark::new("strong", 0, 16)).unwrap();
+
+        // Remove from middle - should split
+        doc.remove_mark(para_id, "strong", 6, 11).unwrap();
+
+        let marks = doc.get_marks(para_id);
+        assert_eq!(marks.len(), 2);
+        assert_eq!(marks[0].start, 0);
+        assert_eq!(marks[0].end, 6);
+        assert_eq!(marks[1].start, 11);
+        assert_eq!(marks[1].end, 16);
+    }
+
+    #[test]
+    fn test_marks_adjust_on_insert() {
+        let doc = LoroNoteDoc::new_with_content(
+            Value::Object(Default::default()),
+            "# Test\n\nHello",
+        )
+        .unwrap();
+
+        let block_ids = doc.get_block_ids();
+        let para_id = &block_ids[1];
+
+        // Add a mark on "ello" (positions 1-5)
+        doc.add_mark(para_id, &Mark::new("strong", 1, 5)).unwrap();
+
+        // Insert " World" at position 5 (end of "Hello")
+        doc.insert_block_text(para_id, 5, " World").unwrap();
+
+        // Mark should expand to include " World" due to Anchor::After at end
+        let marks = doc.get_marks(para_id);
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].start, 1);
+        assert_eq!(marks[0].end, 11); // 5 + 6 = 11
+    }
+
+    #[test]
+    fn test_marks_adjust_on_delete() {
+        let doc = LoroNoteDoc::new_with_content(
+            Value::Object(Default::default()),
+            "# Test\n\nHello World",
+        )
+        .unwrap();
+
+        let block_ids = doc.get_block_ids();
+        let para_id = &block_ids[1];
+
+        // Add a mark on "World" (positions 6-11)
+        doc.add_mark(para_id, &Mark::new("strong", 6, 11)).unwrap();
+
+        // Delete "Hello " (positions 0-6)
+        doc.delete_block_text(para_id, 0, 6).unwrap();
+
+        // Mark should shift left
+        let marks = doc.get_marks(para_id);
+        assert_eq!(marks.len(), 1);
+        assert_eq!(marks[0].start, 0);
+        assert_eq!(marks[0].end, 5);
     }
 }
