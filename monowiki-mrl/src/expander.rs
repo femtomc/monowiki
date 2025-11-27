@@ -1,4 +1,4 @@
-use crate::content::Content;
+use crate::content::{Attributes, Block, Content, Inline};
 use crate::error::{MrlError, Result, Span};
 use crate::hygiene::{Binding, HygieneEnv, MacroContext, Space, SpaceRegistry};
 use crate::rules::{apply_show_rules_with_kind, RuleSet, Selector, SelectorBase, SetRule, SetValue, ShowRule};
@@ -232,12 +232,18 @@ impl Expander {
 
     /// Register built-in functions
     fn register_builtins(&mut self) {
-        // Content constructors
+        // Inline content constructors
         self.register_native("text", 1, builtin_text);
-        self.register_native("paragraph", 1, builtin_paragraph);
-        self.register_native("heading", 2, builtin_heading);
         self.register_native("emphasis", 1, builtin_emphasis);
         self.register_native("strong", 1, builtin_strong);
+        self.register_native("code", 1, builtin_inline_code);
+
+        // Block content constructors
+        self.register_native("paragraph", 1, builtin_paragraph);
+        self.register_native("heading", 2, builtin_heading);
+        self.register_native("codeblock", 2, builtin_codeblock);
+        self.register_native("blockquote", 1, builtin_blockquote);
+        self.register_native("directive", 2, builtin_directive);
 
         // Staging operations
         self.register_native("quote", 1, builtin_quote);
@@ -1103,6 +1109,104 @@ fn builtin_eval_expand(args: &[ExpandValue]) -> Result<ExpandValue> {
     }
 }
 
+/// Create inline code
+fn builtin_inline_code(args: &[ExpandValue]) -> Result<ExpandValue> {
+    let text = match &args[0] {
+        ExpandValue::String(s) => s.clone(),
+        ExpandValue::Content(Content::Inline(Inline::Text(s))) => s.clone(),
+        _ => {
+            return Err(MrlError::ExpansionError {
+                span: Span::default(),
+                message: "code() requires string argument".to_string(),
+            })
+        }
+    };
+
+    Ok(ExpandValue::Content(Content::Inline(Inline::Code(text))))
+}
+
+/// Create a code block
+fn builtin_codeblock(args: &[ExpandValue]) -> Result<ExpandValue> {
+    let lang = match &args[0] {
+        ExpandValue::String(s) => {
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.clone())
+            }
+        }
+        ExpandValue::None => None,
+        _ => {
+            return Err(MrlError::ExpansionError {
+                span: Span::default(),
+                message: "codeblock() first argument must be language string or none".to_string(),
+            })
+        }
+    };
+
+    let code = match &args[1] {
+        ExpandValue::String(s) => s.clone(),
+        ExpandValue::Content(Content::Inline(Inline::Text(s))) => s.clone(),
+        _ => {
+            return Err(MrlError::ExpansionError {
+                span: Span::default(),
+                message: "codeblock() second argument must be code string".to_string(),
+            })
+        }
+    };
+
+    Ok(ExpandValue::Content(Content::Block(Block::CodeBlock {
+        lang,
+        code,
+        opts: std::collections::HashMap::new(),
+        attrs: Attributes::new(),
+    })))
+}
+
+/// Create a blockquote
+fn builtin_blockquote(args: &[ExpandValue]) -> Result<ExpandValue> {
+    let content = args[0].as_content().ok_or_else(|| MrlError::ExpansionError {
+        span: Span::default(),
+        message: "blockquote() requires content argument".to_string(),
+    })?;
+
+    Ok(ExpandValue::Content(Content::Block(Block::Blockquote {
+        body: Box::new(content.clone()),
+        attrs: Attributes::new(),
+    })))
+}
+
+/// Create a directive block
+///
+/// directive(name, body) creates a custom block element that can be styled
+/// and transformed using show/set rules with the `directive` selector.
+///
+/// Example: directive("note", paragraph("This is a note"))
+fn builtin_directive(args: &[ExpandValue]) -> Result<ExpandValue> {
+    let name = match &args[0] {
+        ExpandValue::String(s) => s.clone(),
+        ExpandValue::Content(Content::Inline(Inline::Text(s))) => s.clone(),
+        _ => {
+            return Err(MrlError::ExpansionError {
+                span: Span::default(),
+                message: "directive() first argument must be name string".to_string(),
+            })
+        }
+    };
+
+    let body = args[1].as_content().ok_or_else(|| MrlError::ExpansionError {
+        span: Span::default(),
+        message: "directive() second argument must be content".to_string(),
+    })?;
+
+    Ok(ExpandValue::Content(Content::Block(Block::Directive {
+        name,
+        args: std::collections::HashMap::new(),
+        body: Box::new(body.clone()),
+        attrs: Attributes::new(),
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1175,5 +1279,68 @@ mod tests {
 
         assert_eq!(expander.symbols.get(&1), Some(&"x".to_string()));
         assert_eq!(expander.symbols.get(&2), Some(&"y".to_string()));
+    }
+
+    #[test]
+    fn test_builtin_directive() {
+        // Test directive creation using the builtin
+        let result = builtin_directive(&[
+            ExpandValue::String("note".to_string()),
+            ExpandValue::Content(Content::paragraph(Inline::text("Warning!"))),
+        ])
+        .unwrap();
+
+        match result {
+            ExpandValue::Content(Content::Block(Block::Directive { name, body, .. })) => {
+                assert_eq!(name, "note");
+                match *body {
+                    Content::Block(Block::Paragraph { .. }) => {}
+                    _ => panic!("Expected paragraph in directive body"),
+                }
+            }
+            _ => panic!("Expected directive block"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_codeblock() {
+        let result = builtin_codeblock(&[
+            ExpandValue::String("rust".to_string()),
+            ExpandValue::String("fn main() {}".to_string()),
+        ])
+        .unwrap();
+
+        match result {
+            ExpandValue::Content(Content::Block(Block::CodeBlock { lang, code, .. })) => {
+                assert_eq!(lang, Some("rust".to_string()));
+                assert_eq!(code, "fn main() {}");
+            }
+            _ => panic!("Expected codeblock"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_blockquote() {
+        let result = builtin_blockquote(&[ExpandValue::Content(Content::paragraph(
+            Inline::text("A quote"),
+        ))])
+        .unwrap();
+
+        match result {
+            ExpandValue::Content(Content::Block(Block::Blockquote { .. })) => {}
+            _ => panic!("Expected blockquote"),
+        }
+    }
+
+    #[test]
+    fn test_builtin_inline_code() {
+        let result = builtin_inline_code(&[ExpandValue::String("let x = 1".to_string())]).unwrap();
+
+        match result {
+            ExpandValue::Content(Content::Inline(Inline::Code(text))) => {
+                assert_eq!(text, "let x = 1");
+            }
+            _ => panic!("Expected inline code"),
+        }
     }
 }

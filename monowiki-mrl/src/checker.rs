@@ -144,6 +144,36 @@ impl TypeChecker {
                 ret: Box::new(MrlType::Inline),
             },
         );
+        self.env.bind(
+            "code".to_string(),
+            MrlType::Function {
+                params: vec![MrlType::String],
+                ret: Box::new(MrlType::Inline),
+            },
+        );
+
+        // Block constructors
+        self.env.bind(
+            "codeblock".to_string(),
+            MrlType::Function {
+                params: vec![MrlType::String, MrlType::String],
+                ret: Box::new(MrlType::Block),
+            },
+        );
+        self.env.bind(
+            "blockquote".to_string(),
+            MrlType::Function {
+                params: vec![MrlType::Content],
+                ret: Box::new(MrlType::Block),
+            },
+        );
+        self.env.bind(
+            "directive".to_string(),
+            MrlType::Function {
+                params: vec![MrlType::String, MrlType::Content],
+                ret: Box::new(MrlType::Block),
+            },
+        );
 
         // Staging operations
         self.env.bind(
