@@ -32,6 +32,20 @@ export type Mark = {
   attrs: Record<string, unknown>;
 };
 
+export type Comment = {
+  id: string;
+  block_id: string;
+  start: number;
+  end: number;
+  content: string;
+  author: string;
+  created_at: string;
+  resolved: boolean;
+  parent_id?: string;
+  /** Set when comment was migrated from a deleted block */
+  migrated_from?: string;
+};
+
 // =============================================================================
 // Markdown Parser
 // =============================================================================
@@ -159,25 +173,72 @@ export function parseMarkdownToBlocks(markdown: string): ParsedBlock[] {
 // =============================================================================
 
 /**
- * Filter marks that should be preserved when splitting a block at a given position.
- * Returns marks that end before or at the split position.
+ * Clip marks for the prefix portion of a block when splitting at splitPos.
+ * - Marks entirely before splitPos: kept as-is
+ * - Marks spanning splitPos: clipped to end at splitPos
+ * - Marks entirely after splitPos: dropped (in deleted portion)
  */
-export function filterMarksBeforeSplit(marks: Mark[], splitPos: number): Mark[] {
-  return marks.filter((m) => m.end <= splitPos);
+export function clipMarksForPrefix(marks: Mark[], splitPos: number): Mark[] {
+  const result: Mark[] = [];
+  for (const m of marks) {
+    if (m.end <= splitPos) {
+      // Entirely before split - keep as-is
+      result.push({ ...m });
+    } else if (m.start < splitPos) {
+      // Spans the split - clip to end at splitPos
+      result.push({
+        ...m,
+        end: splitPos,
+      });
+    }
+    // else: entirely after split - drop
+  }
+  return result;
 }
 
 /**
- * Filter and shift marks that should be preserved after a split.
- * Returns marks that start at or after the split position, with positions shifted.
+ * Clip marks for the suffix portion of a block when splitting at splitPos.
+ * - Marks entirely before splitPos: dropped (in deleted portion)
+ * - Marks spanning splitPos: clipped to start at 0 (was splitPos), end shifted
+ * - Marks entirely after splitPos: shifted by -splitPos
+ */
+export function clipMarksForSuffix(marks: Mark[], splitPos: number): Mark[] {
+  const result: Mark[] = [];
+  for (const m of marks) {
+    if (m.start >= splitPos) {
+      // Entirely after split - shift
+      result.push({
+        ...m,
+        start: m.start - splitPos,
+        end: m.end - splitPos,
+      });
+    } else if (m.end > splitPos) {
+      // Spans the split - clip to start at 0
+      result.push({
+        ...m,
+        start: 0,
+        end: m.end - splitPos,
+      });
+    }
+    // else: entirely before split - drop
+  }
+  return result;
+}
+
+/**
+ * Legacy filter function - kept for backwards compatibility.
+ * @deprecated Use clipMarksForPrefix instead
+ */
+export function filterMarksBeforeSplit(marks: Mark[], splitPos: number): Mark[] {
+  return clipMarksForPrefix(marks, splitPos);
+}
+
+/**
+ * Legacy filter function - kept for backwards compatibility.
+ * @deprecated Use clipMarksForSuffix instead
  */
 export function filterMarksAfterSplit(marks: Mark[], splitPos: number): Mark[] {
-  return marks
-    .filter((m) => m.start >= splitPos)
-    .map((m) => ({
-      ...m,
-      start: m.start - splitPos,
-      end: m.end - splitPos,
-    }));
+  return clipMarksForSuffix(marks, splitPos);
 }
 
 /**
@@ -196,6 +257,111 @@ export function mergeMarks(
       end: m.end + offset,
     })),
   ];
+}
+
+// =============================================================================
+// Comment Operations
+// =============================================================================
+
+/**
+ * Adjust comments on the start block after a cross-block edit.
+ * - Comments entirely before relStart: kept as-is
+ * - Comments spanning relStart: clipped to end at relStart
+ * - Comments entirely in deleted portion (>= relStart): dropped
+ */
+export function adjustCommentsForStartBlock(
+  comments: Comment[],
+  blockId: string,
+  relStart: number,
+): Comment[] {
+  const result: Comment[] = [];
+  for (const c of comments) {
+    if (c.block_id !== blockId) {
+      result.push(c);
+      continue;
+    }
+    if (c.end <= relStart) {
+      // Entirely before selection - keep as-is
+      result.push({ ...c });
+    } else if (c.start < relStart) {
+      // Spans the selection start - clip
+      result.push({
+        ...c,
+        end: relStart,
+      });
+    }
+    // else: entirely in deleted portion - drop
+  }
+  return result;
+}
+
+/**
+ * Adjust comments on the end block after a cross-block edit.
+ * The suffix text (from relEnd onwards) will be placed at newSuffixStart.
+ * - Comments entirely before relEnd: dropped (in deleted portion)
+ * - Comments spanning relEnd: clipped to start at newSuffixStart
+ * - Comments entirely after relEnd: shifted to new position
+ */
+export function adjustCommentsForEndBlock(
+  comments: Comment[],
+  blockId: string,
+  relEnd: number,
+  newSuffixStart: number,
+): Comment[] {
+  const result: Comment[] = [];
+  for (const c of comments) {
+    if (c.block_id !== blockId) {
+      result.push(c);
+      continue;
+    }
+    if (c.start >= relEnd) {
+      // Entirely after selection end - shift to new position
+      const shift = newSuffixStart - relEnd;
+      result.push({
+        ...c,
+        start: c.start + shift,
+        end: c.end + shift,
+      });
+    } else if (c.end > relEnd) {
+      // Spans the selection end - clip and shift
+      const shift = newSuffixStart - relEnd;
+      result.push({
+        ...c,
+        start: newSuffixStart,
+        end: c.end + shift,
+      });
+    }
+    // else: entirely in deleted portion - drop
+  }
+  return result;
+}
+
+/**
+ * Migrate comments from deleted interior blocks to a surviving block.
+ * Comments are tagged with migrated_from to indicate they were moved.
+ */
+export function migrateCommentsFromDeletedBlocks(
+  comments: Comment[],
+  deletedBlockIds: Set<string>,
+  targetBlockId: string,
+  targetOffset: number,
+): Comment[] {
+  const result: Comment[] = [];
+  for (const c of comments) {
+    if (deletedBlockIds.has(c.block_id)) {
+      // Migrate to target block
+      result.push({
+        ...c,
+        block_id: targetBlockId,
+        start: targetOffset,
+        end: targetOffset, // Collapsed to a point since original text is gone
+        migrated_from: c.block_id,
+      });
+    } else {
+      result.push(c);
+    }
+  }
+  return result;
 }
 
 // =============================================================================
@@ -234,8 +400,9 @@ export function planCrossBlockTransform(
   const prefix = startBlockText.slice(0, relStart);
   const suffix = endBlockText.slice(relEndInEndBlock);
   const newBlocks = parseMarkdownToBlocks(insertText);
-  const preservedStartMarks = filterMarksBeforeSplit(startMarks, relStart);
-  const preservedEndMarks = filterMarksAfterSplit(endMarks, relEndInEndBlock);
+  // Use clipping functions that properly handle marks spanning the selection boundary
+  const preservedStartMarks = clipMarksForPrefix(startMarks, relStart);
+  const preservedEndMarks = clipMarksForSuffix(endMarks, relEndInEndBlock);
 
   return {
     prefix,

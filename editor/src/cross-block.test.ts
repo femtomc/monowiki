@@ -13,11 +13,17 @@ import {
   parseMarkdownToBlocks,
   filterMarksBeforeSplit,
   filterMarksAfterSplit,
+  clipMarksForPrefix,
+  clipMarksForSuffix,
   mergeMarks,
+  adjustCommentsForStartBlock,
+  adjustCommentsForEndBlock,
+  migrateCommentsFromDeletedBlocks,
   planCrossBlockTransform,
   computeResultBlocks,
   type Mark,
   type BlockData,
+  type Comment,
 } from './cross-block';
 
 // =============================================================================
@@ -140,31 +146,38 @@ code();
 // Mark Operation Tests
 // =============================================================================
 
-describe('filterMarksBeforeSplit', () => {
+describe('filterMarksBeforeSplit (legacy - now clips)', () => {
   const marks: Mark[] = [
     { mark_type: 'bold', start: 0, end: 5, start_anchor: 'before', end_anchor: 'after', attrs: {} },
     { mark_type: 'italic', start: 3, end: 10, start_anchor: 'before', end_anchor: 'after', attrs: {} },
     { mark_type: 'code', start: 8, end: 12, start_anchor: 'before', end_anchor: 'after', attrs: {} },
   ];
 
-  it('keeps marks that end before or at split position', () => {
+  it('keeps marks ending before split and clips marks spanning split', () => {
     const filtered = filterMarksBeforeSplit(marks, 5);
+    // Now clips, so bold [0,5] is kept, italic [3,10] is clipped to [3,5]
+    expect(filtered).toHaveLength(2);
+    expect(filtered[0].mark_type).toBe('bold');
+    expect(filtered[1].mark_type).toBe('italic');
+    expect(filtered[1].end).toBe(5); // clipped
+  });
+
+  it('clips marks that span split position', () => {
+    const filtered = filterMarksBeforeSplit(marks, 3);
+    // Bold [0,5] spans 3, so it gets clipped to [0,3]
     expect(filtered).toHaveLength(1);
     expect(filtered[0].mark_type).toBe('bold');
+    expect(filtered[0].end).toBe(3);
   });
 
-  it('excludes marks that extend past split position', () => {
-    const filtered = filterMarksBeforeSplit(marks, 3);
-    expect(filtered).toHaveLength(0);
-  });
-
-  it('includes marks ending exactly at split', () => {
+  it('includes marks ending exactly at split plus clipped ones', () => {
     const filtered = filterMarksBeforeSplit(marks, 10);
-    expect(filtered).toHaveLength(2);
+    // bold [0,5], italic [3,10] kept, code [8,12] clipped to [8,10]
+    expect(filtered).toHaveLength(3);
   });
 });
 
-describe('filterMarksAfterSplit', () => {
+describe('filterMarksAfterSplit (legacy - now clips)', () => {
   const marks: Mark[] = [
     { mark_type: 'bold', start: 0, end: 5, start_anchor: 'before', end_anchor: 'after', attrs: {} },
     { mark_type: 'italic', start: 5, end: 10, start_anchor: 'before', end_anchor: 'after', attrs: {} },
@@ -179,12 +192,19 @@ describe('filterMarksAfterSplit', () => {
     expect(filtered[0].end).toBe(5); // shifted from 10
   });
 
-  it('excludes marks starting before split', () => {
+  it('clips marks spanning split and shifts marks after', () => {
     const filtered = filterMarksAfterSplit(marks, 8);
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0].mark_type).toBe('code');
-    expect(filtered[0].start).toBe(0);
-    expect(filtered[0].end).toBe(4);
+    // italic [5,10] spans 8, clipped to [0,2]; code [8,12] shifted to [0,4]
+    expect(filtered).toHaveLength(2);
+    const italic = filtered.find((m) => m.mark_type === 'italic');
+    expect(italic).toBeDefined();
+    expect(italic?.start).toBe(0);
+    expect(italic?.end).toBe(2); // 10 - 8 = 2
+
+    const code = filtered.find((m) => m.mark_type === 'code');
+    expect(code).toBeDefined();
+    expect(code?.start).toBe(0);
+    expect(code?.end).toBe(4);
   });
 });
 
@@ -201,6 +221,177 @@ describe('mergeMarks', () => {
     expect(merged[0].start).toBe(0);
     expect(merged[1].start).toBe(10);
     expect(merged[1].end).toBe(13);
+  });
+});
+
+// =============================================================================
+// Mark Clipping Tests (new behavior - clips instead of drops)
+// =============================================================================
+
+describe('clipMarksForPrefix', () => {
+  const marks: Mark[] = [
+    { mark_type: 'bold', start: 0, end: 5, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    { mark_type: 'italic', start: 3, end: 10, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    { mark_type: 'code', start: 8, end: 12, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+  ];
+
+  it('keeps marks entirely before split as-is', () => {
+    const clipped = clipMarksForPrefix(marks, 6);
+    const bold = clipped.find((m) => m.mark_type === 'bold');
+    expect(bold).toBeDefined();
+    expect(bold?.start).toBe(0);
+    expect(bold?.end).toBe(5);
+  });
+
+  it('clips marks spanning the split position', () => {
+    const clipped = clipMarksForPrefix(marks, 6);
+    const italic = clipped.find((m) => m.mark_type === 'italic');
+    expect(italic).toBeDefined();
+    expect(italic?.start).toBe(3);
+    expect(italic?.end).toBe(6); // clipped from 10 to 6
+  });
+
+  it('drops marks entirely after split', () => {
+    const clipped = clipMarksForPrefix(marks, 6);
+    const code = clipped.find((m) => m.mark_type === 'code');
+    expect(code).toBeUndefined();
+  });
+
+  it('returns empty for split at 0', () => {
+    const clipped = clipMarksForPrefix(marks, 0);
+    expect(clipped).toHaveLength(0);
+  });
+});
+
+describe('clipMarksForSuffix', () => {
+  const marks: Mark[] = [
+    { mark_type: 'bold', start: 0, end: 5, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    { mark_type: 'italic', start: 3, end: 10, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    { mark_type: 'code', start: 8, end: 12, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+  ];
+
+  it('drops marks entirely before split', () => {
+    const clipped = clipMarksForSuffix(marks, 6);
+    const bold = clipped.find((m) => m.mark_type === 'bold');
+    expect(bold).toBeUndefined();
+  });
+
+  it('clips marks spanning the split and starts at 0', () => {
+    const clipped = clipMarksForSuffix(marks, 6);
+    const italic = clipped.find((m) => m.mark_type === 'italic');
+    expect(italic).toBeDefined();
+    expect(italic?.start).toBe(0); // starts at 0 (was inside the mark)
+    expect(italic?.end).toBe(4); // 10 - 6 = 4
+  });
+
+  it('shifts marks entirely after split', () => {
+    const clipped = clipMarksForSuffix(marks, 6);
+    const code = clipped.find((m) => m.mark_type === 'code');
+    expect(code).toBeDefined();
+    expect(code?.start).toBe(2); // 8 - 6 = 2
+    expect(code?.end).toBe(6); // 12 - 6 = 6
+  });
+});
+
+// =============================================================================
+// Comment Adjustment Tests
+// =============================================================================
+
+describe('adjustCommentsForStartBlock', () => {
+  const comments: Comment[] = [
+    { id: 'c1', block_id: 'b1', start: 0, end: 3, content: 'Before', author: 'user', created_at: '', resolved: false },
+    { id: 'c2', block_id: 'b1', start: 2, end: 8, content: 'Spans', author: 'user', created_at: '', resolved: false },
+    { id: 'c3', block_id: 'b1', start: 6, end: 10, content: 'After', author: 'user', created_at: '', resolved: false },
+    { id: 'c4', block_id: 'b2', start: 0, end: 5, content: 'Other block', author: 'user', created_at: '', resolved: false },
+  ];
+
+  it('keeps comments entirely before relStart', () => {
+    const adjusted = adjustCommentsForStartBlock(comments, 'b1', 5);
+    const c1 = adjusted.find((c) => c.id === 'c1');
+    expect(c1).toBeDefined();
+    expect(c1?.start).toBe(0);
+    expect(c1?.end).toBe(3);
+  });
+
+  it('clips comments spanning relStart', () => {
+    const adjusted = adjustCommentsForStartBlock(comments, 'b1', 5);
+    const c2 = adjusted.find((c) => c.id === 'c2');
+    expect(c2).toBeDefined();
+    expect(c2?.start).toBe(2);
+    expect(c2?.end).toBe(5); // clipped from 8
+  });
+
+  it('drops comments entirely in deleted portion', () => {
+    const adjusted = adjustCommentsForStartBlock(comments, 'b1', 5);
+    const c3 = adjusted.find((c) => c.id === 'c3');
+    expect(c3).toBeUndefined();
+  });
+
+  it('passes through comments from other blocks', () => {
+    const adjusted = adjustCommentsForStartBlock(comments, 'b1', 5);
+    const c4 = adjusted.find((c) => c.id === 'c4');
+    expect(c4).toBeDefined();
+  });
+});
+
+describe('adjustCommentsForEndBlock', () => {
+  const comments: Comment[] = [
+    { id: 'c1', block_id: 'b1', start: 0, end: 3, content: 'Before', author: 'user', created_at: '', resolved: false },
+    { id: 'c2', block_id: 'b1', start: 2, end: 8, content: 'Spans', author: 'user', created_at: '', resolved: false },
+    { id: 'c3', block_id: 'b1', start: 6, end: 10, content: 'After', author: 'user', created_at: '', resolved: false },
+  ];
+
+  it('drops comments entirely before relEnd', () => {
+    const adjusted = adjustCommentsForEndBlock(comments, 'b1', 5, 10);
+    const c1 = adjusted.find((c) => c.id === 'c1');
+    expect(c1).toBeUndefined();
+  });
+
+  it('clips and shifts comments spanning relEnd', () => {
+    const adjusted = adjustCommentsForEndBlock(comments, 'b1', 5, 10);
+    const c2 = adjusted.find((c) => c.id === 'c2');
+    expect(c2).toBeDefined();
+    expect(c2?.start).toBe(10); // newSuffixStart
+    expect(c2?.end).toBe(13); // 8 - 5 + 10 = 13
+  });
+
+  it('shifts comments entirely after relEnd', () => {
+    const adjusted = adjustCommentsForEndBlock(comments, 'b1', 5, 10);
+    const c3 = adjusted.find((c) => c.id === 'c3');
+    expect(c3).toBeDefined();
+    expect(c3?.start).toBe(11); // 6 + (10 - 5) = 11
+    expect(c3?.end).toBe(15); // 10 + (10 - 5) = 15
+  });
+});
+
+describe('migrateCommentsFromDeletedBlocks', () => {
+  const comments: Comment[] = [
+    { id: 'c1', block_id: 'b1', start: 0, end: 5, content: 'Keep', author: 'user', created_at: '', resolved: false },
+    { id: 'c2', block_id: 'b2', start: 3, end: 8, content: 'Migrate1', author: 'user', created_at: '', resolved: false },
+    { id: 'c3', block_id: 'b3', start: 0, end: 2, content: 'Migrate2', author: 'user', created_at: '', resolved: false },
+  ];
+
+  it('migrates comments from deleted blocks to target', () => {
+    const deletedIds = new Set(['b2', 'b3']);
+    const migrated = migrateCommentsFromDeletedBlocks(comments, deletedIds, 'b1', 10);
+
+    const c2 = migrated.find((c) => c.id === 'c2');
+    expect(c2).toBeDefined();
+    expect(c2?.block_id).toBe('b1');
+    expect(c2?.start).toBe(10);
+    expect(c2?.end).toBe(10); // collapsed to a point
+    expect(c2?.migrated_from).toBe('b2');
+  });
+
+  it('keeps comments from non-deleted blocks', () => {
+    const deletedIds = new Set(['b2', 'b3']);
+    const migrated = migrateCommentsFromDeletedBlocks(comments, deletedIds, 'b1', 10);
+
+    const c1 = migrated.find((c) => c.id === 'c1');
+    expect(c1).toBeDefined();
+    expect(c1?.block_id).toBe('b1');
+    expect(c1?.start).toBe(0);
+    expect(c1?.migrated_from).toBeUndefined();
   });
 });
 
@@ -367,6 +558,42 @@ describe('computeResultBlocks', () => {
     expect(results[0].marks[1].mark_type).toBe('italic');
     expect(results[0].marks[1].start).toBe(6); // "Hello " = 6 chars
     expect(results[0].marks[1].end).toBe(12); // 6 + 6 = 12
+  });
+
+  it('clips marks spanning selection boundary (not drops)', () => {
+    // Mark spans from inside prefix into deleted portion
+    const startMarks: Mark[] = [
+      { mark_type: 'bold', start: 2, end: 8, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    ];
+    // Mark spans from deleted portion into suffix
+    const endMarks: Mark[] = [
+      { mark_type: 'italic', start: 2, end: 9, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    ];
+    const plan = planCrossBlockTransform(
+      'Hello world',
+      'Good friend',
+      5, // prefix is "Hello"
+      5, // suffix is "friend"
+      '',
+      startMarks,
+      endMarks,
+    );
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Should have both marks, both clipped
+    expect(results[0].marks).toHaveLength(2);
+
+    // Bold was [2,8], clipped to [2,5] (prefix length)
+    const bold = results[0].marks.find((m) => m.mark_type === 'bold');
+    expect(bold).toBeDefined();
+    expect(bold?.start).toBe(2);
+    expect(bold?.end).toBe(5);
+
+    // Italic was [2,9] in end block, clipped to [0,4] (9-5=4), then shifted by prefix (5)
+    const italic = results[0].marks.find((m) => m.mark_type === 'italic');
+    expect(italic).toBeDefined();
+    expect(italic?.start).toBe(5); // 0 + 5 (prefix)
+    expect(italic?.end).toBe(9); // 4 + 5 (prefix)
   });
 });
 

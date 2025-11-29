@@ -14,7 +14,12 @@ import { Preview } from './preview';
 import { AgentPanel } from './agent-panel';
 import { LoroDoc, LoroMap, LoroList } from 'loro-crdt';
 import type { ViewUpdate } from '@codemirror/view';
-import { parseMarkdownToBlocks } from './cross-block';
+import {
+  parseMarkdownToBlocks,
+  clipMarksForPrefix,
+  clipMarksForSuffix,
+  type Mark,
+} from './cross-block';
 
 // DOM elements
 const slugInput = document.getElementById('slug-input') as HTMLInputElement;
@@ -89,10 +94,17 @@ type BlockData = {
   text?: string;
 };
 
-// Block ID counter for generating unique IDs during client-side operations
-let clientBlockCounter = 1000;
+/**
+ * Generate a unique block ID for client-side operations.
+ * Uses crypto.randomUUID when available, falls back to timestamp + random.
+ * Prefixed with 'cb_' to distinguish from server-generated IDs.
+ */
 function nextClientBlockId(): string {
-  return `cb${clientBlockCounter++}`;
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `cb_${crypto.randomUUID()}`;
+  }
+  // Fallback: timestamp + random
+  return `cb_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 // =============================================================================
@@ -110,9 +122,11 @@ interface CrossBlockTransformResult {
  * For a selection spanning blocks [startBlock...endBlock]:
  * 1. Split startBlock at selection start → keep prefix in startBlock
  * 2. Split endBlock at selection end → keep suffix in endBlock
- * 3. Delete fully covered interior blocks
- * 4. Parse inserted text into new blocks
- * 5. Insert new blocks after startBlock (or merge into startBlock if same kind)
+ * 3. Migrate comments from interior blocks to start block
+ * 4. Delete fully covered interior blocks
+ * 5. Parse inserted text into new blocks
+ * 6. Insert new blocks after startBlock (or merge into startBlock if same kind)
+ * 7. Adjust marks and comments to maintain correct anchoring
  */
 function applyCrossBlockTransform(
   startBlockId: string,
@@ -169,63 +183,86 @@ function applyCrossBlockTransform(
     // Parse inserted text into blocks
     const parsedBlocks = parseMarkdownToBlocks(insertText);
 
-    // Handle marks from startBlock that need to be preserved (those ending before relStart)
+    // Handle marks from startBlock - clip marks that span the selection boundary
     const startMarksRaw = marks.get(startBlockId);
-    let startMarks: any[] = [];
+    let startMarks: Mark[] = [];
     if (typeof startMarksRaw === 'string') {
       try {
         startMarks = JSON.parse(startMarksRaw);
       } catch { /* ignore */ }
     }
-    const preservedStartMarks = startMarks.filter((m: any) => m.end <= relStart);
+    const preservedStartMarks = clipMarksForPrefix(startMarks, relStart);
 
-    // Handle marks from endBlock that need to be preserved (those starting after relEndInEndBlock)
+    // Handle marks from endBlock - clip marks that span the selection boundary
     const endMarksRaw = marks.get(endBlockId);
-    let endMarks: any[] = [];
+    let endMarks: Mark[] = [];
     if (typeof endMarksRaw === 'string') {
       try {
         endMarks = JSON.parse(endMarksRaw);
       } catch { /* ignore */ }
     }
-    const preservedEndMarks = endMarks
-      .filter((m: any) => m.start >= relEndInEndBlock)
-      .map((m: any) => ({
-        ...m,
-        start: m.start - relEndInEndBlock,
-        end: m.end - relEndInEndBlock,
-      }));
+    const preservedEndMarks = clipMarksForSuffix(endMarks, relEndInEndBlock);
 
-    // Migrate comments from deleted blocks to nearest surviving block
+    // Collect interior block IDs for migration
     const deletedBlockIds = new Set<string>();
     for (let i = startIdx + 1; i <= endIdx; i++) {
       deletedBlockIds.add(blockList[i].id);
     }
 
+    // Migrate comments from interior blocks to start block at the prefix end
+    // Comments are collapsed to a point since their original text is gone
+    for (const key of comments.keys()) {
+      const raw = comments.get(key);
+      if (typeof raw !== 'string') continue;
+      try {
+        const c = JSON.parse(raw);
+        if (deletedBlockIds.has(c.block_id)) {
+          // Migrate to start block at prefix position, mark as migrated
+          c.block_id = startBlockId;
+          c.start = relStart;
+          c.end = relStart;
+          c.migrated_from = c.block_id;
+          comments.set(key, JSON.stringify(c));
+        }
+      } catch { /* ignore */ }
+    }
+
+    // Adjust comments on start block: clip those spanning relStart
+    for (const key of comments.keys()) {
+      const raw = comments.get(key);
+      if (typeof raw !== 'string') continue;
+      try {
+        const c = JSON.parse(raw);
+        if (c.block_id !== startBlockId) continue;
+
+        if (c.end <= relStart) {
+          // Entirely before selection - keep as-is
+        } else if (c.start < relStart && c.end > relStart) {
+          // Spans the selection start - clip to end at relStart
+          c.end = relStart;
+          comments.set(key, JSON.stringify(c));
+        } else if (c.start >= relStart && !c.migrated_from) {
+          // Entirely in deleted portion of start block - delete
+          comments.delete(key);
+        }
+      } catch { /* ignore */ }
+    }
+
     // Delete interior blocks (in reverse order to maintain indices)
     for (let i = endIdx; i > startIdx; i--) {
       const blockId = blockList[i].id;
-      // Delete from blocks list
       blocks.delete(i, 1);
-      // Delete text entry
       texts.delete(blockId as any);
-      // Delete marks
       marks.delete(blockId as any);
-      // Delete comments anchored to this block
-      for (const key of comments.keys()) {
-        const raw = comments.get(key);
-        if (typeof raw !== 'string') continue;
-        try {
-          const c = JSON.parse(raw);
-          if (c.block_id === blockId) {
-            comments.delete(key);
-          }
-        } catch { /* ignore */ }
-      }
     }
+
+    // Calculate where the suffix will end up for comment adjustment
+    let suffixBlockId = startBlockId;
+    let suffixStartOffset = prefix.length;
 
     // Now handle the merged content
     if (parsedBlocks.length === 0) {
-      // No new blocks - just merge prefix + suffix into startBlock
+      // No new blocks - merge prefix + suffix into startBlock
       const mergedText = prefix + suffix;
       texts.set(startBlockId, mergedText);
       updateBlockText(startBlockId, mergedText);
@@ -233,13 +270,15 @@ function applyCrossBlockTransform(
       // Merge marks: start marks + shifted end marks
       const mergedMarks = [
         ...preservedStartMarks,
-        ...preservedEndMarks.map((m: any) => ({
+        ...preservedEndMarks.map((m: Mark) => ({
           ...m,
           start: m.start + prefix.length,
           end: m.end + prefix.length,
         })),
       ];
       marks.set(startBlockId, JSON.stringify(mergedMarks));
+
+      suffixStartOffset = prefix.length;
 
     } else if (parsedBlocks.length === 1 && parsedBlocks[0].kind === startBlock.kind) {
       // Single block of same kind - merge everything into startBlock
@@ -251,7 +290,7 @@ function applyCrossBlockTransform(
       const insertedLen = parsedBlocks[0].text.length;
       const mergedMarks = [
         ...preservedStartMarks,
-        ...preservedEndMarks.map((m: any) => ({
+        ...preservedEndMarks.map((m: Mark) => ({
           ...m,
           start: m.start + prefix.length + insertedLen,
           end: m.end + prefix.length + insertedLen,
@@ -259,11 +298,12 @@ function applyCrossBlockTransform(
       ];
       marks.set(startBlockId, JSON.stringify(mergedMarks));
 
+      suffixStartOffset = prefix.length + insertedLen;
+
     } else {
       // Multiple blocks or different kind - insert new blocks
-
-      // Update startBlock with prefix + first parsed block's text (if same kind) or just prefix
       let firstBlockIdx = 0;
+
       if (parsedBlocks[0].kind === startBlock.kind) {
         const newStartText = prefix + parsedBlocks[0].text;
         texts.set(startBlockId, newStartText);
@@ -282,7 +322,6 @@ function applyCrossBlockTransform(
         const pb = parsedBlocks[i];
         const isLast = i === parsedBlocks.length - 1;
 
-        // For the last parsed block, append the suffix
         const blockText = isLast ? pb.text + suffix : pb.text;
         const newId = nextClientBlockId();
 
@@ -296,14 +335,15 @@ function applyCrossBlockTransform(
         blocks.insert(insertPos, JSON.stringify(newBlockData));
         texts.set(newId, blockText);
 
-        // For the last block, attach the shifted end marks
         if (isLast) {
-          const shiftedEndMarks = preservedEndMarks.map((m: any) => ({
+          const shiftedEndMarks = preservedEndMarks.map((m: Mark) => ({
             ...m,
             start: m.start + pb.text.length,
             end: m.end + pb.text.length,
           }));
           marks.set(newId, JSON.stringify(shiftedEndMarks));
+          suffixBlockId = newId;
+          suffixStartOffset = pb.text.length;
         }
 
         insertPos++;
@@ -320,10 +360,37 @@ function applyCrossBlockTransform(
         };
         blocks.insert(insertPos, JSON.stringify(newBlockData));
         texts.set(newId, suffix);
-
-        // Attach end marks
         marks.set(newId, JSON.stringify(preservedEndMarks));
+        suffixBlockId = newId;
+        suffixStartOffset = 0;
       }
+    }
+
+    // Adjust comments from end block that are now in the suffix
+    // These need to be re-anchored to wherever the suffix ended up
+    for (const key of comments.keys()) {
+      const raw = comments.get(key);
+      if (typeof raw !== 'string') continue;
+      try {
+        const c = JSON.parse(raw);
+        if (c.block_id !== endBlockId) continue;
+
+        if (c.start >= relEndInEndBlock) {
+          // Entirely after selection end - shift to new position in suffix block
+          const shift = suffixStartOffset - relEndInEndBlock;
+          c.block_id = suffixBlockId;
+          c.start = c.start + shift;
+          c.end = c.end + shift;
+          comments.set(key, JSON.stringify(c));
+        } else if (c.end > relEndInEndBlock) {
+          // Spans the selection end - clip and shift
+          c.block_id = suffixBlockId;
+          c.start = suffixStartOffset;
+          c.end = c.end - relEndInEndBlock + suffixStartOffset;
+          comments.set(key, JSON.stringify(c));
+        }
+        // else: entirely in deleted portion - already handled or will be orphaned
+      } catch { /* ignore */ }
     }
 
     loroDoc.commit();
