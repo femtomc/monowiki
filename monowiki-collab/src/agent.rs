@@ -9,14 +9,15 @@ use std::sync::Arc;
 use anyhow::Result;
 use monowiki_agent::{
     document::{
-        BlockInfo, DocumentContext, DocumentOperations, LinkInfo, SearchResult, Selection,
-        Comment as AgentComment,
+        BlockInfo, Comment as AgentComment, DocumentContext, DocumentOperations, LinkInfo,
+        SearchResult, Selection,
     },
     tools::ToolError,
-    Agent, AgentConfig, ApiClient, OpenRouterClient, AnthropicClient, ToolRegistry,
-    WebSearchTool, FetchUrlTool,
+    Agent, AgentConfig, AnthropicClient, ApiClient, FetchUrlTool, OpenRouterClient, ToolRegistry,
+    WebSearchTool,
 };
 use serde::{Deserialize, Serialize};
+use serde_yaml;
 use tokio::sync::RwLock;
 
 use crate::crdt::DocStore;
@@ -106,13 +107,18 @@ impl AgentManager {
 
     /// Create a new agent session.
     async fn create_session(&self) -> Result<AgentSession> {
-        let api_key = self.settings.api_key.clone().or_else(|| {
-            if self.settings.provider == "anthropic" {
-                std::env::var("ANTHROPIC_API_KEY").ok()
-            } else {
-                std::env::var("OPENROUTER_API_KEY").ok()
-            }
-        }).ok_or_else(|| anyhow::anyhow!("No API key configured for agent"))?;
+        let api_key = self
+            .settings
+            .api_key
+            .clone()
+            .or_else(|| {
+                if self.settings.provider == "anthropic" {
+                    std::env::var("ANTHROPIC_API_KEY").ok()
+                } else {
+                    std::env::var("OPENROUTER_API_KEY").ok()
+                }
+            })
+            .ok_or_else(|| anyhow::anyhow!("No API key configured for agent"))?;
 
         let client: Arc<dyn ApiClient> = if self.settings.provider == "anthropic" {
             Arc::new(AnthropicClient::new(api_key, self.settings.model.clone()))
@@ -132,9 +138,7 @@ impl AgentManager {
         });
 
         // Create tool registry with document tools
-        let mut tools = monowiki_agent::ToolRegistry::with_file_tools(
-            self.site_config.vault_dir(),
-        );
+        let mut tools = monowiki_agent::ToolRegistry::with_file_tools(self.site_config.vault_dir());
 
         // Add document-specific tools
         for tool in monowiki_agent::document::create_document_tools(doc_ops, current_slug.clone()) {
@@ -142,7 +146,10 @@ impl AgentManager {
         }
 
         // Add web search if configured
-        let tavily_key = self.settings.tavily_api_key.clone()
+        let tavily_key = self
+            .settings
+            .tavily_api_key
+            .clone()
             .or_else(|| std::env::var("TAVILY_API_KEY").ok());
         if let Some(key) = tavily_key {
             tools.register(Box::new(monowiki_agent::tools::WebSearchTool::new(key)));
@@ -183,7 +190,11 @@ impl AgentManager {
     }
 
     /// Update the selection for a session.
-    pub async fn set_selection(&self, session_id: &str, selection: Option<Selection>) -> Result<()> {
+    pub async fn set_selection(
+        &self,
+        session_id: &str,
+        selection: Option<Selection>,
+    ) -> Result<()> {
         let session = self.get_or_create_session(session_id).await?;
         let session = session.read().await;
         *session.selection.write().await = selection;
@@ -202,13 +213,15 @@ struct CollabDocumentOps {
 #[async_trait::async_trait]
 impl DocumentOperations for CollabDocumentOps {
     async fn get_context(&self, slug: &str) -> Result<DocumentContext, ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
         let content = doc.to_markdown();
-        let blocks: Vec<BlockInfo> = doc.get_blocks()
+        let blocks: Vec<BlockInfo> = doc
+            .get_blocks()
             .into_iter()
             .map(|b| BlockInfo {
                 id: b.id,
@@ -239,7 +252,8 @@ impl DocumentOperations for CollabDocumentOps {
         end: usize,
         new_text: &str,
     ) -> Result<(), ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -267,7 +281,8 @@ impl DocumentOperations for CollabDocumentOps {
         offset: usize,
         text: &str,
     ) -> Result<(), ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -287,19 +302,22 @@ impl DocumentOperations for CollabDocumentOps {
         content: &str,
         author: &str,
     ) -> Result<String, ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
-        let comment_id = doc.add_comment(block_id, start, end, content, author)
+        let comment_id = doc
+            .add_comment(block_id, start, end, content, author)
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
 
         Ok(comment_id)
     }
 
     async fn get_comments(&self, slug: &str) -> Result<Vec<AgentComment>, ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -307,24 +325,28 @@ impl DocumentOperations for CollabDocumentOps {
         let crdt_comments = doc.get_all_comments();
 
         // Convert from CRDT Comment to agent Comment
-        let comments = crdt_comments.into_iter().map(|c| AgentComment {
-            id: c.id,
-            range: monowiki_agent::document::TextRange {
-                block_id: c.block_id,
-                start: c.start,
-                end: c.end,
-            },
-            content: c.content,
-            author: c.author,
-            created_at: c.created_at,
-            resolved: c.resolved,
-        }).collect();
+        let comments = crdt_comments
+            .into_iter()
+            .map(|c| AgentComment {
+                id: c.id,
+                range: monowiki_agent::document::TextRange {
+                    block_id: c.block_id,
+                    start: c.start,
+                    end: c.end,
+                },
+                content: c.content,
+                author: c.author,
+                created_at: c.created_at,
+                resolved: c.resolved,
+            })
+            .collect();
 
         Ok(comments)
     }
 
     async fn resolve_comment(&self, slug: &str, comment_id: &str) -> Result<(), ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -336,7 +358,8 @@ impl DocumentOperations for CollabDocumentOps {
     }
 
     async fn read_document(&self, slug: &str) -> Result<String, ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -345,11 +368,22 @@ impl DocumentOperations for CollabDocumentOps {
     }
 
     async fn search_vault(&self, query: &str) -> Result<Vec<SearchResult>, ToolError> {
-        // Simple file-based search for now
         let vault_dir = self.site_config.vault_dir();
         let mut results = Vec::new();
         let query_lower = query.to_lowercase();
 
+        // First search loaded docs (live CRDT state)
+        {
+            let docs = self.doc_store.loaded_docs().await;
+            for (slug, doc) in docs {
+                if let Ok((fm, body)) = doc.snapshot() {
+                    let content = format_frontmatter_body(&fm, &body);
+                    accumulate_match(&slug, &content, &query_lower, &mut results);
+                }
+            }
+        }
+
+        // Then scan disk for any other markdown files
         fn search_dir(
             dir: &std::path::Path,
             base: &std::path::Path,
@@ -367,30 +401,9 @@ impl DocumentOperations for CollabDocumentOps {
                     }
                 } else if path.extension().map(|e| e == "md").unwrap_or(false) {
                     if let Ok(content) = std::fs::read_to_string(&path) {
-                        let content_lower = content.to_lowercase();
-                        if content_lower.contains(query) {
-                            let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                            let slug = rel_path.with_extension("").to_string_lossy().to_string();
-
-                            // Extract title from frontmatter or first heading
-                            let title = extract_title(&content).unwrap_or_else(|| slug.clone());
-
-                            // Find snippet around match
-                            let snippet = if let Some(pos) = content_lower.find(query) {
-                                let start = pos.saturating_sub(50);
-                                let end = (pos + query.len() + 50).min(content.len());
-                                format!("...{}...", &content[start..end])
-                            } else {
-                                content.chars().take(100).collect()
-                            };
-
-                            results.push(SearchResult {
-                                slug,
-                                title,
-                                snippet,
-                                score: 1.0,
-                            });
-                        }
+                        let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                        let slug = rel_path.with_extension("").to_string_lossy().to_string();
+                        accumulate_match(&slug, &content, query, results);
                     }
                 }
             }
@@ -410,7 +423,8 @@ impl DocumentOperations for CollabDocumentOps {
     }
 
     async fn get_links(&self, slug: &str) -> Result<LinkInfo, ToolError> {
-        let doc = self.doc_store
+        let doc = self
+            .doc_store
             .get_or_load(slug, &self.site_config)
             .await
             .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
@@ -420,11 +434,94 @@ impl DocumentOperations for CollabDocumentOps {
         // Extract wiki links from content
         let outlinks = extract_wiki_links(&content);
 
-        // For backlinks, we'd need to scan all documents
-        // For now, return empty (could be optimized with a link index)
-        let backlinks = Vec::new();
+        // Backlinks: scan both live docs and disk to find links to this slug
+        let target = slug.trim_matches('/');
+        let mut backlinks = Vec::new();
 
-        Ok(LinkInfo { outlinks, backlinks })
+        // Live docs
+        {
+            let docs = self.doc_store.loaded_docs().await;
+            for (s, d) in docs {
+                if s == slug {
+                    continue;
+                }
+                if let Ok((_fm, body)) = d.snapshot() {
+                    if extract_wiki_links(&body).iter().any(|l| l == target) {
+                        backlinks.push(s);
+                    }
+                }
+            }
+        }
+
+        // Disk docs
+        fn scan_for_backlinks(
+            dir: &std::path::Path,
+            base: &std::path::Path,
+            target: &str,
+            acc: &mut Vec<String>,
+        ) -> std::io::Result<()> {
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !name.starts_with('.') {
+                        scan_for_backlinks(&path, base, target, acc)?;
+                    }
+                } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if extract_wiki_links(&content).iter().any(|l| l == target) {
+                            let rel = path.strip_prefix(base).unwrap_or(&path);
+                            let slug = rel.with_extension("").to_string_lossy().to_string();
+                            acc.push(slug);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+
+        scan_for_backlinks(
+            &self.site_config.vault_dir(),
+            &self.site_config.vault_dir(),
+            target,
+            &mut backlinks,
+        )
+        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+
+        Ok(LinkInfo {
+            outlinks,
+            backlinks,
+        })
+    }
+}
+
+fn format_frontmatter_body(fm: &serde_json::Value, body: &str) -> String {
+    let yaml = serde_yaml::to_string(fm).unwrap_or_default();
+    format!("---\n{}---\n{}", yaml, body)
+}
+
+fn accumulate_match(slug: &str, content: &str, query_lower: &str, results: &mut Vec<SearchResult>) {
+    let content_lower = content.to_lowercase();
+    if content_lower.contains(query_lower) {
+        // Extract title from frontmatter or first heading
+        let title = extract_title(content).unwrap_or_else(|| slug.to_string());
+
+        // Find snippet around match
+        let snippet = if let Some(pos) = content_lower.find(query_lower) {
+            let start = pos.saturating_sub(50);
+            let end = (pos + query_lower.len() + 50).min(content.len());
+            format!("...{}...", &content[start..end])
+        } else {
+            content.chars().take(100).collect()
+        };
+
+        results.push(SearchResult {
+            slug: slug.to_string(),
+            title,
+            snippet,
+            score: 1.0,
+        });
     }
 }
 
@@ -436,7 +533,13 @@ fn extract_title(content: &str) -> Option<String> {
             let yaml = &content[3..3 + end];
             for line in yaml.lines() {
                 if let Some(title) = line.strip_prefix("title:") {
-                    return Some(title.trim().trim_matches('"').trim_matches('\'').to_string());
+                    return Some(
+                        title
+                            .trim()
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -465,7 +568,7 @@ fn extract_wiki_links(content: &str) -> Vec<String> {
             while let Some(c) = chars.next() {
                 if c == ']' && chars.peek() == Some(&']') {
                     chars.next(); // consume second ']'
-                    // Handle aliases: [[target|alias]]
+                                  // Handle aliases: [[target|alias]]
                     let target = link.split('|').next().unwrap_or(&link).to_string();
                     if !target.is_empty() {
                         links.push(target);

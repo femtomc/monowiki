@@ -2,16 +2,18 @@
  * monowiki-editor main entry point.
  *
  * Wires together:
- * - CodeMirror 6 editor with Yjs/y-websocket
+ * - CodeMirror 6 editor with Loro-based sync
  * - Split pane with resizer
  * - Preview iframe (points to dev server)
  * - Toolbar actions (open, checkpoint, build, refresh)
  */
 
 import { createEditor, EditorInstance, ConnectionStatus } from './editor';
-import { CollabAPI, FileEntry } from './api';
+import { CollabAPI, FileEntry, Comment } from './api';
 import { Preview } from './preview';
 import { AgentPanel } from './agent-panel';
+import { LoroDoc, LoroMap, LoroList } from 'loro-crdt';
+import type { ViewUpdate } from '@codemirror/view';
 
 // DOM elements
 const slugInput = document.getElementById('slug-input') as HTMLInputElement;
@@ -28,6 +30,8 @@ const resizer = document.getElementById('resizer') as HTMLDivElement;
 const editorPane = document.querySelector('.editor-pane') as HTMLDivElement;
 const previewPane = document.querySelector('.preview-pane') as HTMLDivElement;
 const tokenInput = document.getElementById('token-input') as HTMLInputElement;
+const commentsList = document.getElementById('comments-list') as HTMLDivElement;
+const commentsRefresh = document.getElementById('comments-refresh') as HTMLButtonElement;
 
 // Sidebar elements
 const fileTree = document.getElementById('file-tree') as HTMLDivElement;
@@ -36,10 +40,465 @@ const sidebar = document.getElementById('sidebar') as HTMLElement;
 const sidebarResizer = document.getElementById('sidebar-resizer') as HTMLDivElement;
 
 // State
+type BlockRange = {
+  id: string;
+  kind: string;
+  blockStart: number;
+  blockEnd: number;
+  textStart: number;
+  textEnd: number;
+  text: string;
+};
+
 let currentEditor: EditorInstance | null = null;
 let currentSlug: string | null = null;
 let renderTimeout: number | null = null;
+let loroDoc: LoroDoc | null = null;
+let loroUnsub: (() => void) | null = null;
+let collabSocket: WebSocket | null = null;
+let blockRanges: BlockRange[] = [];
+let suppressEditorUpdate = false;
+let commentsCache: Comment[] = [];
+
 const RENDER_DEBOUNCE_MS = 100; // Wait 100ms after typing stops before rendering
+
+function findBlockForOffset(offset: number): BlockRange | null {
+  if (!blockRanges.length) return null;
+  const hit = blockRanges.find((b) => offset >= b.textStart && offset <= b.textEnd);
+  if (hit) return hit;
+  // Fallback to closest preceding block to keep selections usable near boundaries
+  let candidate: BlockRange | null = null;
+  for (const b of blockRanges) {
+    if (offset >= b.blockStart && offset <= b.blockEnd) {
+      return b;
+    }
+    if (b.blockStart <= offset) {
+      candidate = b;
+    } else {
+      break;
+    }
+  }
+  return candidate;
+}
+
+type BlockData = {
+  id: string;
+  kind: string;
+  attrs?: Record<string, unknown>;
+  text?: string;
+};
+
+function blockText(block: BlockData, texts: LoroMap<any>): string {
+  const fromMap = texts.get(block.id);
+  if (typeof fromMap === 'string') return fromMap;
+  return block.text ?? '';
+}
+
+function toMarkdownFromDoc(doc: LoroDoc): { markdown: string; ranges: BlockRange[] } {
+  const blocks: LoroList<any> = doc.getList('blocks');
+  const texts: LoroMap<any> = doc.getMap('texts');
+  let output = '';
+  const ranges: BlockRange[] = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const raw = blocks.get(i);
+    if (typeof raw !== 'string') continue;
+
+    let block: BlockData | null = null;
+    try {
+      block = JSON.parse(raw) as BlockData;
+    } catch {
+      continue;
+    }
+    if (!block) continue;
+
+    const text = blockText(block, texts);
+
+    const blockStart = output.length;
+    let contentStart = blockStart;
+    let blockEnd;
+
+    switch (block.kind) {
+      case 'heading': {
+        const level = typeof block.attrs?.level === 'number' ? block.attrs.level : 1;
+        const prefix = '#'.repeat(Math.max(1, Math.min(6, level)));
+        output += `${prefix} `;
+        contentStart = output.length;
+        output += `${text}\n\n`;
+        blockEnd = output.length;
+        break;
+      }
+      case 'code_block': {
+        const lang = typeof block.attrs?.language === 'string' ? block.attrs.language : '';
+        output += `\`\`\`${lang}\n`;
+        contentStart = output.length;
+        output += `${text}\n\`\`\`\n\n`;
+        blockEnd = output.length;
+        break;
+      }
+      case 'blockquote': {
+        const quoted = text.split('\n').map((line) => `> ${line}`).join('\n');
+        contentStart = output.length + 2; // "> "
+        output += `${quoted}\n\n`;
+        blockEnd = output.length;
+        break;
+      }
+      case 'thematic_break': {
+        contentStart = output.length;
+        output += '---\n\n';
+        blockEnd = output.length;
+        break;
+      }
+      case 'math_block': {
+        output += '$$\n';
+        contentStart = output.length;
+        output += `${text}\n$$\n\n`;
+        blockEnd = output.length;
+        break;
+      }
+      case 'list_item':
+      case 'bullet_list':
+      case 'ordered_list': {
+        output += `- `;
+        contentStart = output.length;
+        output += `${text}\n`;
+        blockEnd = output.length;
+        break;
+      }
+      default: {
+        contentStart = output.length;
+        output += `${text}\n\n`;
+        blockEnd = output.length;
+      }
+    }
+
+    const contentEnd = contentStart + text.length;
+    ranges.push({
+      id: block.id,
+      kind: block.kind,
+      blockStart,
+      blockEnd,
+      textStart: contentStart,
+      textEnd: contentEnd,
+      text,
+    });
+  }
+
+  return { markdown: output.trimEnd(), ranges };
+}
+
+function updateBlockText(blockId: string, newText: string) {
+  if (!loroDoc) return;
+  const blocks = loroDoc.getList('blocks');
+  for (let i = 0; i < blocks.length; i++) {
+    const raw = blocks.get(i);
+    if (typeof raw !== 'string') continue;
+    try {
+      const block = JSON.parse(raw) as BlockData;
+      if (block.id === blockId) {
+        block.text = newText;
+        blocks.delete(i, 1);
+        blocks.insert(i, JSON.stringify(block));
+        return;
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
+function deleteBlockById(blockId: string) {
+  if (!loroDoc) return;
+  const blocks = loroDoc.getList('blocks');
+  for (let i = 0; i < blocks.length; i++) {
+    const raw = blocks.get(i);
+    if (typeof raw !== 'string') continue;
+    try {
+      const block = JSON.parse(raw) as BlockData;
+      if (block.id === blockId) {
+        blocks.delete(i, 1);
+        break;
+      }
+    } catch {
+      continue;
+    }
+  }
+  // Drop text entry
+  const texts = loroDoc.getMap('texts');
+  texts.delete(blockId as any);
+  // Drop comments anchored to this block
+  const comments = loroDoc.getMap('comments');
+  for (const key of comments.keys()) {
+    const raw = comments.get(key);
+    if (typeof raw !== 'string') continue;
+    try {
+      const c = JSON.parse(raw);
+      if (c.block_id === blockId) {
+        comments.delete(key);
+      }
+    } catch {
+      continue;
+    }
+  }
+}
+
+function adjustCommentsForChange(blockId: string, start: number, end: number, insert: string) {
+  if (!loroDoc) return;
+  const comments = loroDoc.getMap('comments');
+  const keys = comments.keys();
+  const deleteLen = Math.max(0, end - start);
+  const insertLen = insert.length;
+  const deleteEnd = start + deleteLen;
+
+  for (const key of keys) {
+    const raw = comments.get(key);
+    if (typeof raw !== 'string') continue;
+    let comment: any;
+    try {
+      comment = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (comment.block_id !== blockId) continue;
+
+    let changed = false;
+
+    if (insertLen > 0) {
+      if (start <= comment.start) {
+        comment.start += insertLen;
+        comment.end += insertLen;
+        changed = true;
+      } else if (start < comment.end) {
+        comment.end += insertLen;
+        changed = true;
+      }
+    }
+
+    if (deleteLen > 0) {
+      if (comment.end <= start) {
+        // no-op
+      } else if (comment.start >= deleteEnd) {
+        comment.start -= deleteLen;
+        comment.end -= deleteLen;
+        changed = true;
+      } else if (comment.start >= start && comment.end <= deleteEnd) {
+        comments.delete(key);
+        continue;
+      } else if (comment.start < start && comment.end > deleteEnd) {
+        comment.end -= deleteLen;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      comments.set(key, JSON.stringify(comment));
+    }
+  }
+}
+
+function refreshEditorFromDoc(forceText = false) {
+  if (!loroDoc || !currentEditor) return;
+  const { markdown, ranges } = toMarkdownFromDoc(loroDoc);
+  blockRanges = ranges;
+
+  const currentText = currentEditor.view.state.doc.toString();
+  if (forceText || currentText !== markdown) {
+    suppressEditorUpdate = true;
+    currentEditor.view.dispatch({
+      changes: { from: 0, to: currentEditor.view.state.doc.length, insert: markdown },
+    });
+    suppressEditorUpdate = false;
+  }
+}
+
+function applyBlockEdit(blockId: string, start: number, end: number, insertText: string) {
+  if (!loroDoc) return;
+  const texts = loroDoc.getMap('texts');
+  const current = texts.get(blockId);
+  const prev = typeof current === 'string' ? current : '';
+  const next = prev.slice(0, start) + insertText + prev.slice(end);
+
+  texts.set(blockId, next);
+  updateBlockText(blockId, next);
+  adjustCommentsForChange(blockId, start, end, insertText);
+  loroDoc.commit();
+  refreshEditorFromDoc();
+}
+
+function applyEditorChange(update: ViewUpdate) {
+  if (suppressEditorUpdate || !loroDoc) return;
+
+  let applied = false;
+  update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+    const block = findBlockForOffset(fromA);
+    const insertText = inserted.toString();
+    const endBlock = findBlockForOffset(Math.max(toA - 1, fromA));
+
+    if (!block || !endBlock) {
+      refreshEditorFromDoc(true);
+      return;
+    }
+
+    // Cross-block edit: merge into start block and delete consumed blocks
+    if (block.id !== endBlock.id || toA > block.textEnd) {
+      const relStart = Math.max(0, fromA - block.textStart);
+      const relEndEndBlock = Math.max(0, toA - endBlock.textStart);
+
+      if (!loroDoc) return;
+      const texts = loroDoc.getMap('texts');
+      const startText = typeof texts.get(block.id) === 'string' ? (texts.get(block.id) as string) : block.text;
+      const endText = typeof texts.get(endBlock.id) === 'string' ? (texts.get(endBlock.id) as string) : endBlock.text;
+
+      const prefix = startText.slice(0, relStart);
+      const suffix = endText.slice(relEndEndBlock);
+      const merged = prefix + insertText + suffix;
+
+      applyBlockEdit(block.id, 0, startText.length, merged);
+
+      // Remove any blocks fully covered by the selection (after the start block)
+      const startIdx = blockRanges.findIndex((b) => b.id === block.id);
+      const endIdx = blockRanges.findIndex((b) => b.id === endBlock.id);
+      if (startIdx >= 0 && endIdx >= startIdx) {
+        for (let idx = endIdx; idx > startIdx; idx--) {
+          deleteBlockById(blockRanges[idx].id);
+        }
+      }
+
+      applied = true;
+      return;
+    }
+
+    const relStart = Math.max(0, fromA - block.textStart);
+    const relEnd = Math.max(0, toA - block.textStart);
+    applyBlockEdit(block.id, relStart, relEnd, insertText);
+    applied = true;
+  });
+
+  if (applied) {
+    scheduleRender();
+  }
+}
+
+function formatTimestamp(ts: string): string {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString();
+}
+
+function renderComments() {
+  if (!commentsList) return;
+  if (!commentsCache.length) {
+    commentsList.innerHTML = '<div class="comment-empty">No comments yet</div>';
+    return;
+  }
+
+  commentsList.innerHTML = commentsCache.map((c) => {
+    const status = c.resolved ? '<span class="comment-tag">resolved</span>' : '';
+    return `
+      <div class="comment-card" data-comment-id="${c.id}">
+        <div class="comment-meta">
+          <span>${c.author || 'unknown'}</span>
+          <span>${formatTimestamp(c.created_at)}</span>
+        </div>
+        <div class="comment-body">${c.content}</div>
+        <div class="comment-tags">
+          <span class="comment-tag">block ${c.block_id}</span>
+          <span class="comment-tag">range ${c.start}-${c.end}</span>
+          ${status}
+        </div>
+        <div class="comment-actions">
+          ${c.resolved ? '' : '<button class="resolve" data-comment-id="' + c.id + '">Resolve</button>'}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  commentsList.querySelectorAll('button.resolve').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-comment-id');
+      if (!id || !currentSlug) return;
+      btn.setAttribute('disabled', 'true');
+      try {
+        await api.resolveComment(currentSlug, id);
+        await loadComments();
+      } catch (err) {
+        console.error('Resolve failed:', err);
+        btn.removeAttribute('disabled');
+      }
+    });
+  });
+}
+
+async function loadComments() {
+  if (!currentSlug) {
+    commentsCache = [];
+    renderComments();
+    return;
+  }
+  try {
+    const res = await api.getComments(currentSlug);
+    commentsCache = res.comments;
+    renderComments();
+  } catch (err) {
+    console.error('Failed to load comments:', err);
+    commentsList.innerHTML = '<div class="comment-empty">Failed to load comments</div>';
+  }
+}
+
+function disconnectCollab() {
+  if (collabSocket) {
+    collabSocket.close();
+    collabSocket = null;
+  }
+  if (loroUnsub) {
+    loroUnsub();
+    loroUnsub = null;
+  }
+  loroDoc = null;
+  blockRanges = [];
+  updateStatusDisplay('disconnected');
+}
+
+function connectCollab(slug: string) {
+  disconnectCollab();
+
+  loroDoc = new LoroDoc();
+  loroUnsub = loroDoc.subscribeLocalUpdates((bytes: Uint8Array) => {
+    if (collabSocket && collabSocket.readyState === WebSocket.OPEN) {
+      collabSocket.send(bytes);
+    }
+  });
+
+  const wsBaseUrl = api.wsBaseUrl();
+  const token = tokenInput.value ? `?token=${encodeURIComponent(tokenInput.value)}` : '';
+  const url = `${wsBaseUrl}/${slug}${token}`;
+
+  collabSocket = new WebSocket(url);
+  collabSocket.binaryType = 'arraybuffer';
+
+  updateStatusDisplay('connecting');
+
+  collabSocket.onopen = () => updateStatusDisplay('connected');
+  collabSocket.onclose = () => updateStatusDisplay('disconnected');
+  collabSocket.onerror = () => updateStatusDisplay('disconnected');
+  collabSocket.onmessage = (event) => {
+    if (typeof event.data === 'string') {
+      return;
+    }
+
+    const bytes = new Uint8Array(event.data as ArrayBuffer);
+    if (!bytes.length) return;
+
+    try {
+      loroDoc?.import(bytes);
+      refreshEditorFromDoc(true);
+      // Comments may have changed if other peers/agent added them
+      loadComments();
+    } catch (err) {
+      console.error('Failed to import Loro update', err);
+    }
+  };
+}
 
 // API client - in dev mode, Vite proxies /api and /ws to localhost:8787
 const api = new CollabAPI('');
@@ -61,16 +520,14 @@ new AgentPanel({
     if (from === to) return null;
 
     const text = view.state.sliceDoc(from, to);
-    // For now, use a simple block_id based on line number
-    // In a full implementation, this would map to CRDT block IDs
-    const line = view.state.doc.lineAt(from);
-    const block_id = `line-${line.number}`;
+    const block = findBlockForOffset(from);
+    if (!block) return null;
 
     return {
       text,
-      block_id,
-      start: from - line.from,
-      end: to - line.from,
+      block_id: block.id,
+      start: Math.max(0, from - block.textStart),
+      end: Math.max(0, to - block.textStart),
     };
   },
   getCurrentSlug: () => currentSlug,
@@ -143,17 +600,15 @@ async function openNote(slug: string) {
     return;
   }
 
-  // Clean up existing editor
+  // Clean up existing editor + collab session
   if (currentEditor) {
     currentEditor.destroy();
     currentEditor = null;
   }
+  disconnectCollab();
 
   currentSlug = slug;
   savePreferences();
-
-  // Update status
-  updateStatusDisplay('connecting');
 
   try {
     // Save token to API + local storage
@@ -162,19 +617,16 @@ async function openNote(slug: string) {
       savePreferences();
     }
 
-    // Create new editor connected to the slug's WebSocket
-    const wsBaseUrl = api.wsBaseUrl();
     currentEditor = createEditor({
       container: editorContainer,
-      wsBaseUrl,
-      token: tokenInput.value || undefined,
-      room: slug,
-      onStatusChange: updateStatusDisplay,
-      onContentChange: scheduleRender,
+      onContentChange: applyEditorChange,
     });
+
+    connectCollab(slug);
 
     // Navigate preview
     preview.navigate(slug);
+    loadComments();
 
   } catch (err) {
     console.error('Failed to open note:', err);
@@ -423,6 +875,10 @@ refreshBtn.addEventListener('click', () => {
 previewUrlInput.addEventListener('change', () => {
   preview.setBaseUrl(previewUrlInput.value);
   savePreferences();
+});
+
+commentsRefresh.addEventListener('click', () => {
+  loadComments();
 });
 
 // Initialize

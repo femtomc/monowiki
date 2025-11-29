@@ -286,6 +286,16 @@ pub struct DocStore {
 }
 
 impl DocStore {
+    /// Return all loaded docs (in-memory state).
+    pub async fn loaded_docs(&self) -> Vec<(String, Arc<LoroNoteDoc>)> {
+        self.docs
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
     pub async fn get_or_load(
         &self,
         slug: &str,
@@ -513,7 +523,9 @@ impl LoroNoteDoc {
         let blocks = self.get_blocks_list();
 
         // Get the value at 'from'
-        let value = blocks.get(from).ok_or_else(|| anyhow!("Block not found at index {}", from))?;
+        let value = blocks
+            .get(from)
+            .ok_or_else(|| anyhow!("Block not found at index {}", from))?;
 
         // Delete from old position
         blocks.delete(from, 1)?;
@@ -641,6 +653,8 @@ impl LoroNoteDoc {
 
         // Adjust mark positions according to Peritext anchor semantics
         self.adjust_marks_for_insert(block_id, actual_offset, content.len())?;
+        // Keep comment anchors in sync
+        self.adjust_comments_for_insert(block_id, actual_offset, content.len())?;
 
         self.broadcast_update()?;
         Ok(())
@@ -660,6 +674,7 @@ impl LoroNoteDoc {
         // Adjust mark positions for deletion
         if actual_len > 0 {
             self.adjust_marks_for_delete(block_id, start, actual_len)?;
+            self.adjust_comments_for_delete(block_id, start, actual_len)?;
         }
 
         self.broadcast_update()?;
@@ -703,9 +718,7 @@ impl LoroNoteDoc {
         // Check for overlapping marks of the same type and merge/replace
         marks.retain(|m| {
             // Remove if same type and overlapping
-            !(m.mark_type == mark.mark_type
-                && m.start < mark.end
-                && m.end > mark.start)
+            !(m.mark_type == mark.mark_type && m.start < mark.end && m.end > mark.start)
         });
 
         marks.push(mark.clone());
@@ -723,7 +736,13 @@ impl LoroNoteDoc {
     ///
     /// Removes marks of the given type that overlap with the specified range.
     /// If a mark partially overlaps, it will be split or truncated.
-    pub fn remove_mark(&self, block_id: &str, mark_type: &str, start: usize, end: usize) -> Result<()> {
+    pub fn remove_mark(
+        &self,
+        block_id: &str,
+        mark_type: &str,
+        start: usize,
+        end: usize,
+    ) -> Result<()> {
         let mut marks = self.get_block_marks_internal(block_id);
         let mut new_marks = Vec::new();
 
@@ -758,17 +777,11 @@ impl LoroNoteDoc {
                 new_marks.push(right);
             } else if mark.start < start {
                 // Overlaps on the left - truncate
-                let truncated = Mark {
-                    end: start,
-                    ..mark
-                };
+                let truncated = Mark { end: start, ..mark };
                 new_marks.push(truncated);
             } else {
                 // Overlaps on the right - truncate
-                let truncated = Mark {
-                    start: end,
-                    ..mark
-                };
+                let truncated = Mark { start: end, ..mark };
                 new_marks.push(truncated);
             }
         }
@@ -928,7 +941,8 @@ impl LoroNoteDoc {
         content: &str,
         author: &str,
     ) -> Result<String> {
-        let parent = self.get_comment(parent_id)?
+        let parent = self
+            .get_comment(parent_id)?
             .ok_or_else(|| anyhow!("Parent comment not found: {}", parent_id))?;
 
         let comment_id = self.next_comment_id();
@@ -1024,7 +1038,12 @@ impl LoroNoteDoc {
 
     /// Update comment positions when text is inserted
     /// Called after insert_block_text to keep comments anchored correctly
-    pub fn adjust_comments_for_insert(&self, block_id: &str, offset: usize, len: usize) -> Result<()> {
+    pub fn adjust_comments_for_insert(
+        &self,
+        block_id: &str,
+        offset: usize,
+        len: usize,
+    ) -> Result<()> {
         let comments_map = self.get_comments_map();
         let block_comments: Vec<_> = self.get_block_comments(block_id);
 
@@ -1052,7 +1071,12 @@ impl LoroNoteDoc {
     }
 
     /// Update comment positions when text is deleted
-    pub fn adjust_comments_for_delete(&self, block_id: &str, start: usize, len: usize) -> Result<()> {
+    pub fn adjust_comments_for_delete(
+        &self,
+        block_id: &str,
+        start: usize,
+        len: usize,
+    ) -> Result<()> {
         let comments_map = self.get_comments_map();
         let end = start + len;
         let block_comments: Vec<_> = self.get_block_comments(block_id);
@@ -1305,7 +1329,8 @@ impl LoroNoteDoc {
         // Note: Can't easily clear a map, but it will be overwritten
 
         // Reset block counter
-        self.block_counter.store(1, std::sync::atomic::Ordering::Relaxed);
+        self.block_counter
+            .store(1, std::sync::atomic::Ordering::Relaxed);
 
         // Re-parse markdown
         self.initialize_from_markdown(body)?;
@@ -1332,7 +1357,8 @@ impl LoroNoteDoc {
     }
 
     pub fn mark_clean(&self) {
-        self.dirty.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.dirty
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     pub fn broadcast(&self, payload: Vec<u8>, sender_id: u64) {
@@ -1383,7 +1409,11 @@ fn parse_markdown_to_blocks(body: &str) -> Vec<(BlockKind, String, HashMap<Strin
 
         // Code block
         if line.starts_with("```") || line.starts_with("~~~") {
-            let fence = if line.starts_with("```") { "```" } else { "~~~" };
+            let fence = if line.starts_with("```") {
+                "```"
+            } else {
+                "~~~"
+            };
             let lang = line[fence.len()..].trim().to_string();
             let mut code_lines = Vec::new();
 
@@ -1513,17 +1543,17 @@ pub fn slug_to_rel(slug: &str) -> Result<PathBuf> {
     Ok(clean)
 }
 
-async fn load_note_from_disk(slug: &str, config: &monowiki_core::Config) -> Result<(Value, String)> {
+async fn load_note_from_disk(
+    slug: &str,
+    config: &monowiki_core::Config,
+) -> Result<(Value, String)> {
     let path = config.vault_dir().join(slug_to_rel(slug)?);
     let content = tokio::fs::read_to_string(&path).await?;
     let (fm, body) = monowiki_core::frontmatter::parse_frontmatter(&content)?;
     Ok((serde_json::to_value(fm)?, body))
 }
 
-async fn load_loro_snapshot(
-    slug: &str,
-    config: &monowiki_core::Config,
-) -> Result<Option<Vec<u8>>> {
+async fn load_loro_snapshot(slug: &str, config: &monowiki_core::Config) -> Result<Option<Vec<u8>>> {
     let mut path = PathBuf::from(".collab").join(slug_to_rel(slug)?);
     path.set_extension("loro");
     let full = config.vault_dir().join(&path);
@@ -1678,8 +1708,10 @@ mod tests {
 
     #[test]
     fn test_loro_doc_roundtrip() {
-        let original = "# Title\n\nParagraph one.\n\n```python\nprint('hello')\n```\n\n- Item 1\n- Item 2";
-        let doc = LoroNoteDoc::new_with_content(Value::Object(Default::default()), original).unwrap();
+        let original =
+            "# Title\n\nParagraph one.\n\n```python\nprint('hello')\n```\n\n- Item 1\n- Item 2";
+        let doc =
+            LoroNoteDoc::new_with_content(Value::Object(Default::default()), original).unwrap();
 
         let exported = doc.to_markdown();
 
@@ -1694,11 +1726,9 @@ mod tests {
 
     #[test]
     fn test_block_text_operations() {
-        let doc = LoroNoteDoc::new_with_content(
-            Value::Object(Default::default()),
-            "# Test\n\nHello",
-        )
-        .unwrap();
+        let doc =
+            LoroNoteDoc::new_with_content(Value::Object(Default::default()), "# Test\n\nHello")
+                .unwrap();
 
         let block_ids = doc.get_block_ids();
         let para_id = &block_ids[1];
@@ -1747,7 +1777,8 @@ mod tests {
 
         // Add marks
         doc.add_mark(para_id, &Mark::new("strong", 0, 5)).unwrap();
-        doc.add_mark(para_id, &Mark::new("emphasis", 6, 11)).unwrap();
+        doc.add_mark(para_id, &Mark::new("emphasis", 6, 11))
+            .unwrap();
 
         // Remove the strong mark
         doc.remove_mark(para_id, "strong", 0, 5).unwrap();
@@ -1784,11 +1815,9 @@ mod tests {
 
     #[test]
     fn test_marks_adjust_on_insert() {
-        let doc = LoroNoteDoc::new_with_content(
-            Value::Object(Default::default()),
-            "# Test\n\nHello",
-        )
-        .unwrap();
+        let doc =
+            LoroNoteDoc::new_with_content(Value::Object(Default::default()), "# Test\n\nHello")
+                .unwrap();
 
         let block_ids = doc.get_block_ids();
         let para_id = &block_ids[1];
