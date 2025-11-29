@@ -674,3 +674,309 @@ describe('Cross-block edit scenarios', () => {
     expect(results[0].text).toBe('First list item');
   });
 });
+
+// =============================================================================
+// Advanced Reflow Tests
+// =============================================================================
+
+describe('Block reflow edge cases', () => {
+  it('handles empty prefix with paragraph insert', () => {
+    // Selection starts at beginning of block
+    const plan = planCrossBlockTransform(
+      'First block',
+      'Second block',
+      0, // empty prefix
+      6, // "Second"
+      'New text',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'First block' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].text).toBe('New text block');
+    expect(results[0].originalId).toBe('b1');
+  });
+
+  it('handles empty suffix with paragraph insert', () => {
+    // Selection ends at end of block
+    const plan = planCrossBlockTransform(
+      'First block',
+      'Second block',
+      6, // "First "
+      12, // end of "Second block"
+      'New text',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'First block' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].text).toBe('First New text');
+  });
+
+  it('handles empty prefix AND suffix (full replacement)', () => {
+    const plan = planCrossBlockTransform(
+      'First block',
+      'Second block',
+      0,
+      12,
+      'Completely new',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'First block' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].text).toBe('Completely new');
+  });
+
+  it('handles inserting heading into paragraph', () => {
+    const plan = planCrossBlockTransform(
+      'Some text here',
+      'More text there',
+      5, // "Some "
+      5, // "More "
+      '# New Heading\n\n',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Some text here' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Should have: paragraph with "Some ", heading "New Heading", paragraph with "text there"
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results[0].kind).toBe('paragraph');
+    expect(results[0].text).toBe('Some ');
+
+    const headingBlock = results.find((r) => r.kind === 'heading');
+    expect(headingBlock).toBeDefined();
+  });
+
+  it('handles inserting code block into paragraph', () => {
+    const plan = planCrossBlockTransform(
+      'Before code',
+      'After code',
+      7, // "Before "
+      6, // "After "
+      '```js\nconst x = 1;\n```\n\n',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Before code' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    const codeBlock = results.find((r) => r.kind === 'code_block');
+    expect(codeBlock).toBeDefined();
+    expect(codeBlock?.text).toContain('const x = 1');
+  });
+
+  it('handles inserting list items into paragraph', () => {
+    const plan = planCrossBlockTransform(
+      'Intro text',
+      'Outro text',
+      6, // "Intro "
+      6, // "Outro "
+      '- Item 1\n- Item 2\n',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Intro text' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    const listItems = results.filter((r) => r.kind === 'list_item');
+    expect(listItems.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('handles mixed block types in insert', () => {
+    const plan = planCrossBlockTransform(
+      'Start here',
+      'End there',
+      6, // "Start "
+      4, // "End "
+      '# Heading\n\nParagraph\n\n```\ncode\n```\n\n',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Start here' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    const kinds = results.map((r) => r.kind);
+    expect(kinds).toContain('heading');
+    expect(kinds).toContain('code_block');
+  });
+
+  it('preserves start block when first insert has different kind', () => {
+    const plan = planCrossBlockTransform(
+      'Keep this prefix',
+      'And this suffix',
+      16, // "Keep this prefix"
+      0, // full suffix
+      '# Heading\n\n',
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Keep this prefix' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Start block should keep prefix
+    expect(results[0].originalId).toBe('b1');
+    expect(results[0].kind).toBe('paragraph');
+    expect(results[0].text).toBe('Keep this prefix');
+  });
+});
+
+describe('Marks reflow across blocks', () => {
+  it('carries suffix marks to last result block', () => {
+    const startMarks: Mark[] = [
+      { mark_type: 'bold', start: 0, end: 4, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    ];
+    const endMarks: Mark[] = [
+      { mark_type: 'italic', start: 5, end: 10, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    ];
+    const plan = planCrossBlockTransform(
+      'Bold text here',
+      'Some italic end',
+      5, // "Bold "
+      5, // "Some "
+      '# Heading\n\n',
+      startMarks,
+      endMarks,
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Bold text here' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Last block should have the suffix marks (shifted)
+    const lastBlock = results[results.length - 1];
+    expect(lastBlock.marks.length).toBeGreaterThan(0);
+    expect(lastBlock.marks[0].mark_type).toBe('italic');
+  });
+
+  it('preserves marks on start block prefix', () => {
+    const startMarks: Mark[] = [
+      { mark_type: 'bold', start: 0, end: 4, start_anchor: 'before', end_anchor: 'after', attrs: {} },
+    ];
+    const plan = planCrossBlockTransform(
+      'Bold rest of text',
+      'End text',
+      5, // "Bold "
+      4,
+      '# Heading\n\n',
+      startMarks,
+    );
+    const startBlock: BlockData = { id: 'b1', kind: 'paragraph', text: 'Bold rest of text' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // First block should still have bold mark (clipped to prefix)
+    expect(results[0].marks.length).toBe(1);
+    expect(results[0].marks[0].mark_type).toBe('bold');
+    expect(results[0].marks[0].end).toBe(4); // clipped to prefix length
+  });
+});
+
+describe('List block specific scenarios', () => {
+  it('merges list items when both blocks are list_item', () => {
+    const plan = planCrossBlockTransform(
+      'First item content',
+      'Second item content',
+      6, // "First "
+      7, // "Second "
+      '',
+    );
+    const startBlock: BlockData = { id: 'li1', kind: 'list_item', text: 'First item content' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].kind).toBe('list_item');
+    expect(results[0].text).toBe('First item content');
+  });
+
+  it('handles paste of list into list item', () => {
+    const plan = planCrossBlockTransform(
+      'First item',
+      'Second item',
+      6, // "First "
+      7, // "Second "
+      '- New item 1\n- New item 2\n',
+    );
+    const startBlock: BlockData = { id: 'li1', kind: 'list_item', text: 'First item' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Should have multiple list items
+    const listItems = results.filter((r) => r.kind === 'list_item');
+    expect(listItems.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('Code block specific scenarios', () => {
+  it('merges code blocks when both are code_block', () => {
+    const plan = planCrossBlockTransform(
+      'function a() {}',
+      'function b() {}',
+      11, // "function a("
+      11, // "function b("
+      '',
+    );
+    const startBlock: BlockData = { id: 'cb1', kind: 'code_block', attrs: { language: 'js' }, text: 'function a() {}' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].kind).toBe('code_block');
+    expect(results[0].text).toBe('function a() {}');
+  });
+
+  it('handles paste of code into code block', () => {
+    const plan = planCrossBlockTransform(
+      'const a = 1;',
+      'const b = 2;',
+      12,
+      0,
+      '\nconst c = 3;\n',
+    );
+    const startBlock: BlockData = { id: 'cb1', kind: 'code_block', text: 'const a = 1;' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Insert is plain text (paragraph), should create new structure
+    expect(results[0].kind).toBe('code_block');
+  });
+});
+
+describe('Heading specific scenarios', () => {
+  it('handles heading to heading merge', () => {
+    const plan = planCrossBlockTransform(
+      'First Heading',
+      'Second Heading',
+      6, // "First "
+      7, // "Second "
+      '',
+    );
+    const startBlock: BlockData = { id: 'h1', kind: 'heading', attrs: { level: 1 }, text: 'First Heading' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].kind).toBe('heading');
+    expect(results[0].text).toBe('First Heading');
+  });
+
+  it('handles inserting heading into heading (merges same kind)', () => {
+    const plan = planCrossBlockTransform(
+      'Main Title',
+      'Subtitle',
+      5, // "Main "
+      3, // "Sub"
+      '## New Section\n\n',
+    );
+    const startBlock: BlockData = { id: 'h1', kind: 'heading', attrs: { level: 1 }, text: 'Main Title' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Same-kind blocks merge: heading + heading -> single heading
+    // prefix "Main " + parsed "New Section" + suffix "title"
+    expect(results[0].kind).toBe('heading');
+    expect(results[0].text).toBe('Main New Sectiontitle');
+    expect(results[0].originalId).toBe('h1');
+  });
+
+  it('handles inserting paragraph into heading (keeps separate)', () => {
+    const plan = planCrossBlockTransform(
+      'Main Title',
+      'Subtitle',
+      5, // "Main "
+      3, // "Sub"
+      'some paragraph text\n\n',
+    );
+    const startBlock: BlockData = { id: 'h1', kind: 'heading', attrs: { level: 1 }, text: 'Main Title' };
+    const results = computeResultBlocks(plan, startBlock);
+
+    // Different kinds stay separate: heading prefix, then paragraph with suffix
+    expect(results[0].kind).toBe('heading');
+    expect(results[0].text).toBe('Main ');
+    expect(results.length).toBeGreaterThan(1);
+  });
+});
