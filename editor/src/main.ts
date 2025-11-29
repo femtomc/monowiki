@@ -932,6 +932,10 @@ async function openNote(slug: string) {
       container: editorContainer,
       onContentChange: applyEditorChange,
     });
+    // Expose editor view for automated tests
+    if (typeof window !== 'undefined') {
+      (window as any).__cm_view = currentEditor.view;
+    }
 
     connectCollab(slug);
 

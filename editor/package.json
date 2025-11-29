@@ -9,7 +9,7 @@
     "preview": "bunx --bun vite preview",
     "test": "bunx --bun vitest run",
     "test:watch": "bunx --bun vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright install chromium && playwright test"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
@@ -29,6 +29,7 @@
     "typescript": "^5.5.0",
     "vite": "^5.4.0",
     "vite-plugin-wasm": "^3.5.0",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "ws": "^8.16.0"
   }
 }
