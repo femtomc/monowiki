@@ -14,7 +14,7 @@ pub mod watch;
 
 pub use build::build_site;
 pub use dev::dev_server;
-pub use editor::editor_server;
+pub use editor::run_editor_stack;
 pub use export::export_sections;
 pub use github_pages::setup_github_pages;
 pub use graph::{graph_neighbors, graph_path};

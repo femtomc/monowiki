@@ -107,9 +107,29 @@ enum Commands {
 
     /// Start the collaborative editor UI
     Editor {
-        /// Server port (defaults to 5173)
+        /// Git repository URL or local path
+        #[arg(long, env = "MONOWIKI_REPO", default_value = ".")]
+        repo: String,
+
+        /// Content branch to read/write
+        #[arg(long, env = "MONOWIKI_BRANCH", default_value = "main")]
+        branch: String,
+
+        /// Listen address for the editor/collab server
+        #[arg(long, env = "MONOWIKI_EDITOR_ADDR", default_value = "127.0.0.1:8787")]
+        listen_addr: String,
+
+        /// Working directory for cloned repo, temp state, and build artifacts
+        #[arg(long, env = "MONOWIKI_WORKDIR", default_value = ".monowiki-collab")]
+        workdir: PathBuf,
+
+        /// Path to monowiki.yml relative to repo root
+        #[arg(long, env = "MONOWIKI_CONFIG", default_value = "monowiki.yml")]
+        config: PathBuf,
+
+        /// Trigger a build right after startup (helpful for previews)
         #[arg(long)]
-        port: Option<u16>,
+        build_on_start: bool,
 
         /// Open browser automatically
         #[arg(long)]
@@ -207,22 +227,42 @@ async fn main() -> anyhow::Result<()> {
             } => commands::graph_path(&cli.config, &from, &to, max_depth, json),
         },
         Commands::Export { command } => match command {
-        ExportCommands::Sections {
-            format,
-            output,
-            with_links,
-            pretty,
-        } => commands::export_sections(
-            &cli.config,
-            format,
-            output.as_deref(),
-            with_links,
-            pretty,
-        ),
-    },
+            ExportCommands::Sections {
+                format,
+                output,
+                with_links,
+                pretty,
+            } => commands::export_sections(
+                &cli.config,
+                format,
+                output.as_deref(),
+                with_links,
+                pretty,
+            ),
+        },
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::Collab(collab_cli) => monowiki_collab::run_with_cli(collab_cli).await,
-        Commands::Editor { port, open } => commands::editor_server(port, open).await,
+        Commands::Editor {
+            repo,
+            branch,
+            listen_addr,
+            workdir,
+            config,
+            build_on_start,
+            open,
+        } => {
+            let opts = commands::editor::EditorStackOpts {
+                repo,
+                branch,
+                listen_addr,
+                workdir,
+                config,
+                build_on_start,
+                open_browser: open,
+                verbose: cli.verbose,
+            };
+            commands::run_editor_stack(opts).await
+        }
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
         }
