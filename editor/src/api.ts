@@ -29,6 +29,49 @@ export interface FilesResponse {
   files: FileEntry[];
 }
 
+// Agent types
+export interface Selection {
+  text: string;
+  block_id: string;
+  start: number;
+  end: number;
+}
+
+export interface AskRequest {
+  query: string;
+  slug: string;
+  selection?: Selection;
+}
+
+export interface AskResponse {
+  response: string;
+  made_edits: boolean;
+}
+
+export interface Comment {
+  id: string;
+  block_id: string;
+  start: number;
+  end: number;
+  content: string;
+  author: string;
+  created_at: string;
+  resolved: boolean;
+}
+
+export interface CommentsResponse {
+  comments: Comment[];
+}
+
+// Agent streaming events
+export type AgentStreamEvent =
+  | { type: 'thinking' }
+  | { type: 'text'; content: string }
+  | { type: 'tool_call'; name: string }
+  | { type: 'tool_result'; name: string; success: boolean }
+  | { type: 'done'; response: string }
+  | { type: 'error'; message: string };
+
 export class CollabAPI {
   private baseUrl: string;
   private token: string | null;
@@ -163,5 +206,64 @@ export class CollabAPI {
     // Relative URL - use current page's origin
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}/ws/note`;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Agent API
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Ask the agent a question about the current document.
+   */
+  async askAgent(request: AskRequest): Promise<AskResponse> {
+    const res = await fetch(`${this.baseUrl}/api/agent/ask`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(request),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Agent request failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Get comments on a document.
+   */
+  async getComments(slug: string): Promise<CommentsResponse> {
+    const res = await fetch(`${this.baseUrl}/api/agent/comments/${slug}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to get comments: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
+   * Resolve a comment.
+   */
+  async resolveComment(slug: string, commentId: string): Promise<void> {
+    const res = await fetch(`${this.baseUrl}/api/agent/comments/${slug}/${commentId}/resolve`, {
+      method: 'POST',
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Failed to resolve comment: ${res.status}`);
+    }
+  }
+
+  /**
+   * Create a WebSocket connection for streaming agent responses.
+   */
+  createAgentSocket(sessionId: string): WebSocket {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = this.baseUrl ? new URL(this.baseUrl).host : window.location.host;
+    const url = `${protocol}//${host}/ws/agent/${sessionId}`;
+
+    const ws = new WebSocket(url);
+    return ws;
   }
 }

@@ -11,6 +11,7 @@
 import { createEditor, EditorInstance, ConnectionStatus } from './editor';
 import { CollabAPI, FileEntry } from './api';
 import { Preview } from './preview';
+import { AgentPanel } from './agent-panel';
 
 // DOM elements
 const slugInput = document.getElementById('slug-input') as HTMLInputElement;
@@ -47,6 +48,32 @@ const api = new CollabAPI('');
 const preview = new Preview({
   iframe: previewFrame,
   baseUrl: previewUrlInput.value || '/preview',
+});
+
+// Agent panel - self-registers event listeners and keyboard shortcuts
+new AgentPanel({
+  container: document.body,
+  api,
+  getSelection: () => {
+    if (!currentEditor) return null;
+    const view = currentEditor.view;
+    const { from, to } = view.state.selection.main;
+    if (from === to) return null;
+
+    const text = view.state.sliceDoc(from, to);
+    // For now, use a simple block_id based on line number
+    // In a full implementation, this would map to CRDT block IDs
+    const line = view.state.doc.lineAt(from);
+    const block_id = `line-${line.number}`;
+
+    return {
+      text,
+      block_id,
+      start: from - line.from,
+      end: to - line.from,
+    };
+  },
+  getCurrentSlug: () => currentSlug,
 });
 
 // Load saved preferences

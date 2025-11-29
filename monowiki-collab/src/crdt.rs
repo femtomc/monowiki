@@ -146,6 +146,72 @@ pub struct Mark {
     pub attrs: HashMap<String, Value>,
 }
 
+/// A comment/annotation anchored to a text range.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Comment {
+    /// Unique comment ID
+    pub id: String,
+    /// Block this comment is attached to
+    pub block_id: String,
+    /// Start position within the block
+    pub start: usize,
+    /// End position within the block
+    pub end: usize,
+    /// Comment content
+    pub content: String,
+    /// Author (user ID or "agent")
+    pub author: String,
+    /// Creation timestamp (ISO 8601)
+    pub created_at: String,
+    /// Whether this comment is resolved
+    pub resolved: bool,
+    /// Optional thread parent (for replies)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
+}
+
+impl Comment {
+    pub fn new(
+        id: impl Into<String>,
+        block_id: impl Into<String>,
+        start: usize,
+        end: usize,
+        content: impl Into<String>,
+        author: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            block_id: block_id.into(),
+            start,
+            end,
+            content: content.into(),
+            author: author.into(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            resolved: false,
+            parent_id: None,
+        }
+    }
+
+    pub fn reply(
+        id: impl Into<String>,
+        parent: &Comment,
+        content: impl Into<String>,
+        author: impl Into<String>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            block_id: parent.block_id.clone(),
+            start: parent.start,
+            end: parent.end,
+            content: content.into(),
+            author: author.into(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            resolved: false,
+            parent_id: Some(parent.id.clone()),
+        }
+    }
+}
+
 impl Mark {
     pub fn new(mark_type: impl Into<String>, start: usize, end: usize) -> Self {
         Self {
@@ -316,6 +382,8 @@ pub struct LoroNoteDoc {
     session_counter: std::sync::atomic::AtomicU64,
     /// ID counter for generating block IDs
     block_counter: std::sync::atomic::AtomicU64,
+    /// ID counter for generating comment IDs
+    comment_counter: std::sync::atomic::AtomicU64,
 }
 
 impl LoroNoteDoc {
@@ -329,6 +397,7 @@ impl LoroNoteDoc {
         let _ = doc.get_map("texts");
         let _ = doc.get_map("marks");
         let _ = doc.get_map("frontmatter");
+        let _ = doc.get_map("comments");
 
         Self {
             doc,
@@ -337,6 +406,7 @@ impl LoroNoteDoc {
             dirty: std::sync::atomic::AtomicBool::new(false),
             session_counter: std::sync::atomic::AtomicU64::new(1),
             block_counter: std::sync::atomic::AtomicU64::new(1),
+            comment_counter: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -810,6 +880,223 @@ impl LoroNoteDoc {
         }
 
         self.set_block_marks_internal(block_id, &new_marks)?;
+        Ok(())
+    }
+
+    // -------------------------------------------------------------------------
+    // Comment Operations
+    // -------------------------------------------------------------------------
+
+    /// Generate a new unique comment ID
+    fn next_comment_id(&self) -> String {
+        let id = self
+            .comment_counter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        format!("c{}", id)
+    }
+
+    /// Get the comments map
+    fn get_comments_map(&self) -> LoroMap {
+        self.doc.get_map("comments")
+    }
+
+    /// Add a comment to the document
+    pub fn add_comment(
+        &self,
+        block_id: &str,
+        start: usize,
+        end: usize,
+        content: &str,
+        author: &str,
+    ) -> Result<String> {
+        let comment_id = self.next_comment_id();
+        let comment = Comment::new(&comment_id, block_id, start, end, content, author);
+
+        let comments_map = self.get_comments_map();
+        let json = serde_json::to_string(&comment)?;
+        comments_map.insert(&comment_id, json)?;
+
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(comment_id)
+    }
+
+    /// Add a reply to an existing comment
+    pub fn add_comment_reply(
+        &self,
+        parent_id: &str,
+        content: &str,
+        author: &str,
+    ) -> Result<String> {
+        let parent = self.get_comment(parent_id)?
+            .ok_or_else(|| anyhow!("Parent comment not found: {}", parent_id))?;
+
+        let comment_id = self.next_comment_id();
+        let reply = Comment::reply(&comment_id, &parent, content, author);
+
+        let comments_map = self.get_comments_map();
+        let json = serde_json::to_string(&reply)?;
+        comments_map.insert(&comment_id, json)?;
+
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(comment_id)
+    }
+
+    /// Get a comment by ID
+    pub fn get_comment(&self, comment_id: &str) -> Result<Option<Comment>> {
+        let comments_map = self.get_comments_map();
+        if let Some(value) = comments_map.get(comment_id) {
+            if let loro::ValueOrContainer::Value(loro_val) = value {
+                if let Some(json_str) = loro_val.as_string() {
+                    let comment: Comment = serde_json::from_str(json_str)?;
+                    return Ok(Some(comment));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Get all comments on the document
+    pub fn get_all_comments(&self) -> Vec<Comment> {
+        let comments_map = self.get_comments_map();
+        let mut comments = Vec::new();
+
+        // Iterate through all keys in the map
+        for key in comments_map.keys() {
+            let key_str = key.as_str();
+            if let Some(value) = comments_map.get(key_str) {
+                if let loro::ValueOrContainer::Value(loro_val) = value {
+                    if let Some(json_str) = loro_val.as_string() {
+                        if let Ok(comment) = serde_json::from_str::<Comment>(json_str) {
+                            comments.push(comment);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sort by creation time
+        comments.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        comments
+    }
+
+    /// Get comments for a specific block
+    pub fn get_block_comments(&self, block_id: &str) -> Vec<Comment> {
+        self.get_all_comments()
+            .into_iter()
+            .filter(|c| c.block_id == block_id)
+            .collect()
+    }
+
+    /// Get unresolved comments
+    pub fn get_unresolved_comments(&self) -> Vec<Comment> {
+        self.get_all_comments()
+            .into_iter()
+            .filter(|c| !c.resolved)
+            .collect()
+    }
+
+    /// Resolve a comment
+    pub fn resolve_comment(&self, comment_id: &str) -> Result<()> {
+        let comments_map = self.get_comments_map();
+
+        if let Some(mut comment) = self.get_comment(comment_id)? {
+            comment.resolved = true;
+            let json = serde_json::to_string(&comment)?;
+            comments_map.insert(comment_id, json)?;
+            self.mark_dirty();
+            self.broadcast_update()?;
+            Ok(())
+        } else {
+            Err(anyhow!("Comment not found: {}", comment_id))
+        }
+    }
+
+    /// Delete a comment
+    pub fn delete_comment(&self, comment_id: &str) -> Result<()> {
+        let comments_map = self.get_comments_map();
+        comments_map.delete(comment_id)?;
+        self.mark_dirty();
+        self.broadcast_update()?;
+        Ok(())
+    }
+
+    /// Update comment positions when text is inserted
+    /// Called after insert_block_text to keep comments anchored correctly
+    pub fn adjust_comments_for_insert(&self, block_id: &str, offset: usize, len: usize) -> Result<()> {
+        let comments_map = self.get_comments_map();
+        let block_comments: Vec<_> = self.get_block_comments(block_id);
+
+        for mut comment in block_comments {
+            let mut changed = false;
+
+            if offset <= comment.start {
+                // Insertion before comment - shift right
+                comment.start += len;
+                comment.end += len;
+                changed = true;
+            } else if offset < comment.end {
+                // Insertion inside comment - expand
+                comment.end += len;
+                changed = true;
+            }
+
+            if changed {
+                let json = serde_json::to_string(&comment)?;
+                comments_map.insert(&comment.id, json)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Update comment positions when text is deleted
+    pub fn adjust_comments_for_delete(&self, block_id: &str, start: usize, len: usize) -> Result<()> {
+        let comments_map = self.get_comments_map();
+        let end = start + len;
+        let block_comments: Vec<_> = self.get_block_comments(block_id);
+
+        for mut comment in block_comments {
+            if comment.end <= start {
+                // Comment before deletion - no change
+                continue;
+            } else if comment.start >= end {
+                // Comment after deletion - shift left
+                comment.start -= len;
+                comment.end -= len;
+                let json = serde_json::to_string(&comment)?;
+                comments_map.insert(&comment.id, json)?;
+            } else if comment.start >= start && comment.end <= end {
+                // Comment entirely within deletion - delete the comment
+                comments_map.delete(&comment.id)?;
+            } else if comment.start < start && comment.end > end {
+                // Deletion inside comment - shrink
+                comment.end -= len;
+                let json = serde_json::to_string(&comment)?;
+                comments_map.insert(&comment.id, json)?;
+            } else if comment.start < start {
+                // Comment overlaps left side - truncate
+                comment.end = start;
+                if comment.start < comment.end {
+                    let json = serde_json::to_string(&comment)?;
+                    comments_map.insert(&comment.id, json)?;
+                } else {
+                    comments_map.delete(&comment.id)?;
+                }
+            } else {
+                // Comment overlaps right side - shift and truncate
+                comment.start = start;
+                comment.end = comment.end - len;
+                if comment.start < comment.end {
+                    let json = serde_json::to_string(&comment)?;
+                    comments_map.insert(&comment.id, json)?;
+                } else {
+                    comments_map.delete(&comment.id)?;
+                }
+            }
+        }
+
         Ok(())
     }
 

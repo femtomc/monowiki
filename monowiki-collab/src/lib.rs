@@ -1,6 +1,7 @@
 //! Library entrypoint for monowiki-collab so other binaries (monowiki CLI) can
 //! reuse the server without shelling out.
 
+pub mod agent;
 pub mod auth;
 pub mod build;
 pub mod cli;

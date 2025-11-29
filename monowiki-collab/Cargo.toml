@@ -37,6 +37,11 @@ loro = "1.0"
 monowiki-core = { path = "../monowiki-core" }
 monowiki-render = { path = "../monowiki-render" }
 
+# AI agent
+monowiki-agent = { path = "../monowiki-agent" }
+futures = "0.3"
+async-trait = "0.1"
+
 # Template rendering and date handling
 askama = "0.14"
 chrono = { workspace = true }

@@ -23,6 +23,7 @@ use tracing::{info, warn};
 static EDITOR_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../editor/dist");
 
 use crate::{
+    agent::{AgentManager, AgentSettings, AgentStreamEvent, AskRequest},
     auth::{AuthError, AuthState, Capability, MaybeClaims},
     build::{BuildRunner, BuildSummary},
     config::CollabConfig,
@@ -44,6 +45,7 @@ pub struct AppState {
     pub crdt: Arc<DocStore>,
     pub rate_limiter: Arc<RateLimiter>,
     pub render_cache: SharedRenderCache,
+    pub agent_manager: Arc<AgentManager>,
 }
 
 pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: BuildRunner) -> Result<()> {
@@ -80,14 +82,23 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
     // Build rate limiter
     let rate_limiter = Arc::new(RateLimiter::new(config.rate_limit.clone()));
 
+    // Build agent manager
+    let site_config = Arc::new(site_config);
+    let agent_manager = Arc::new(AgentManager::new(
+        crdt.clone(),
+        site_config.clone(),
+        AgentSettings::default(),
+    ));
+
     let state = AppState {
         config: config.clone(),
         workspace: workspace.clone(),
         builder: builder.clone(),
-        site_config: Arc::new(site_config),
+        site_config,
         crdt: crdt.clone(),
         rate_limiter,
         render_cache,
+        agent_manager,
     };
 
     let app = Router::new()
@@ -112,6 +123,12 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
         .route("/api/flush", post(flush_now))
         .route("/api/upload", post(upload_asset))
         .route("/api/render/{*slug}", post(render_single))
+        // Agent endpoints
+        .route("/api/agent/ask", post(agent_ask))
+        .route("/api/agent/comments/{*slug}", get(get_comments))
+        .route("/api/agent/comments/{*slug}/{comment_id}/resolve", post(resolve_comment))
+        .route("/ws/agent/{session_id}", get(ws_agent))
+        // Document sync
         .route("/ws/note/{*slug}", get(ws_note))
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // 50MB max for uploads
         .layer(Extension(auth_state))
@@ -839,6 +856,235 @@ fn extract_safe_extension(name: &str) -> Option<String> {
     }
 
     Some(ext.to_lowercase())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent endpoints
+// ─────────────────────────────────────────────────────────────────────────────
+
+use futures::StreamExt;
+use monowiki_agent::agent::AgentEvent;
+
+/// Ask the agent a question about the current document.
+async fn agent_ask(
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+    Json(request): Json<AskRequest>,
+) -> Result<impl IntoResponse, AuthError> {
+    // Check auth: need Write capability (agent can make changes)
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Write, Some(&request.slug))?;
+    }
+
+    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let session_id = format!("{}:{}", identity, request.slug);
+
+    // Update session context
+    if let Err(e) = state.agent_manager.set_current_document(&session_id, &request.slug).await {
+        warn!(?e, "Failed to set current document");
+    }
+    if let Err(e) = state.agent_manager.set_selection(&session_id, request.selection).await {
+        warn!(?e, "Failed to set selection");
+    }
+
+    // Get or create session
+    let session = match state.agent_manager.get_or_create_session(&session_id).await {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Failed to create agent session: {}", e)})),
+            ).into_response());
+        }
+    };
+
+    // Run the agent and collect response
+    let mut session_guard = session.write().await;
+    let mut stream = match session_guard.agent.run(&request.query).await {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": format!("Agent error: {}", e)})),
+            ).into_response());
+        }
+    };
+
+    let mut response_text = String::new();
+    let mut made_edits = false;
+
+    while let Some(event) = stream.next().await {
+        match event {
+            AgentEvent::Text(text) => response_text.push_str(&text),
+            AgentEvent::ToolResult { name, success } => {
+                if success && (name == "replace_range" || name == "insert_text") {
+                    made_edits = true;
+                }
+            }
+            AgentEvent::Done => break,
+            AgentEvent::Error(e) => {
+                return Ok((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e})),
+                ).into_response());
+            }
+            _ => {}
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "response": response_text,
+        "made_edits": made_edits,
+    })).into_response())
+}
+
+/// Get comments on a document.
+async fn get_comments(
+    Path(slug): Path<String>,
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+) -> Result<impl IntoResponse, AuthError> {
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Read, Some(&slug))?;
+    }
+
+    let doc = match state.crdt.get_or_load(&slug, &state.site_config).await {
+        Ok(d) => d,
+        Err(e) => {
+            return Ok((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("Document not found: {}", e)})),
+            ).into_response());
+        }
+    };
+
+    let comments = doc.get_all_comments();
+    Ok(Json(serde_json::json!({ "comments": comments })).into_response())
+}
+
+/// Resolve a comment.
+async fn resolve_comment(
+    Path((slug, comment_id)): Path<(String, String)>,
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+) -> Result<impl IntoResponse, AuthError> {
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Write, Some(&slug))?;
+    }
+
+    let doc = match state.crdt.get_or_load(&slug, &state.site_config).await {
+        Ok(d) => d,
+        Err(e) => {
+            return Ok((
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": format!("Document not found: {}", e)})),
+            ).into_response());
+        }
+    };
+
+    match doc.resolve_comment(&comment_id) {
+        Ok(()) => Ok(Json(serde_json::json!({"resolved": true})).into_response()),
+        Err(e) => Ok((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": format!("Failed to resolve comment: {}", e)})),
+        ).into_response()),
+    }
+}
+
+/// WebSocket for streaming agent responses.
+async fn ws_agent(
+    Path(session_id): Path<String>,
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+    ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, AuthError> {
+    // Check auth
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Write, None)?;
+    }
+
+    Ok(ws.on_upgrade(move |socket| async move {
+        if let Err(err) = handle_agent_ws(socket, session_id, state).await {
+            warn!(?err, "agent websocket session ended with error");
+        }
+    }))
+}
+
+/// Handle agent WebSocket connection for streaming responses.
+async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppState) -> Result<()> {
+    // Get or create session
+    let session = state.agent_manager.get_or_create_session(&session_id).await?;
+
+    loop {
+        match socket.recv().await {
+            Some(Ok(WsMessage::Text(text))) => {
+                // Parse incoming request
+                let request: AskRequest = match serde_json::from_str(&text) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let event = AgentStreamEvent::Error { message: format!("Invalid request: {}", e) };
+                        let _ = socket.send(WsMessage::Text(serde_json::to_string(&event).unwrap().into())).await;
+                        continue;
+                    }
+                };
+
+                // Update context
+                let _ = state.agent_manager.set_current_document(&session_id, &request.slug).await;
+                let _ = state.agent_manager.set_selection(&session_id, request.selection).await;
+
+                // Run agent with streaming
+                let mut session_guard = session.write().await;
+                let stream = match session_guard.agent.run(&request.query).await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let event = AgentStreamEvent::Error { message: e.to_string() };
+                        let _ = socket.send(WsMessage::Text(serde_json::to_string(&event).unwrap().into())).await;
+                        continue;
+                    }
+                };
+
+                // Stream events to client
+                let mut stream = stream;
+                let mut response_text = String::new();
+
+                while let Some(event) = stream.next().await {
+                    let ws_event = match &event {
+                        AgentEvent::Thinking => AgentStreamEvent::Thinking,
+                        AgentEvent::Text(text) => {
+                            response_text.push_str(text);
+                            AgentStreamEvent::Text { content: text.clone() }
+                        }
+                        AgentEvent::ToolCall { name, .. } => {
+                            AgentStreamEvent::ToolCall { name: name.clone() }
+                        }
+                        AgentEvent::ToolResult { name, success } => {
+                            AgentStreamEvent::ToolResult { name: name.clone(), success: *success }
+                        }
+                        AgentEvent::Done => AgentStreamEvent::Done { response: response_text.clone() },
+                        AgentEvent::Error(msg) => AgentStreamEvent::Error { message: msg.clone() },
+                        AgentEvent::Status(msg) => {
+                            // Skip status messages or send as text
+                            AgentStreamEvent::Text { content: format!("[{}]", msg) }
+                        }
+                    };
+
+                    let json = serde_json::to_string(&ws_event).unwrap();
+                    if socket.send(WsMessage::Text(json.into())).await.is_err() {
+                        break;
+                    }
+
+                    if matches!(event, AgentEvent::Done | AgentEvent::Error(_)) {
+                        break;
+                    }
+                }
+            }
+            Some(Ok(WsMessage::Close(_))) | None => break,
+            Some(Ok(WsMessage::Ping(p))) => { let _ = socket.send(WsMessage::Pong(p)).await; }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Result<()> {
