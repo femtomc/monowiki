@@ -1476,10 +1476,11 @@ fn parse_markdown_to_blocks(body: &str) -> Vec<(BlockKind, String, HashMap<Strin
             continue;
         }
 
-        // Ordered list item
-        if let Some(rest) = line.strip_prefix(|c: char| c.is_ascii_digit()) {
-            if rest.starts_with(". ") {
-                let text = rest[2..].to_string();
+        // Ordered list item (handles multi-digit numbers like "10. item")
+        if let Some(dot_pos) = line.find(". ") {
+            let prefix = &line[..dot_pos];
+            if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
+                let text = line[dot_pos + 2..].to_string();
                 blocks.push((BlockKind::ListItem, text, HashMap::new()));
                 continue;
             }
@@ -1493,12 +1494,29 @@ fn parse_markdown_to_blocks(body: &str) -> Vec<(BlockKind, String, HashMap<Strin
         // Default: paragraph
         let mut para_lines = vec![line.to_string()];
         while let Some(&next_line) = lines.peek() {
+            // Check for block-level element starts that should break the paragraph
+            let trimmed = next_line.trim();
+            let is_thematic_break = trimmed == "---" || trimmed == "***" || trimmed == "___";
+            let is_unordered_list = next_line.starts_with("- ")
+                || next_line.starts_with("* ")
+                || next_line.starts_with("+ ");
+            let is_ordered_list = next_line
+                .find(". ")
+                .map(|dot_pos| {
+                    let prefix = &next_line[..dot_pos];
+                    !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit())
+                })
+                .unwrap_or(false);
+
             if next_line.trim().is_empty()
                 || next_line.starts_with('#')
                 || next_line.starts_with("```")
                 || next_line.starts_with("~~~")
-                || next_line.starts_with("- ")
-                || next_line.starts_with("> ")
+                || next_line.starts_with("$$")
+                || next_line.starts_with('>')
+                || is_unordered_list
+                || is_ordered_list
+                || is_thematic_break
             {
                 break;
             }
@@ -1659,6 +1677,68 @@ mod tests {
             assert_eq!(block.0, BlockKind::ListItem);
             assert_eq!(block.1, format!("Item {}", i + 1));
         }
+    }
+
+    #[test]
+    fn test_parse_markdown_ordered_list_multidigit() {
+        // Test that multi-digit ordered lists work (e.g., "10. item")
+        let md = "1. First\n10. Tenth\n99. Ninety-ninth";
+        let blocks = parse_markdown_to_blocks(md);
+
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].0, BlockKind::ListItem);
+        assert_eq!(blocks[0].1, "First");
+        assert_eq!(blocks[1].0, BlockKind::ListItem);
+        assert_eq!(blocks[1].1, "Tenth");
+        assert_eq!(blocks[2].0, BlockKind::ListItem);
+        assert_eq!(blocks[2].1, "Ninety-ninth");
+    }
+
+    #[test]
+    fn test_parse_markdown_all_list_markers() {
+        // Test all unordered list markers (* and +)
+        let md = "* Star item\n+ Plus item\n- Dash item";
+        let blocks = parse_markdown_to_blocks(md);
+
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].0, BlockKind::ListItem);
+        assert_eq!(blocks[0].1, "Star item");
+        assert_eq!(blocks[1].0, BlockKind::ListItem);
+        assert_eq!(blocks[1].1, "Plus item");
+        assert_eq!(blocks[2].0, BlockKind::ListItem);
+        assert_eq!(blocks[2].1, "Dash item");
+    }
+
+    #[test]
+    fn test_parse_markdown_paragraph_breaks() {
+        // Test that paragraphs break correctly on all block types
+        let md = "Paragraph one\n$$\nx^2\n$$\nParagraph two\n---\nParagraph three\n* List item";
+        let blocks = parse_markdown_to_blocks(md);
+
+        assert_eq!(blocks.len(), 6);
+        assert_eq!(blocks[0].0, BlockKind::Paragraph);
+        assert_eq!(blocks[0].1, "Paragraph one");
+        assert_eq!(blocks[1].0, BlockKind::MathBlock);
+        assert_eq!(blocks[1].1, "x^2");
+        assert_eq!(blocks[2].0, BlockKind::Paragraph);
+        assert_eq!(blocks[2].1, "Paragraph two");
+        assert_eq!(blocks[3].0, BlockKind::ThematicBreak);
+        assert_eq!(blocks[4].0, BlockKind::Paragraph);
+        assert_eq!(blocks[4].1, "Paragraph three");
+        assert_eq!(blocks[5].0, BlockKind::ListItem);
+        assert_eq!(blocks[5].1, "List item");
+    }
+
+    #[test]
+    fn test_parse_markdown_blockquote_break() {
+        // Test that blockquotes break paragraphs even without space after >
+        let md = "Paragraph\n> Quote text";
+        let blocks = parse_markdown_to_blocks(md);
+
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].0, BlockKind::Paragraph);
+        assert_eq!(blocks[0].1, "Paragraph");
+        assert_eq!(blocks[1].0, BlockKind::Blockquote);
     }
 
     #[test]
