@@ -14,6 +14,7 @@ import { Preview } from './preview';
 import { AgentPanel } from './agent-panel';
 import { LoroDoc, LoroMap, LoroList } from 'loro-crdt';
 import type { ViewUpdate } from '@codemirror/view';
+import { parseMarkdownToBlocks } from './cross-block';
 
 // DOM elements
 const slugInput = document.getElementById('slug-input') as HTMLInputElement;
@@ -87,6 +88,253 @@ type BlockData = {
   attrs?: Record<string, unknown>;
   text?: string;
 };
+
+// Block ID counter for generating unique IDs during client-side operations
+let clientBlockCounter = 1000;
+function nextClientBlockId(): string {
+  return `cb${clientBlockCounter++}`;
+}
+
+// =============================================================================
+// Block Operations for Cross-Block Edits
+// =============================================================================
+
+interface CrossBlockTransformResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Structure-preserving cross-block edit transform.
+ *
+ * For a selection spanning blocks [startBlock...endBlock]:
+ * 1. Split startBlock at selection start → keep prefix in startBlock
+ * 2. Split endBlock at selection end → keep suffix in endBlock
+ * 3. Delete fully covered interior blocks
+ * 4. Parse inserted text into new blocks
+ * 5. Insert new blocks after startBlock (or merge into startBlock if same kind)
+ */
+function applyCrossBlockTransform(
+  startBlockId: string,
+  endBlockId: string,
+  relStart: number,
+  relEndInEndBlock: number,
+  insertText: string,
+): CrossBlockTransformResult {
+  if (!loroDoc) return { success: false, error: 'No Loro doc' };
+
+  try {
+    const blocks = loroDoc.getList('blocks');
+    const texts = loroDoc.getMap('texts');
+    const marks = loroDoc.getMap('marks');
+    const comments = loroDoc.getMap('comments');
+
+    // Find block indices
+    let startIdx = -1;
+    let endIdx = -1;
+    const blockList: BlockData[] = [];
+
+    for (let i = 0; i < blocks.length; i++) {
+      const raw = blocks.get(i);
+      if (typeof raw !== 'string') continue;
+      try {
+        const block = JSON.parse(raw) as BlockData;
+        blockList.push(block);
+        if (block.id === startBlockId) startIdx = blockList.length - 1;
+        if (block.id === endBlockId) endIdx = blockList.length - 1;
+      } catch {
+        continue;
+      }
+    }
+
+    if (startIdx === -1 || endIdx === -1) {
+      return { success: false, error: 'Block not found' };
+    }
+
+    const startBlock = blockList[startIdx];
+    const endBlock = blockList[endIdx];
+
+    // Get current text content
+    const startText = typeof texts.get(startBlockId) === 'string'
+      ? (texts.get(startBlockId) as string)
+      : (startBlock.text ?? '');
+    const endText = typeof texts.get(endBlockId) === 'string'
+      ? (texts.get(endBlockId) as string)
+      : (endBlock.text ?? '');
+
+    // Calculate prefix (before selection in start block) and suffix (after selection in end block)
+    const prefix = startText.slice(0, relStart);
+    const suffix = endText.slice(relEndInEndBlock);
+
+    // Parse inserted text into blocks
+    const parsedBlocks = parseMarkdownToBlocks(insertText);
+
+    // Handle marks from startBlock that need to be preserved (those ending before relStart)
+    const startMarksRaw = marks.get(startBlockId);
+    let startMarks: any[] = [];
+    if (typeof startMarksRaw === 'string') {
+      try {
+        startMarks = JSON.parse(startMarksRaw);
+      } catch { /* ignore */ }
+    }
+    const preservedStartMarks = startMarks.filter((m: any) => m.end <= relStart);
+
+    // Handle marks from endBlock that need to be preserved (those starting after relEndInEndBlock)
+    const endMarksRaw = marks.get(endBlockId);
+    let endMarks: any[] = [];
+    if (typeof endMarksRaw === 'string') {
+      try {
+        endMarks = JSON.parse(endMarksRaw);
+      } catch { /* ignore */ }
+    }
+    const preservedEndMarks = endMarks
+      .filter((m: any) => m.start >= relEndInEndBlock)
+      .map((m: any) => ({
+        ...m,
+        start: m.start - relEndInEndBlock,
+        end: m.end - relEndInEndBlock,
+      }));
+
+    // Migrate comments from deleted blocks to nearest surviving block
+    const deletedBlockIds = new Set<string>();
+    for (let i = startIdx + 1; i <= endIdx; i++) {
+      deletedBlockIds.add(blockList[i].id);
+    }
+
+    // Delete interior blocks (in reverse order to maintain indices)
+    for (let i = endIdx; i > startIdx; i--) {
+      const blockId = blockList[i].id;
+      // Delete from blocks list
+      blocks.delete(i, 1);
+      // Delete text entry
+      texts.delete(blockId as any);
+      // Delete marks
+      marks.delete(blockId as any);
+      // Delete comments anchored to this block
+      for (const key of comments.keys()) {
+        const raw = comments.get(key);
+        if (typeof raw !== 'string') continue;
+        try {
+          const c = JSON.parse(raw);
+          if (c.block_id === blockId) {
+            comments.delete(key);
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
+    // Now handle the merged content
+    if (parsedBlocks.length === 0) {
+      // No new blocks - just merge prefix + suffix into startBlock
+      const mergedText = prefix + suffix;
+      texts.set(startBlockId, mergedText);
+      updateBlockText(startBlockId, mergedText);
+
+      // Merge marks: start marks + shifted end marks
+      const mergedMarks = [
+        ...preservedStartMarks,
+        ...preservedEndMarks.map((m: any) => ({
+          ...m,
+          start: m.start + prefix.length,
+          end: m.end + prefix.length,
+        })),
+      ];
+      marks.set(startBlockId, JSON.stringify(mergedMarks));
+
+    } else if (parsedBlocks.length === 1 && parsedBlocks[0].kind === startBlock.kind) {
+      // Single block of same kind - merge everything into startBlock
+      const mergedText = prefix + parsedBlocks[0].text + suffix;
+      texts.set(startBlockId, mergedText);
+      updateBlockText(startBlockId, mergedText);
+
+      // Merge marks
+      const insertedLen = parsedBlocks[0].text.length;
+      const mergedMarks = [
+        ...preservedStartMarks,
+        ...preservedEndMarks.map((m: any) => ({
+          ...m,
+          start: m.start + prefix.length + insertedLen,
+          end: m.end + prefix.length + insertedLen,
+        })),
+      ];
+      marks.set(startBlockId, JSON.stringify(mergedMarks));
+
+    } else {
+      // Multiple blocks or different kind - insert new blocks
+
+      // Update startBlock with prefix + first parsed block's text (if same kind) or just prefix
+      let firstBlockIdx = 0;
+      if (parsedBlocks[0].kind === startBlock.kind) {
+        const newStartText = prefix + parsedBlocks[0].text;
+        texts.set(startBlockId, newStartText);
+        updateBlockText(startBlockId, newStartText);
+        marks.set(startBlockId, JSON.stringify(preservedStartMarks));
+        firstBlockIdx = 1;
+      } else {
+        texts.set(startBlockId, prefix);
+        updateBlockText(startBlockId, prefix);
+        marks.set(startBlockId, JSON.stringify(preservedStartMarks));
+      }
+
+      // Insert middle blocks
+      let insertPos = startIdx + 1;
+      for (let i = firstBlockIdx; i < parsedBlocks.length; i++) {
+        const pb = parsedBlocks[i];
+        const isLast = i === parsedBlocks.length - 1;
+
+        // For the last parsed block, append the suffix
+        const blockText = isLast ? pb.text + suffix : pb.text;
+        const newId = nextClientBlockId();
+
+        const newBlockData: BlockData = {
+          id: newId,
+          kind: pb.kind,
+          attrs: pb.attrs,
+          text: blockText,
+        };
+
+        blocks.insert(insertPos, JSON.stringify(newBlockData));
+        texts.set(newId, blockText);
+
+        // For the last block, attach the shifted end marks
+        if (isLast) {
+          const shiftedEndMarks = preservedEndMarks.map((m: any) => ({
+            ...m,
+            start: m.start + pb.text.length,
+            end: m.end + pb.text.length,
+          }));
+          marks.set(newId, JSON.stringify(shiftedEndMarks));
+        }
+
+        insertPos++;
+      }
+
+      // If no parsed blocks to append suffix to, create a paragraph for it
+      if (parsedBlocks.length === firstBlockIdx && suffix) {
+        const newId = nextClientBlockId();
+        const newBlockData: BlockData = {
+          id: newId,
+          kind: 'paragraph',
+          attrs: {},
+          text: suffix,
+        };
+        blocks.insert(insertPos, JSON.stringify(newBlockData));
+        texts.set(newId, suffix);
+
+        // Attach end marks
+        marks.set(newId, JSON.stringify(preservedEndMarks));
+      }
+    }
+
+    loroDoc.commit();
+    refreshEditorFromDoc();
+    return { success: true };
+
+  } catch (err) {
+    console.error('Cross-block transform failed:', err);
+    return { success: false, error: String(err) };
+  }
+}
 
 function blockText(block: BlockData, texts: LoroMap<any>): string {
   const fromMap = texts.get(block.id);
@@ -339,10 +587,27 @@ function applyEditorChange(update: ViewUpdate) {
       return;
     }
 
-    // Cross-block edit: merge into start block and delete consumed blocks
+    // Cross-block edit: use structure-preserving transform
     if (block.id !== endBlock.id || toA > block.textEnd) {
       const relStart = Math.max(0, fromA - block.textStart);
       const relEndEndBlock = Math.max(0, toA - endBlock.textStart);
+
+      // Try structure-preserving transform first
+      const result = applyCrossBlockTransform(
+        block.id,
+        endBlock.id,
+        relStart,
+        relEndEndBlock,
+        insertText,
+      );
+
+      if (result.success) {
+        applied = true;
+        return;
+      }
+
+      // Fallback to legacy merge behavior if transform fails
+      console.warn('Cross-block transform failed, using fallback:', result.error);
 
       if (!loroDoc) return;
       const texts = loroDoc.getMap('texts');
