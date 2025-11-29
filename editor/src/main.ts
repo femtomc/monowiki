@@ -526,41 +526,6 @@ function updateBlockText(blockId: string, newText: string) {
   }
 }
 
-function deleteBlockById(blockId: string) {
-  if (!loroDoc) return;
-  const blocks = loroDoc.getList('blocks');
-  for (let i = 0; i < blocks.length; i++) {
-    const raw = blocks.get(i);
-    if (typeof raw !== 'string') continue;
-    try {
-      const block = JSON.parse(raw) as BlockData;
-      if (block.id === blockId) {
-        blocks.delete(i, 1);
-        break;
-      }
-    } catch {
-      continue;
-    }
-  }
-  // Drop text entry
-  const texts = loroDoc.getMap('texts');
-  texts.delete(blockId as any);
-  // Drop comments anchored to this block
-  const comments = loroDoc.getMap('comments');
-  for (const key of comments.keys()) {
-    const raw = comments.get(key);
-    if (typeof raw !== 'string') continue;
-    try {
-      const c = JSON.parse(raw);
-      if (c.block_id === blockId) {
-        comments.delete(key);
-      }
-    } catch {
-      continue;
-    }
-  }
-}
-
 function adjustCommentsForChange(blockId: string, start: number, end: number, insert: string) {
   if (!loroDoc) return;
   const comments = loroDoc.getMap('comments');
@@ -677,30 +642,9 @@ function applyEditorChange(update: ViewUpdate) {
         return;
       }
 
-      // Fallback to legacy merge behavior if transform fails
-      console.warn('Cross-block transform failed, using fallback:', result.error);
-
-      if (!loroDoc) return;
-      const texts = loroDoc.getMap('texts');
-      const startText = typeof texts.get(block.id) === 'string' ? (texts.get(block.id) as string) : block.text;
-      const endText = typeof texts.get(endBlock.id) === 'string' ? (texts.get(endBlock.id) as string) : endBlock.text;
-
-      const prefix = startText.slice(0, relStart);
-      const suffix = endText.slice(relEndEndBlock);
-      const merged = prefix + insertText + suffix;
-
-      applyBlockEdit(block.id, 0, startText.length, merged);
-
-      // Remove any blocks fully covered by the selection (after the start block)
-      const startIdx = blockRanges.findIndex((b) => b.id === block.id);
-      const endIdx = blockRanges.findIndex((b) => b.id === endBlock.id);
-      if (startIdx >= 0 && endIdx >= startIdx) {
-        for (let idx = endIdx; idx > startIdx; idx--) {
-          deleteBlockById(blockRanges[idx].id);
-        }
-      }
-
-      applied = true;
+      // If the structural transform fails, refresh from doc and abort to avoid divergence.
+      console.error('Cross-block transform failed:', result.error);
+      refreshEditorFromDoc(true);
       return;
     }
 
