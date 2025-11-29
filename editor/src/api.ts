@@ -57,6 +57,7 @@ export interface Comment {
   author: string;
   created_at: string;
   resolved: boolean;
+  migrated_from?: string;
 }
 
 export interface CommentsResponse {

@@ -140,6 +140,14 @@ html, body, #app {
   color: var(--error-color);
 }
 
+.status-banner {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: #fff4e5;
+  color: #8a6d00;
+  font-size: 13px;
+}
+
 /* Main layout with sidebar */
 .main-layout {
   display: flex;
@@ -414,6 +422,11 @@ html, body, #app {
   border-radius: 4px;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.comment-tag.migrated {
+  border-color: var(--warning-color);
+  color: var(--warning-color);
 }
 
 .comment-actions {

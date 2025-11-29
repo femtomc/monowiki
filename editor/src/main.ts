@@ -30,6 +30,7 @@ const checkpointBtn = document.getElementById('checkpoint-btn') as HTMLButtonEle
 const buildBtn = document.getElementById('build-btn') as HTMLButtonElement;
 const previewUrlInput = document.getElementById('preview-url') as HTMLInputElement;
 const refreshBtn = document.getElementById('refresh-btn') as HTMLButtonElement;
+const statusBanner = document.getElementById('status-banner') as HTMLDivElement;
 const editorContainer = document.getElementById('editor') as HTMLDivElement;
 const previewFrame = document.getElementById('preview-frame') as HTMLIFrameElement;
 const resizer = document.getElementById('resizer') as HTMLDivElement;
@@ -65,6 +66,7 @@ let collabSocket: WebSocket | null = null;
 let blockRanges: BlockRange[] = [];
 let suppressEditorUpdate = false;
 let commentsCache: Comment[] = [];
+let statusTimeout: number | null = null;
 
 const RENDER_DEBOUNCE_MS = 100; // Wait 100ms after typing stops before rendering
 
@@ -644,6 +646,7 @@ function applyEditorChange(update: ViewUpdate) {
 
       // If the structural transform fails, refresh from doc and abort to avoid divergence.
       console.error('Cross-block transform failed:', result.error);
+      showStatus(`Cross-block edit failed: ${result.error ?? 'unknown error'}. Document refreshed.`, true);
       refreshEditorFromDoc(true);
       return;
     }
@@ -656,6 +659,29 @@ function applyEditorChange(update: ViewUpdate) {
 
   if (applied) {
     scheduleRender();
+  }
+}
+
+function showStatus(msg: string, isWarning = false) {
+  if (!statusBanner) return;
+  statusBanner.textContent = msg;
+  statusBanner.hidden = false;
+  statusBanner.style.background = isWarning ? '#fff4e5' : '#e8f5e9';
+  statusBanner.style.color = isWarning ? '#8a6d00' : '#2d7a3d';
+  if (statusTimeout !== null) {
+    clearTimeout(statusTimeout);
+  }
+  statusTimeout = window.setTimeout(() => {
+    statusBanner.hidden = true;
+  }, 5000);
+}
+
+function clearStatus() {
+  if (!statusBanner) return;
+  statusBanner.hidden = true;
+  if (statusTimeout !== null) {
+    clearTimeout(statusTimeout);
+    statusTimeout = null;
   }
 }
 
@@ -674,6 +700,9 @@ function renderComments() {
 
   commentsList.innerHTML = commentsCache.map((c) => {
     const status = c.resolved ? '<span class="comment-tag">resolved</span>' : '';
+    const migrated = c.migrated_from
+      ? `<span class="comment-tag migrated">migrated from ${c.migrated_from}</span>`
+      : '';
     return `
       <div class="comment-card" data-comment-id="${c.id}">
         <div class="comment-meta">
@@ -685,6 +714,7 @@ function renderComments() {
           <span class="comment-tag">block ${c.block_id}</span>
           <span class="comment-tag">range ${c.start}-${c.end}</span>
           ${status}
+          ${migrated}
         </div>
         <div class="comment-actions">
           ${c.resolved ? '' : '<button class="resolve" data-comment-id="' + c.id + '">Resolve</button>'}
@@ -879,6 +909,7 @@ async function openNote(slug: string) {
     alert('Please enter a note slug');
     return;
   }
+  clearStatus();
 
   // Clean up existing editor + collab session
   if (currentEditor) {
