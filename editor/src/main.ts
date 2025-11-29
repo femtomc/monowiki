@@ -210,19 +210,23 @@ function applyCrossBlockTransform(
     }
 
     // Migrate comments from interior blocks to start block at the prefix end
-    // Comments are collapsed to a point since their original text is gone
+    // Comments are collapsed to nearby points to avoid stacking exactly
+    let migrationOffset = 0;
     for (const key of comments.keys()) {
       const raw = comments.get(key);
       if (typeof raw !== 'string') continue;
       try {
         const c = JSON.parse(raw);
         if (deletedBlockIds.has(c.block_id)) {
+          const originalBlockId = c.block_id;
           // Migrate to start block at prefix position, mark as migrated
+          const targetPos = relStart + migrationOffset;
           c.block_id = startBlockId;
-          c.start = relStart;
-          c.end = relStart;
-          c.migrated_from = c.block_id;
+          c.start = targetPos;
+          c.end = targetPos;
+          c.migrated_from = originalBlockId;
           comments.set(key, JSON.stringify(c));
+          migrationOffset += 1;
         }
       } catch { /* ignore */ }
     }
