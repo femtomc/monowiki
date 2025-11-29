@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use tokio::process::Command;
-use tracing::{info, warn, error, debug, instrument};
+use tracing::{debug, error, info, instrument, warn};
 
 use crate::config::DeployStrategy;
 
@@ -94,7 +94,10 @@ impl BuildRunner {
 
         if !output_dir.exists() {
             error!(path = %output_dir.display(), "output directory does not exist after build");
-            bail!("output directory {:?} does not exist after build", output_dir);
+            bail!(
+                "output directory {:?} does not exist after build",
+                output_dir
+            );
         }
 
         // Get relative path of output dir from worktree
@@ -146,12 +149,8 @@ impl BuildRunner {
 
         // Choose strategy
         match self.deploy_strategy {
-            DeployStrategy::Subtree => {
-                self.deploy_with_subtree_push(branch, &prefix).await
-            }
-            DeployStrategy::Split => {
-                self.deploy_with_split_push(branch, &prefix).await
-            }
+            DeployStrategy::Subtree => self.deploy_with_subtree_push(branch, &prefix).await,
+            DeployStrategy::Split => self.deploy_with_split_push(branch, &prefix).await,
         }
     }
 
@@ -198,7 +197,12 @@ impl BuildRunner {
 
         // Force push to deploy branch
         let push = Command::new("git")
-            .args(["push", "origin", &format!("_deploy_temp:{}", branch), "--force"])
+            .args([
+                "push",
+                "origin",
+                &format!("_deploy_temp:{}", branch),
+                "--force",
+            ])
             .current_dir(&self.worktree)
             .output()
             .await?;

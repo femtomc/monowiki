@@ -4,7 +4,10 @@ use clap::Parser;
 
 /// CLI for the collab/git bridge. Keeps the existing monowiki toolchain intact.
 #[derive(Debug, Clone, Parser)]
-#[command(name = "monowiki-collab", about = "Realtime collab + git checkpoint daemon for monowiki")]
+#[command(
+    name = "monowiki-collab",
+    about = "Realtime collab + git checkpoint daemon for monowiki"
+)]
 pub struct Cli {
     /// Git repository URL or local path
     #[arg(long, env = "MONOWIKI_REPO", default_value = ".")]
@@ -49,7 +52,6 @@ pub struct Cli {
     // ─────────────────────────────────────────────────────────────────────────
     // Auth options
     // ─────────────────────────────────────────────────────────────────────────
-
     /// Secret for signing/verifying user JWT tokens (HS256).
     /// If not set, auth is disabled for user routes.
     #[arg(long, env = "MONOWIKI_USER_SECRET", hide_env_values = true)]
@@ -72,7 +74,6 @@ pub struct Cli {
     // ─────────────────────────────────────────────────────────────────────────
     // Rate limiting options
     // ─────────────────────────────────────────────────────────────────────────
-
     /// Enable rate limiting for write operations.
     #[arg(long, env = "MONOWIKI_RATE_LIMIT", default_value = "true")]
     pub rate_limit: bool,
@@ -88,7 +89,6 @@ pub struct Cli {
     // ─────────────────────────────────────────────────────────────────────────
     // Deploy options
     // ─────────────────────────────────────────────────────────────────────────
-
     /// Strategy for deploying to deploy branch: "subtree" or "split"
     #[arg(long, env = "MONOWIKI_DEPLOY_STRATEGY", default_value = "subtree")]
     pub deploy_strategy: String,

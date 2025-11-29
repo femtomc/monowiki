@@ -48,7 +48,11 @@ pub struct AppState {
     pub agent_manager: Arc<AgentManager>,
 }
 
-pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: BuildRunner) -> Result<()> {
+pub async fn serve(
+    config: CollabConfig,
+    workspace: GitWorkspace,
+    builder: BuildRunner,
+) -> Result<()> {
     let config = Arc::new(config);
     let workspace = Arc::new(workspace);
     let builder = Arc::new(builder);
@@ -126,7 +130,10 @@ pub async fn serve(config: CollabConfig, workspace: GitWorkspace, builder: Build
         // Agent endpoints
         .route("/api/agent/ask", post(agent_ask))
         .route("/api/agent/comments/{*slug}", get(get_comments))
-        .route("/api/agent/comments/{*slug}/{comment_id}/resolve", post(resolve_comment))
+        .route(
+            "/api/agent/comments/{*slug}/{comment_id}/resolve",
+            post(resolve_comment),
+        )
         .route("/ws/agent/{session_id}", get(ws_agent))
         // Document sync
         .route("/ws/note/{*slug}", get(ws_note))
@@ -156,7 +163,11 @@ async fn healthz() -> impl IntoResponse {
 async fn serve_editor_index() -> Response {
     match EDITOR_DIST.get_file("index.html") {
         Some(file) => Html(String::from_utf8_lossy(file.contents()).to_string()).into_response(),
-        None => (StatusCode::NOT_FOUND, "Editor not built - run `bun run build` in /editor").into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "Editor not built - run `bun run build` in /editor",
+        )
+            .into_response(),
     }
 }
 
@@ -180,7 +191,11 @@ async fn serve_preview_index(State(state): State<AppState>) -> Response {
     let index_path = state.site_config.output_dir().join("index.html");
     match tokio::fs::read_to_string(&index_path).await {
         Ok(content) => Html(content).into_response(),
-        Err(_) => (StatusCode::NOT_FOUND, "Preview not built - click Build first").into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            "Preview not built - click Build first",
+        )
+            .into_response(),
     }
 }
 
@@ -203,7 +218,10 @@ async fn serve_preview_file(Path(path): Path<String>, State(state): State<AppSta
             .unwrap(),
         Err(_) => {
             // Try with .html extension for clean URLs
-            let html_path = state.site_config.output_dir().join(format!("{}.html", path));
+            let html_path = state
+                .site_config
+                .output_dir()
+                .join(format!("{}.html", path));
             match tokio::fs::read(&html_path).await {
                 Ok(content) => Response::builder()
                     .status(StatusCode::OK)
@@ -235,7 +253,10 @@ async fn serve_preview_js(Path(path): Path<String>, State(state): State<AppState
     match tokio::fs::read(&file_path).await {
         Ok(content) => Response::builder()
             .status(StatusCode::OK)
-            .header(header::CONTENT_TYPE, "application/javascript; charset=utf-8")
+            .header(
+                header::CONTENT_TYPE,
+                "application/javascript; charset=utf-8",
+            )
             .body(Body::from(content))
             .unwrap(),
         Err(_) => (StatusCode::NOT_FOUND, "JS not found").into_response(),
@@ -316,7 +337,10 @@ async fn list_files(
 }
 
 /// Recursively collect .md files from a directory
-fn collect_md_files(base: &std::path::Path, dir: &std::path::Path) -> std::io::Result<Vec<FileEntry>> {
+fn collect_md_files(
+    base: &std::path::Path,
+    dir: &std::path::Path,
+) -> std::io::Result<Vec<FileEntry>> {
     let mut entries = Vec::new();
 
     for entry in std::fs::read_dir(dir)? {
@@ -345,10 +369,7 @@ fn collect_md_files(base: &std::path::Path, dir: &std::path::Path) -> std::io::R
         } else if path.extension().map(|e| e == "md").unwrap_or(false) {
             let rel_path = path.strip_prefix(base).unwrap_or(&path);
             // Convert path to slug (remove .md extension)
-            let slug = rel_path
-                .with_extension("")
-                .to_string_lossy()
-                .to_string();
+            let slug = rel_path.with_extension("").to_string_lossy().to_string();
             entries.push(FileEntry {
                 name,
                 path: slug,
@@ -359,12 +380,10 @@ fn collect_md_files(base: &std::path::Path, dir: &std::path::Path) -> std::io::R
     }
 
     // Sort: directories first, then alphabetically
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        }
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
 
     Ok(entries)
@@ -438,7 +457,10 @@ async fn write_note(
     }
 
     // Check rate limit using identity from claims
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
     match write_note_to_disk(&state, &slug, payload).await {
@@ -470,7 +492,10 @@ async fn checkpoint(
     }
 
     // Check rate limit
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
     if let Err(err) = flush_crdt_to_disk(&state).await {
@@ -513,7 +538,10 @@ async fn build_now(
     }
 
     // Check rate limit
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
     if let Err(err) = flush_crdt_to_disk(&state).await {
@@ -542,7 +570,10 @@ async fn flush_now(
         c.authorize(Capability::Write, None)?;
     }
 
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
     if let Err(err) = flush_crdt_to_disk(&state).await {
@@ -553,7 +584,10 @@ async fn flush_now(
         ));
     }
 
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "Flushed dirty docs"}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Flushed dirty docs"})),
+    ))
 }
 
 /// Render a single note incrementally (without full rebuild).
@@ -576,7 +610,8 @@ async fn render_single(
             return Ok((
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"error": format!("note not found: {slug}")})),
-            ).into_response());
+            )
+                .into_response());
         }
     };
 
@@ -587,14 +622,16 @@ async fn render_single(
             Ok(Json(serde_json::json!({
                 "slug": slug,
                 "success": true
-            })).into_response())
+            }))
+            .into_response())
         }
         Err(err) => {
             warn!(%slug, ?err, "incremental render failed");
             Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("render failed: {err}")})),
-            ).into_response())
+            )
+                .into_response())
         }
     }
 }
@@ -735,7 +772,10 @@ async fn upload_asset(
     }
 
     // Check rate limit
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     check_rate_limit(&state, identity).await?;
 
     // Process multipart form
@@ -876,14 +916,25 @@ async fn agent_ask(
         c.authorize(Capability::Write, Some(&request.slug))?;
     }
 
-    let identity = claims.as_ref().map(|c| c.sub.as_str()).unwrap_or("anonymous");
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
     let session_id = format!("{}:{}", identity, request.slug);
 
     // Update session context
-    if let Err(e) = state.agent_manager.set_current_document(&session_id, &request.slug).await {
+    if let Err(e) = state
+        .agent_manager
+        .set_current_document(&session_id, &request.slug)
+        .await
+    {
         warn!(?e, "Failed to set current document");
     }
-    if let Err(e) = state.agent_manager.set_selection(&session_id, request.selection).await {
+    if let Err(e) = state
+        .agent_manager
+        .set_selection(&session_id, request.selection)
+        .await
+    {
         warn!(?e, "Failed to set selection");
     }
 
@@ -893,8 +944,11 @@ async fn agent_ask(
         Err(e) => {
             return Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": format!("Failed to create agent session: {}", e)})),
-            ).into_response());
+                Json(
+                    serde_json::json!({"error": format!("Failed to create agent session: {}", e)}),
+                ),
+            )
+                .into_response());
         }
     };
 
@@ -906,7 +960,8 @@ async fn agent_ask(
             return Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("Agent error: {}", e)})),
-            ).into_response());
+            )
+                .into_response());
         }
     };
 
@@ -926,7 +981,8 @@ async fn agent_ask(
                 return Ok((
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(serde_json::json!({"error": e})),
-                ).into_response());
+                )
+                    .into_response());
             }
             _ => {}
         }
@@ -935,7 +991,8 @@ async fn agent_ask(
     Ok(Json(serde_json::json!({
         "response": response_text,
         "made_edits": made_edits,
-    })).into_response())
+    }))
+    .into_response())
 }
 
 /// Get comments on a document.
@@ -954,7 +1011,8 @@ async fn get_comments(
             return Ok((
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"error": format!("Document not found: {}", e)})),
-            ).into_response());
+            )
+                .into_response());
         }
     };
 
@@ -978,7 +1036,8 @@ async fn resolve_comment(
             return Ok((
                 StatusCode::NOT_FOUND,
                 Json(serde_json::json!({"error": format!("Document not found: {}", e)})),
-            ).into_response());
+            )
+                .into_response());
         }
     };
 
@@ -987,7 +1046,8 @@ async fn resolve_comment(
         Err(e) => Ok((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("Failed to resolve comment: {}", e)})),
-        ).into_response()),
+        )
+            .into_response()),
     }
 }
 
@@ -1013,7 +1073,10 @@ async fn ws_agent(
 /// Handle agent WebSocket connection for streaming responses.
 async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppState) -> Result<()> {
     // Get or create session
-    let session = state.agent_manager.get_or_create_session(&session_id).await?;
+    let session = state
+        .agent_manager
+        .get_or_create_session(&session_id)
+        .await?;
 
     loop {
         match socket.recv().await {
@@ -1022,23 +1085,41 @@ async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppSt
                 let request: AskRequest = match serde_json::from_str(&text) {
                     Ok(r) => r,
                     Err(e) => {
-                        let event = AgentStreamEvent::Error { message: format!("Invalid request: {}", e) };
-                        let _ = socket.send(WsMessage::Text(serde_json::to_string(&event).unwrap().into())).await;
+                        let event = AgentStreamEvent::Error {
+                            message: format!("Invalid request: {}", e),
+                        };
+                        let _ = socket
+                            .send(WsMessage::Text(
+                                serde_json::to_string(&event).unwrap().into(),
+                            ))
+                            .await;
                         continue;
                     }
                 };
 
                 // Update context
-                let _ = state.agent_manager.set_current_document(&session_id, &request.slug).await;
-                let _ = state.agent_manager.set_selection(&session_id, request.selection).await;
+                let _ = state
+                    .agent_manager
+                    .set_current_document(&session_id, &request.slug)
+                    .await;
+                let _ = state
+                    .agent_manager
+                    .set_selection(&session_id, request.selection)
+                    .await;
 
                 // Run agent with streaming
                 let mut session_guard = session.write().await;
                 let stream = match session_guard.agent.run(&request.query).await {
                     Ok(s) => s,
                     Err(e) => {
-                        let event = AgentStreamEvent::Error { message: e.to_string() };
-                        let _ = socket.send(WsMessage::Text(serde_json::to_string(&event).unwrap().into())).await;
+                        let event = AgentStreamEvent::Error {
+                            message: e.to_string(),
+                        };
+                        let _ = socket
+                            .send(WsMessage::Text(
+                                serde_json::to_string(&event).unwrap().into(),
+                            ))
+                            .await;
                         continue;
                     }
                 };
@@ -1052,19 +1133,28 @@ async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppSt
                         AgentEvent::Thinking => AgentStreamEvent::Thinking,
                         AgentEvent::Text(text) => {
                             response_text.push_str(text);
-                            AgentStreamEvent::Text { content: text.clone() }
+                            AgentStreamEvent::Text {
+                                content: text.clone(),
+                            }
                         }
                         AgentEvent::ToolCall { name, .. } => {
                             AgentStreamEvent::ToolCall { name: name.clone() }
                         }
-                        AgentEvent::ToolResult { name, success } => {
-                            AgentStreamEvent::ToolResult { name: name.clone(), success: *success }
-                        }
-                        AgentEvent::Done => AgentStreamEvent::Done { response: response_text.clone() },
-                        AgentEvent::Error(msg) => AgentStreamEvent::Error { message: msg.clone() },
+                        AgentEvent::ToolResult { name, success } => AgentStreamEvent::ToolResult {
+                            name: name.clone(),
+                            success: *success,
+                        },
+                        AgentEvent::Done => AgentStreamEvent::Done {
+                            response: response_text.clone(),
+                        },
+                        AgentEvent::Error(msg) => AgentStreamEvent::Error {
+                            message: msg.clone(),
+                        },
                         AgentEvent::Status(msg) => {
                             // Skip status messages or send as text
-                            AgentStreamEvent::Text { content: format!("[{}]", msg) }
+                            AgentStreamEvent::Text {
+                                content: format!("[{}]", msg),
+                            }
                         }
                     };
 
@@ -1079,7 +1169,9 @@ async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppSt
                 }
             }
             Some(Ok(WsMessage::Close(_))) | None => break,
-            Some(Ok(WsMessage::Ping(p))) => { let _ = socket.send(WsMessage::Pong(p)).await; }
+            Some(Ok(WsMessage::Ping(p))) => {
+                let _ = socket.send(WsMessage::Pong(p)).await;
+            }
             _ => {}
         }
     }

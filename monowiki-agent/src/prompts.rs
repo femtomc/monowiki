@@ -1,7 +1,7 @@
 //! System prompts for the agent.
 
-use chrono::Utc;
 use crate::document::DocumentContext;
+use chrono::Utc;
 
 /// Get the default system prompt for codebase investigation.
 pub fn investigation_prompt() -> String {
@@ -108,9 +108,15 @@ pub fn collaborative_editing_prompt(context: Option<&DocumentContext>) -> String
     let date = Utc::now().format("%Y-%m-%d").to_string();
 
     let context_section = if let Some(ctx) = context {
-        let selection_info = ctx.selection.as_ref()
-            .map(|s| format!("\n\n**Current Selection:**\n```\n{}\n```\n(Block: {}, Range: {}:{})",
-                s.text, s.block_id, s.start, s.end))
+        let selection_info = ctx
+            .selection
+            .as_ref()
+            .map(|s| {
+                format!(
+                    "\n\n**Current Selection:**\n```\n{}\n```\n(Block: {}, Range: {}:{})",
+                    s.text, s.block_id, s.start, s.end
+                )
+            })
             .unwrap_or_default();
 
         format!(

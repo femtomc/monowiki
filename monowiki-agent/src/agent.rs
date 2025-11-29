@@ -67,10 +67,8 @@ pub struct Agent {
 impl Agent {
     /// Create a new agent with the given client and config.
     pub fn new(client: Arc<dyn ApiClient>, config: AgentConfig) -> Self {
-        let tools = ToolRegistry::with_all_tools(
-            config.working_dir.clone(),
-            config.tavily_api_key.clone(),
-        );
+        let tools =
+            ToolRegistry::with_all_tools(config.working_dir.clone(), config.tavily_api_key.clone());
         let context_manager = ContextManager::new(config.max_context_tokens);
 
         Self {
@@ -109,10 +107,8 @@ impl Agent {
         checkpoint: Checkpoint,
         config: AgentConfig,
     ) -> Self {
-        let tools = ToolRegistry::with_all_tools(
-            config.working_dir.clone(),
-            config.tavily_api_key.clone(),
-        );
+        let tools =
+            ToolRegistry::with_all_tools(config.working_dir.clone(), config.tavily_api_key.clone());
         let context_manager = ContextManager::new(config.max_context_tokens);
 
         Self {
@@ -173,7 +169,8 @@ impl Agent {
 
         // Initialize with system prompt if empty
         if self.messages.is_empty() {
-            self.messages.push(Message::system(prompts::investigation_prompt()));
+            self.messages
+                .push(Message::system(prompts::investigation_prompt()));
         }
 
         // Add user query
@@ -288,10 +285,12 @@ impl Agent {
         while let Some(event) = stream.next().await {
             match event {
                 AgentEvent::Text(text) => output.push_str(&text),
-                AgentEvent::Error(e) => return Err(AgentError::ClientError(ClientError::ApiError {
-                    status: 0,
-                    message: e,
-                })),
+                AgentEvent::Error(e) => {
+                    return Err(AgentError::ClientError(ClientError::ApiError {
+                        status: 0,
+                        message: e,
+                    }))
+                }
                 AgentEvent::Done => break,
                 _ => {}
             }
@@ -317,14 +316,20 @@ impl Agent {
                 Ok(response) => return Ok(response),
                 Err(ClientError::RateLimited { retry_after }) => {
                     let wait = retry_after.unwrap_or(5).min(60);
-                    warn!("Rate limited, waiting {}s (attempt {}/{})", wait, attempt, max_retries);
+                    warn!(
+                        "Rate limited, waiting {}s (attempt {}/{})",
+                        wait, attempt, max_retries
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
                     self.stats.record_error();
                     last_error = Some(ClientError::RateLimited { retry_after });
                 }
                 Err(e @ ClientError::HttpError(_)) => {
                     let wait = (1 << attempt).min(60);
-                    warn!("HTTP error, retrying in {}s (attempt {}/{}): {}", wait, attempt, max_retries, e);
+                    warn!(
+                        "HTTP error, retrying in {}s (attempt {}/{}): {}",
+                        wait, attempt, max_retries, e
+                    );
                     tokio::time::sleep(tokio::time::Duration::from_secs(wait)).await;
                     self.stats.record_error();
                     last_error = Some(e);
@@ -350,7 +355,10 @@ impl Agent {
             }
         };
 
-        debug!("Executing tool: {} with args: {}", tool_call.function.name, args);
+        debug!(
+            "Executing tool: {} with args: {}",
+            tool_call.function.name, args
+        );
 
         match self.tools.execute(&tool_call.function.name, args).await {
             Ok(result) => result,

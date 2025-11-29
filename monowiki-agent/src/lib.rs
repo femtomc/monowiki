@@ -8,18 +8,18 @@
 //! It also supports collaborative document editing, allowing agents to work
 //! alongside users in the wiki editor.
 
-pub mod types;
-pub mod tools;
-pub mod client;
 pub mod agent;
+pub mod client;
 pub mod context;
-pub mod state;
-pub mod prompts;
 pub mod document;
+pub mod prompts;
+pub mod state;
+pub mod tools;
+pub mod types;
 
 pub use agent::Agent;
-pub use client::{ApiClient, OpenRouterClient, AnthropicClient};
-pub use document::{DocumentContext, DocumentOperations, Selection, Comment};
-pub use state::{SessionStats, Checkpoint};
-pub use tools::{Tool, ToolRegistry, ToolResult, WebSearchTool, FetchUrlTool};
+pub use client::{AnthropicClient, ApiClient, OpenRouterClient};
+pub use document::{Comment, DocumentContext, DocumentOperations, Selection};
+pub use state::{Checkpoint, SessionStats};
+pub use tools::{FetchUrlTool, Tool, ToolRegistry, ToolResult, WebSearchTool};
 pub use types::{AgentConfig, Message, Role, ToolCall, ToolDefinition};

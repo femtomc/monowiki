@@ -206,7 +206,10 @@ impl ApiClient for OpenRouterClient {
             .get("role")
             .and_then(|r| r.as_str())
             .unwrap_or("assistant");
-        let content = msg.get("content").and_then(|c| c.as_str()).map(String::from);
+        let content = msg
+            .get("content")
+            .and_then(|c| c.as_str())
+            .map(String::from);
         let tool_calls: Option<Vec<ToolCall>> = msg
             .get("tool_calls")
             .and_then(|tc| serde_json::from_value(tc.clone()).ok());
@@ -559,8 +562,8 @@ impl ApiClient for AnthropicClient {
             Some(Usage {
                 prompt_tokens: u.get("input_tokens")?.as_u64()? as usize,
                 completion_tokens: u.get("output_tokens")?.as_u64()? as usize,
-                total_tokens: (u.get("input_tokens")?.as_u64()? + u.get("output_tokens")?.as_u64()?)
-                    as usize,
+                total_tokens: (u.get("input_tokens")?.as_u64()?
+                    + u.get("output_tokens")?.as_u64()?) as usize,
             })
         });
 

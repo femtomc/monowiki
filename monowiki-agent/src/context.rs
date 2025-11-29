@@ -23,7 +23,11 @@ impl ContextManager {
     }
 
     /// Create with custom settings.
-    pub fn with_settings(max_tokens: usize, compression_threshold: f64, keep_recent: usize) -> Self {
+    pub fn with_settings(
+        max_tokens: usize,
+        compression_threshold: f64,
+        keep_recent: usize,
+    ) -> Self {
         Self {
             max_tokens,
             compression_threshold,
@@ -84,7 +88,10 @@ impl ContextManager {
                 }
                 crate::types::Role::Assistant => {
                     if let Some(ref tool_calls) = msg.tool_calls {
-                        let names: Vec<_> = tool_calls.iter().map(|tc| tc.function.name.as_str()).collect();
+                        let names: Vec<_> = tool_calls
+                            .iter()
+                            .map(|tc| tc.function.name.as_str())
+                            .collect();
                         summary_parts.push(format!("Assistant called tools: {}", names.join(", ")));
                     } else if let Some(text) = msg.text() {
                         let truncated = truncate_str(text, 200);
@@ -195,10 +202,7 @@ mod tests {
         // Should have: system + summary + 2 recent pairs
         assert!(compressed.len() <= 5);
         // Last message should be preserved
-        assert_eq!(
-            compressed.last().unwrap().text(),
-            Some("Recent response 1")
-        );
+        assert_eq!(compressed.last().unwrap().text(), Some("Recent response 1"));
     }
 
     #[test]

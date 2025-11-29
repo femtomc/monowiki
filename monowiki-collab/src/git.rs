@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use serde::Serialize;
-use tracing::info;
 use tokio::process::Command;
+use tracing::info;
 
 /// Manages the git worktree used for checkpointing CRDT state.
 #[derive(Debug, Clone)]
@@ -62,7 +62,8 @@ impl GitWorkspace {
     pub async fn pull_rebase(&self) -> Result<()> {
         self.git(["fetch", "--all", "--prune"]).await?;
         self.git(["checkout", &self.branch]).await?;
-        self.git(["pull", "--rebase", "origin", &self.branch]).await?;
+        self.git(["pull", "--rebase", "origin", &self.branch])
+            .await?;
         self.git([
             "branch",
             "--set-upstream-to",
@@ -149,7 +150,9 @@ impl GitWorkspace {
             self.repo.clone(),
             self.worktree_path_str(),
         ];
-        let out = self.git_in_dir(args.iter().map(|s| s.as_str()), &parent).await?;
+        let out = self
+            .git_in_dir(args.iter().map(|s| s.as_str()), &parent)
+            .await?;
         if !out.status.success() {
             return Err(anyhow!(
                 "git clone failed with exit {:?}",

@@ -7,7 +7,7 @@ use monowiki_collab::operational::*;
 use monowiki_collab::yrs_adapter::YrsOperationalDoc;
 
 // Yrs imports for test helpers
-use yrs::{Doc, Text, Transact, WriteTxn, GetString, ReadTxn};
+use yrs::{Doc, GetString, ReadTxn, Text, Transact, WriteTxn};
 
 // Standard library
 use std::sync::{Arc, Mutex};

@@ -177,10 +177,7 @@ impl Tool for ListFilesTool {
     }
 
     async fn execute(&self, args: Value) -> Result<ToolResult, ToolError> {
-        let path = args
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
+        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
         let pattern = args.get("pattern").and_then(|v| v.as_str());
 
         let full_path = resolve_sandboxed_path(&self.working_dir, path)?;
@@ -359,7 +356,11 @@ impl Tool for WriteFileTool {
         }
 
         std::fs::write(&full_path, content)?;
-        Ok(ToolResult::success(format!("Successfully wrote {} bytes to {}", content.len(), path)))
+        Ok(ToolResult::success(format!(
+            "Successfully wrote {} bytes to {}",
+            content.len(),
+            path
+        )))
     }
 }
 
@@ -409,11 +410,15 @@ impl Tool for EditFileTool {
         let old_string = args
             .get("old_string")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing 'old_string' argument".to_string()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing 'old_string' argument".to_string())
+            })?;
         let new_string = args
             .get("new_string")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing 'new_string' argument".to_string()))?;
+            .ok_or_else(|| {
+                ToolError::InvalidArguments("Missing 'new_string' argument".to_string())
+            })?;
 
         let full_path = resolve_sandboxed_path(&self.working_dir, path)?;
 
@@ -611,7 +616,10 @@ impl Tool for FetchUrlTool {
 
         // For HTML, we'd ideally strip tags, but for now return raw
         if content_type.contains("text/html") {
-            Ok(ToolResult::success(format!("[HTML content from {}]\n\n{}", url, output)))
+            Ok(ToolResult::success(format!(
+                "[HTML content from {}]\n\n{}",
+                url, output
+            )))
         } else {
             Ok(ToolResult::success(output))
         }

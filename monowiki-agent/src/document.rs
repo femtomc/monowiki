@@ -159,7 +159,10 @@ pub struct GetContextTool {
 }
 
 impl GetContextTool {
-    pub fn new(ops: Arc<dyn DocumentOperations>, current_slug: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        ops: Arc<dyn DocumentOperations>,
+        current_slug: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self { ops, current_slug }
     }
 }
@@ -199,7 +202,10 @@ pub struct GetSelectionTool {
 }
 
 impl GetSelectionTool {
-    pub fn new(ops: Arc<dyn DocumentOperations>, current_slug: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        ops: Arc<dyn DocumentOperations>,
+        current_slug: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self { ops, current_slug }
     }
 }
@@ -242,7 +248,10 @@ pub struct ReplaceRangeTool {
 }
 
 impl ReplaceRangeTool {
-    pub fn new(ops: Arc<dyn DocumentOperations>, current_slug: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        ops: Arc<dyn DocumentOperations>,
+        current_slug: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self { ops, current_slug }
     }
 }
@@ -291,11 +300,13 @@ impl Tool for ReplaceRangeTool {
         let start = args
             .get("start")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing start".to_string()))? as usize;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing start".to_string()))?
+            as usize;
         let end = args
             .get("end")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing end".to_string()))? as usize;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing end".to_string()))?
+            as usize;
         let new_text = args
             .get("new_text")
             .and_then(|v| v.as_str())
@@ -322,7 +333,10 @@ pub struct AddCommentTool {
 }
 
 impl AddCommentTool {
-    pub fn new(ops: Arc<dyn DocumentOperations>, current_slug: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        ops: Arc<dyn DocumentOperations>,
+        current_slug: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self { ops, current_slug }
     }
 }
@@ -371,11 +385,13 @@ impl Tool for AddCommentTool {
         let start = args
             .get("start")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing start".to_string()))? as usize;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing start".to_string()))?
+            as usize;
         let end = args
             .get("end")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| ToolError::InvalidArguments("Missing end".to_string()))? as usize;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing end".to_string()))?
+            as usize;
         let content = args
             .get("content")
             .and_then(|v| v.as_str())
@@ -485,7 +501,10 @@ pub struct GetLinksTool {
 }
 
 impl GetLinksTool {
-    pub fn new(ops: Arc<dyn DocumentOperations>, current_slug: Arc<RwLock<Option<String>>>) -> Self {
+    pub fn new(
+        ops: Arc<dyn DocumentOperations>,
+        current_slug: Arc<RwLock<Option<String>>>,
+    ) -> Self {
         Self { ops, current_slug }
     }
 }

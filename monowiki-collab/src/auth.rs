@@ -237,14 +237,13 @@ impl KeyStore {
             validation.validate_aud = false;
         }
 
-        let token_data = decode::<Claims>(token, key, &validation)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::Expired,
-                jsonwebtoken::errors::ErrorKind::InvalidAudience => {
-                    AuthError::InvalidToken("audience mismatch".into())
-                }
-                _ => AuthError::InvalidToken(e.to_string()),
-            })?;
+        let token_data = decode::<Claims>(token, key, &validation).map_err(|e| match e.kind() {
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature => AuthError::Expired,
+            jsonwebtoken::errors::ErrorKind::InvalidAudience => {
+                AuthError::InvalidToken("audience mismatch".into())
+            }
+            _ => AuthError::InvalidToken(e.to_string()),
+        })?;
 
         // Verify kid matches expected role
         // User tokens must use "user" kid, agent tokens must use "agent" kid
@@ -418,11 +417,7 @@ where
 }
 
 /// Helper to create a full-access user token for testing/CLI
-pub fn create_user_token(
-    secret: &[u8],
-    sub: &str,
-    expires_in_secs: u64,
-) -> Result<String> {
+pub fn create_user_token(secret: &[u8], sub: &str, expires_in_secs: u64) -> Result<String> {
     use jsonwebtoken::{encode, EncodingKey, Header};
 
     let exp = std::time::SystemTime::now()

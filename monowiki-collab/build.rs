@@ -13,8 +13,14 @@ fn main() {
 
     // Rerun if editor source changes
     println!("cargo:rerun-if-changed={}", src_dir.display());
-    println!("cargo:rerun-if-changed={}", editor_dir.join("index.html").display());
-    println!("cargo:rerun-if-changed={}", editor_dir.join("package.json").display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        editor_dir.join("index.html").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        editor_dir.join("package.json").display()
+    );
 
     // Check if dist exists and has files
     let needs_build = !dist_dir.exists()

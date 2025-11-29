@@ -72,8 +72,8 @@ impl RenderCache {
 
     /// Render a single note from markdown to HTML and write to output.
     pub fn render_single(&mut self, slug: &str, markdown: &str) -> Result<String> {
-        let (frontmatter, body) = parse_frontmatter(markdown)
-            .context("failed to parse frontmatter")?;
+        let (frontmatter, body) =
+            parse_frontmatter(markdown).context("failed to parse frontmatter")?;
 
         // Get bibliography if configured
         let bibliography_paths = self.bibliography_paths(&frontmatter);
@@ -163,10 +163,7 @@ impl RenderCache {
         Ok(html)
     }
 
-    fn bibliography_paths(
-        &self,
-        frontmatter: &monowiki_core::Frontmatter,
-    ) -> Vec<PathBuf> {
+    fn bibliography_paths(&self, frontmatter: &monowiki_core::Frontmatter) -> Vec<PathBuf> {
         let mut paths = self.config.bibliography_paths();
         for extra in &frontmatter.bibliography {
             if extra.trim().is_empty() {
