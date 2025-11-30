@@ -9,12 +9,21 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use similar::{ChangeTag, TextDiff};
+
+const MAX_DIFF_LEN: usize = 4000;
 
 #[derive(Serialize)]
 pub struct SectionChange {
     pub section_id: String,
     pub heading: String,
     pub change: String, // added/removed/modified
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>, // optional unified diff
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub removed_tokens: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -35,9 +44,15 @@ pub struct ChangesResponse {
     pub changes: Vec<NoteChange>,
 }
 
-pub fn changes(config_path: &Path, since: &str, json: bool, with_sections: bool) -> Result<()> {
+pub fn changes(
+    config_path: &Path,
+    since: &str,
+    json: bool,
+    with_sections: bool,
+    with_diff: bool,
+) -> Result<()> {
     let (config, site_index) = load_or_build_site_index(config_path)?;
-    let mut changes = compute_changes(&config, &site_index, since, with_sections)?;
+    let mut changes = compute_changes(&config, &site_index, since, with_sections, with_diff)?;
     changes.changes.sort_by(|a, b| a.slug.cmp(&b.slug));
 
     if json {
@@ -63,7 +78,9 @@ pub fn compute_changes(
     site_index: &monowiki_core::SiteIndex,
     since: &str,
     with_sections: bool,
+    with_diff: bool,
 ) -> Result<ChangesResponse> {
+    let include_sections = with_sections || with_diff;
     let git_root = git_root()?;
     let vault_dir = config.vault_dir();
     let vault_rel = vault_dir
@@ -94,20 +111,29 @@ pub fn compute_changes(
         match status.as_str() {
             "A" | "M" => {
                 if let Some(note) = current_note {
-                    let current_sections = section_digests_from_note(note, with_sections);
+                    let current_sections = if include_sections {
+                        section_snapshots_from_html(note)
+                    } else {
+                        Vec::new()
+                    };
                     let prev_sections = if status == "M" {
-                        git_show_file(since, &path)
-                            .ok()
-                            .and_then(|content| {
-                                compute_sections_from_markdown(&processor, &content, &path).ok()
-                            })
-                            .unwrap_or_default()
+                        if include_sections {
+                            git_show_file(since, &path)
+                                .ok()
+                                .and_then(|content| {
+                                    section_snapshots_from_markdown(&processor, &content, &path)
+                                        .ok()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            Vec::new()
+                        }
                     } else {
                         Vec::new()
                     };
 
-                    let sections = if with_sections {
-                        diff_sections(prev_sections, current_sections)
+                    let sections = if include_sections {
+                        diff_sections(prev_sections, current_sections, with_diff)
                     } else {
                         Vec::new()
                     };
@@ -134,9 +160,9 @@ pub fn compute_changes(
             "D" => {
                 let prev_content = git_show_file(since, &path).unwrap_or_default();
                 let (prev_slug, _) = slug_from_content(&prev_content, &path)
-                    .unwrap_or_else(|_| ("".into(), "".into()));
-                let prev_sections = if with_sections {
-                    compute_sections_from_markdown(&processor, &prev_content, &path)
+                    .unwrap_or_else(|_| ("".into(), String::new()));
+                let prev_sections = if include_sections {
+                    section_snapshots_from_markdown(&processor, &prev_content, &path)
                         .unwrap_or_default()
                 } else {
                     Vec::new()
@@ -144,15 +170,8 @@ pub fn compute_changes(
                 let (commit_hash, timestamp, last_editor) =
                     latest_commit_since(since, &path).unwrap_or_default();
 
-                let sections = if with_sections {
-                    prev_sections
-                        .into_iter()
-                        .map(|s| SectionChange {
-                            section_id: s.section_id,
-                            heading: s.heading,
-                            change: "removed".into(),
-                        })
-                        .collect()
+                let sections = if include_sections {
+                    diff_sections(prev_sections, Vec::new(), with_diff)
                 } else {
                     Vec::new()
                 };
@@ -182,20 +201,61 @@ fn section_digests_from_note(
     note: &monowiki_core::Note,
     with_sections: bool,
 ) -> Vec<SectionDigest> {
-    if !with_sections {
-        return Vec::new();
+    if with_sections {
+        search::section_digests_from_html(&note.slug, &note.title, &note.content_html)
+    } else {
+        Vec::new()
     }
-    search::section_digests_from_html(&note.slug, &note.title, &note.content_html)
 }
 
-fn compute_sections_from_markdown(
+struct SectionSnapshot {
+    digest: SectionDigest,
+    content: String,
+}
+
+fn section_snapshots_from_html(note: &monowiki_core::Note) -> Vec<SectionSnapshot> {
+    let entries = search::build_search_index(
+        &note.slug,
+        &note.title,
+        &note.content_html,
+        &note.tags,
+        note.note_type.as_str(),
+        "/",
+    );
+    entries
+        .into_iter()
+        .map(|entry| SectionSnapshot {
+            digest: SectionDigest {
+                section_id: entry.section_id,
+                heading: entry.section_title,
+                hash: entry.section_hash,
+                anchor_id: entry.id.split('#').nth(1).map(|s| s.to_string()),
+            },
+            content: entry.content,
+        })
+        .collect()
+}
+
+fn section_snapshots_from_markdown(
     processor: &MarkdownProcessor,
     markdown: &str,
     path: &Path,
-) -> Result<Vec<SectionDigest>> {
+) -> Result<Vec<SectionSnapshot>> {
     let (slug, title) = slug_from_content(markdown, path)?;
     let html = processor.convert_simple(markdown);
-    Ok(search::section_digests_from_html(&slug, &title, &html))
+    let entries = search::build_search_index(&slug, &title, &html, &[], "", "/");
+    Ok(entries
+        .into_iter()
+        .map(|entry| SectionSnapshot {
+            digest: SectionDigest {
+                section_id: entry.section_id,
+                heading: entry.section_title,
+                hash: entry.section_hash,
+                anchor_id: entry.id.split('#').nth(1).map(|s| s.to_string()),
+            },
+            content: entry.content,
+        })
+        .collect())
 }
 
 fn slug_from_content(content: &str, path: &Path) -> Result<(String, String)> {
@@ -219,27 +279,47 @@ fn slug_from_content(content: &str, path: &Path) -> Result<(String, String)> {
     Ok((slug, title))
 }
 
-fn diff_sections(prev: Vec<SectionDigest>, current: Vec<SectionDigest>) -> Vec<SectionChange> {
+fn diff_sections(
+    prev: Vec<SectionSnapshot>,
+    current: Vec<SectionSnapshot>,
+    include_diff: bool,
+) -> Vec<SectionChange> {
     let mut changes = Vec::new();
-    let mut prev_map: HashMap<String, SectionDigest> = HashMap::new();
+    let mut prev_map: HashMap<String, SectionSnapshot> = HashMap::new();
     for s in prev {
-        prev_map.insert(s.section_id.clone(), s);
+        prev_map.insert(s.digest.section_id.clone(), s);
     }
 
     for curr in &current {
-        match prev_map.get(&curr.section_id) {
-            Some(prev_sec) if prev_sec.hash != curr.hash => {
+        match prev_map.remove(&curr.digest.section_id) {
+            Some(prev_sec) if prev_sec.digest.hash != curr.digest.hash => {
+                let (diff, added_tokens, removed_tokens) = if include_diff {
+                    compute_section_diff(&prev_sec.content, &curr.content)
+                } else {
+                    (None, None, None)
+                };
                 changes.push(SectionChange {
-                    section_id: curr.section_id.clone(),
-                    heading: curr.heading.clone(),
+                    section_id: curr.digest.section_id.clone(),
+                    heading: curr.digest.heading.clone(),
                     change: "modified".into(),
+                    diff,
+                    added_tokens,
+                    removed_tokens,
                 });
             }
             None => {
+                let (diff, added_tokens, removed_tokens) = if include_diff {
+                    compute_section_diff("", &curr.content)
+                } else {
+                    (None, None, None)
+                };
                 changes.push(SectionChange {
-                    section_id: curr.section_id.clone(),
-                    heading: curr.heading.clone(),
+                    section_id: curr.digest.section_id.clone(),
+                    heading: curr.digest.heading.clone(),
                     change: "added".into(),
+                    diff,
+                    added_tokens,
+                    removed_tokens,
                 });
             }
             _ => {}
@@ -247,16 +327,119 @@ fn diff_sections(prev: Vec<SectionDigest>, current: Vec<SectionDigest>) -> Vec<S
     }
 
     for prev_sec in prev_map.values() {
-        if !current.iter().any(|c| c.section_id == prev_sec.section_id) {
-            changes.push(SectionChange {
-                section_id: prev_sec.section_id.clone(),
-                heading: prev_sec.heading.clone(),
-                change: "removed".into(),
-            });
-        }
+        let (diff, added_tokens, removed_tokens) = if include_diff {
+            compute_section_diff(&prev_sec.content, "")
+        } else {
+            (None, None, None)
+        };
+        changes.push(SectionChange {
+            section_id: prev_sec.digest.section_id.clone(),
+            heading: prev_sec.digest.heading.clone(),
+            change: "removed".into(),
+            diff,
+            added_tokens,
+            removed_tokens,
+        });
     }
 
     changes
+}
+
+fn compute_section_diff(
+    previous: &str,
+    current: &str,
+) -> (Option<String>, Option<usize>, Option<usize>) {
+    let diff = TextDiff::from_words(previous, current);
+    let mut added_tokens = 0usize;
+    let mut removed_tokens = 0usize;
+
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Delete => {
+                removed_tokens += change.value().split_whitespace().count();
+            }
+            ChangeTag::Insert => {
+                added_tokens += change.value().split_whitespace().count();
+            }
+            _ => {}
+        }
+    }
+
+    let mut unified = diff
+        .unified_diff()
+        .context_radius(2)
+        .header("previous", "current")
+        .to_string();
+
+    if unified.len() > MAX_DIFF_LEN {
+        unified.truncate(MAX_DIFF_LEN);
+        unified.push_str("\n...diff truncated...");
+    }
+
+    (
+        Some(unified),
+        Some(added_tokens),
+        Some(removed_tokens),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snap(id: &str, heading: &str, content: &str, hash: &str) -> SectionSnapshot {
+        SectionSnapshot {
+            digest: SectionDigest {
+                section_id: id.to_string(),
+                heading: heading.to_string(),
+                hash: hash.into(),
+                anchor_id: None,
+            },
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn diff_sections_includes_diffs_when_enabled() {
+        let prev = vec![snap("s1", "Intro", "hello world", "h1")];
+        let cur = vec![snap("s1", "Intro", "hello brave world", "h2")];
+
+        let changes = diff_sections(prev, cur, true);
+        assert_eq!(changes.len(), 1);
+        let change = &changes[0];
+        assert_eq!(change.change, "modified");
+        let diff_text = change.diff.as_ref().unwrap();
+        assert!(diff_text.contains('+'));
+        assert_eq!(change.added_tokens, Some(1));
+        assert_eq!(change.removed_tokens, Some(0));
+    }
+
+    #[test]
+    fn diff_sections_skips_diffs_when_disabled() {
+        let prev = vec![snap("s1", "Intro", "hello world", "h1")];
+        let cur = vec![snap("s1", "Intro", "hello brave world", "h2")];
+
+        let changes = diff_sections(prev, cur, false);
+        assert_eq!(changes.len(), 1);
+        let change = &changes[0];
+        assert_eq!(change.change, "modified");
+        assert!(change.diff.is_none());
+        assert!(change.added_tokens.is_none());
+        assert!(change.removed_tokens.is_none());
+    }
+
+    #[test]
+    fn compute_diff_truncates_large_output() {
+        let prev = "a ".repeat(3000);
+        let curr = "b ".repeat(3000);
+
+        let (diff, added, removed) = compute_section_diff(&prev, &curr);
+        let diff_text = diff.expect("diff");
+        assert!(diff_text.contains("...diff truncated..."));
+        assert!(diff_text.len() >= MAX_DIFF_LEN); // truncated marker appended
+        assert_eq!(added, Some(3000));
+        assert_eq!(removed, Some(3000));
+    }
 }
 
 fn git_root() -> Result<PathBuf> {

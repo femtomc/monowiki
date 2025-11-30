@@ -63,6 +63,7 @@ lru = "0.12.3"
 hayagriva = "0.9.1"
 include_dir = "0.7.4"
 blake3 = "1.5.5"
+similar = "2.5.0"
 
 # Testing
 insta = "1.44.1"

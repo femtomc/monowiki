@@ -22,7 +22,7 @@ pub fn status(
     json: bool,
 ) -> Result<()> {
     let (config, site_index) = load_or_build_site_index(config_path)?;
-    let changes = compute_changes(&config, &site_index, since, with_sections)?;
+    let changes = compute_changes(&config, &site_index, since, with_sections, false)?;
 
     let mut comments: Vec<_> = site_index
         .comments

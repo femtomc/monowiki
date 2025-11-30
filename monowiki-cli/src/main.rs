@@ -108,6 +108,10 @@ enum Commands {
         /// Include section-level details (hashes/headings)
         #[arg(long)]
         with_sections: bool,
+
+        /// Include per-section unified diffs (implies --with-sections)
+        #[arg(long)]
+        with_diff: bool,
     },
 
     /// Verify vault health and emit diagnostics
@@ -231,7 +235,14 @@ async fn main() -> anyhow::Result<()> {
             since,
             json,
             with_sections,
-        } => commands::changes(&cli.config, &since, json, with_sections),
+            with_diff,
+        } => commands::changes(
+            &cli.config,
+            &since,
+            json,
+            with_sections || with_diff || json,
+            with_diff || json,
+        ),
         Commands::Verify { json } => commands::verify_site(&cli.config, json),
         Commands::Comment { command } => match command {
             CommentCommands::List { slug, status, json } => {

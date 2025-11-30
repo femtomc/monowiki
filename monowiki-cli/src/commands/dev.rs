@@ -248,6 +248,7 @@ async fn api_search(State(state): State<AppState>, Query(params): Query<SearchPa
 struct ChangesParams {
     since: Option<String>,
     with_sections: Option<bool>,
+    with_diff: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -268,14 +269,21 @@ async fn api_changes(
     Query(params): Query<ChangesParams>,
 ) -> Response {
     let since = params.since.unwrap_or_else(|| "HEAD~1".to_string());
-    let with_sections = params.with_sections.unwrap_or(false);
+    let with_diff = params.with_diff.unwrap_or(true);
+    let with_sections = params.with_sections.unwrap_or(false) || with_diff;
     let data = state.data.read().await;
     let site_index = data.site_index.clone();
     let config = data.config.clone();
 
     // Run blocking git operations off the main executor
     let result = tokio::task::spawn_blocking(move || {
-        crate::commands::compute_changes(&config, &site_index, &since, with_sections)
+        crate::commands::compute_changes(
+            &config,
+            &site_index,
+            &since,
+            with_sections || with_diff,
+            with_diff,
+        )
     })
     .await;
 
@@ -355,8 +363,13 @@ async fn api_status(State(state): State<AppState>, Query(params): Query<StatusPa
     let config = data.config.clone();
 
     let result = tokio::task::spawn_blocking(move || {
-        let changes =
-            crate::commands::compute_changes(&config, &site_index, &since, with_sections)?;
+        let changes = crate::commands::compute_changes(
+            &config,
+            &site_index,
+            &since,
+            with_sections,
+            false,
+        )?;
 
         let mut comments: Vec<_> = site_index
             .comments
