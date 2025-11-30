@@ -1109,6 +1109,65 @@ h2 {
   color: var(--text-color-alt);
 }
 
+/* Comments */
+.comments-block {
+  margin: calc(var(--line-height) * 1.5) 0;
+  padding: calc(var(--line-height) * 0.75);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--background-color-alt);
+}
+
+.comment-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.comment-item {
+  padding: calc(var(--line-height) * 0.5);
+  border-left: 3px solid var(--accent-color);
+  margin-bottom: calc(var(--line-height) * 0.5);
+  background: #fff;
+  border-radius: 4px;
+}
+
+.comment-item.resolved {
+  border-left-color: #46a36f;
+  opacity: 0.9;
+}
+
+.comment-meta {
+  display: flex;
+  gap: 0.75ch;
+  font-size: 0.9em;
+  color: var(--text-color-alt);
+  align-items: center;
+}
+
+.comment-status {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.comment-anchor {
+  font-family: var(--font-family);
+  color: var(--accent-color);
+}
+
+.comment-body {
+  margin-top: 0.35rem;
+}
+
+.comment-quote {
+  margin-top: 0.25rem;
+  padding-left: 0.75ch;
+  border-left: 2px solid var(--border-color);
+  color: var(--text-color-alt);
+  font-style: italic;
+}
+
 /* Directory tree view for index page */
 .directory-tree {
   margin: var(--line-height) 0;
