@@ -33,8 +33,8 @@
     </div>
   </header>
 
-  <main class="page-layout">
-    <article class="page-body">
+  <main>
+    <article>
       {% match date %}
         {% when Some with (d) %}
         <p>
@@ -91,29 +91,28 @@
     {% endif %}
     </article>
 
-    {% if comments.len() > 0 %}
-    <aside class="comments-sidebar">
-      <h3>Comments</h3>
-      <ul class="comment-list">
-        {% for comment in comments %}
-        <li class="comment-item {% if comment.resolved %}resolved{% else %}open{% endif %}" style="background: {{ comment.color_bg }}; border-color: {{ comment.color_border }}">
-          <div class="comment-meta">
-            <span class="comment-status">{{ comment.status }}</span>
-            {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
-            {% if comment.has_anchor %}<span class="comment-anchor">#{{ comment.resolved_anchor }}</span>{% endif %}
-          </div>
-          <div class="comment-body">{{ comment.body_html | safe }}</div>
-          {% if comment.has_quote %}
-          <div class="comment-quote">“{{ comment.quote }}”</div>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </aside>
-    {% endif %}
   </main>
 
   {% if comments.len() > 0 %}
+  <section class="comments-sidenotes">
+    <h3>Comments</h3>
+    <ul class="comment-list">
+      {% for comment in comments %}
+      <li class="comment-sidenote comment-item {% if comment.resolved %}resolved{% else %}open{% endif %}" style="background: {{ comment.color_bg }}; border-color: {{ comment.color_border }}">
+        <div class="comment-meta">
+          <span class="comment-status">{{ comment.status }}</span>
+          {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
+          {% if comment.has_anchor %}<span class="comment-anchor">#{{ comment.resolved_anchor }}</span>{% endif %}
+        </div>
+        <div class="comment-body">{{ comment.body_html | safe }}</div>
+        {% if comment.has_quote %}
+        <div class="comment-quote">“{{ comment.quote }}”</div>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
   <style>
     {% for comment in comments %}
       {% if comment.has_anchor %}

@@ -1109,13 +1109,9 @@ h2 {
   color: var(--text-color-alt);
 }
 
-/* Comments */
-.comments-block {
-  margin: calc(var(--line-height) * 1.5) 0;
-  padding: calc(var(--line-height) * 0.75);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  background: var(--background-color-alt);
+/* Comments as sidenotes */
+.comments-sidenotes {
+  margin-top: var(--line-height);
 }
 
 .comment-list {
@@ -1124,16 +1120,21 @@ h2 {
   margin: 0;
 }
 
-.comment-item {
-  padding: calc(var(--line-height) * 0.5);
-  border-left: 3px solid var(--accent-color);
-  margin-bottom: calc(var(--line-height) * 0.5);
-  background: #fff;
+.comment-sidenote {
+  display: block;
+  float: right;
+  clear: right;
+  margin-right: calc(-1 * (var(--sidenote-width) + var(--sidenote-gap)));
+  width: var(--sidenote-width);
+  font-size: 0.9rem;
+  line-height: var(--line-height);
+  padding: 0.75rem 1ch;
+  margin-top: 0.25rem;
+  border-left: var(--border-thickness) solid var(--text-color-alt);
   border-radius: 4px;
 }
 
-.comment-item.resolved {
-  border-left-color: #46a36f;
+.comment-sidenote.resolved {
   opacity: 0.9;
 }
 
@@ -1168,35 +1169,13 @@ h2 {
   font-style: italic;
 }
 
-/* Comment sidebar layout */
-.page-layout {
-  display: grid;
-  grid-template-columns: 1fr minmax(18ch, 30ch);
-  gap: clamp(2ch, 4vw, 6ch);
-  align-items: start;
-}
-
-.page-body {
-  min-width: 0;
-}
-
-.comments-sidebar {
-  position: sticky;
-  top: 1.5rem;
-  border-left: 1px solid var(--border-color);
-  padding-left: 1.5ch;
-}
-
-@media screen and (max-width: 900px) {
-  .page-layout {
-    display: block;
-  }
-
-  .comments-sidebar {
-    position: static;
-    border-left: none;
-    padding-left: 0;
+@media (max-width: 1300px) {
+  .comment-sidenote {
+    float: none;
+    margin-right: 0;
+    width: 100%;
     margin-top: var(--line-height);
+    margin-bottom: var(--line-height);
   }
 }
 
