@@ -1,18 +1,18 @@
-//! Integration tests for the incremental query system with real MRL parser
+//! Integration tests for the incremental query system
 
 use monowiki_incremental::prelude::*;
 use monowiki_incremental::{DocChange, InvalidationBridge};
 use std::sync::Arc;
 
 #[test]
-fn test_full_pipeline_with_mrl() {
+fn test_full_pipeline() {
     let db = Db::new();
 
     // Set up source storage
     let storage = Arc::new(SourceStorage::new());
     storage.set_document(
         DocId("test".to_string()),
-        "This is prose with !bold([emphasis])!.".to_string(),
+        "This is prose with some text.".to_string(),
     );
     db.set_any("source_storage".to_string(), Box::new(storage));
 
@@ -20,7 +20,7 @@ fn test_full_pipeline_with_mrl() {
     let doc_id = DocId("test".to_string());
     let parse_result = db.query::<ParseShrubberyQuery>(doc_id.clone());
     assert!(
-        parse_result.shrubbery.is_some(),
+        parse_result.source.is_some(),
         "Parse should succeed: {:?}",
         parse_result.errors
     );
@@ -44,24 +44,27 @@ fn test_parse_simple_prose() {
     db.set_any("source_storage".to_string(), Box::new(storage));
 
     let parse_result = db.query::<ParseShrubberyQuery>(doc_id);
-    assert!(parse_result.shrubbery.is_some(), "Should parse simple prose");
+    assert!(
+        parse_result.source.is_some(),
+        "Should parse simple prose"
+    );
     assert!(parse_result.errors.is_empty());
 }
 
 #[test]
-fn test_parse_with_inline_code() {
+fn test_parse_with_content() {
     let db = Db::new();
     let storage = Arc::new(SourceStorage::new());
     let doc_id = DocId("test".to_string());
 
     storage.set_document(
         doc_id.clone(),
-        "Text with !code([inline])! code.".to_string(),
+        "Text with some inline content.".to_string(),
     );
     db.set_any("source_storage".to_string(), Box::new(storage));
 
     let parse_result = db.query::<ParseShrubberyQuery>(doc_id);
-    assert!(parse_result.shrubbery.is_some(), "Should parse inline code");
+    assert!(parse_result.source.is_some(), "Should parse content");
 }
 
 #[test]
@@ -114,7 +117,7 @@ fn test_memoization() {
     let result2 = db.query::<ParseShrubberyQuery>(doc_id);
 
     // Should get same result
-    assert_eq!(result1.shrubbery.is_some(), result2.shrubbery.is_some());
+    assert_eq!(result1.source.is_some(), result2.source.is_some());
 }
 
 #[test]
@@ -123,16 +126,16 @@ fn test_expansion_pipeline() {
     let storage = Arc::new(SourceStorage::new());
     let doc_id = DocId("test".to_string());
 
-    // Simple MRL document
+    // Simple document
     storage.set_document(
         doc_id.clone(),
-        "Prose with !emphasis([styled text])!.".to_string(),
+        "Prose with some styled text.".to_string(),
     );
     db.set_any("source_storage".to_string(), Box::new(storage));
 
     // Parse
     let parse_result = db.query::<ParseShrubberyQuery>(doc_id.clone());
-    assert!(parse_result.shrubbery.is_some());
+    assert!(parse_result.source.is_some());
 
     // Expand
     let expand_result = db.query::<ExpandToContentQuery>(doc_id);
@@ -145,14 +148,12 @@ fn test_type_checking() {
     let storage = Arc::new(SourceStorage::new());
     let doc_id = DocId("test".to_string());
 
-    // Valid MRL
+    // Valid content
     storage.set_document(doc_id.clone(), "Valid prose.".to_string());
     db.set_any("source_storage".to_string(), Box::new(storage.clone()));
 
     let result = db.query::<ExpandToContentQuery>(doc_id.clone());
-    assert!(result.content.is_some(), "Valid MRL should expand");
-
-    // Type error case would be tested with actual type errors in MRL
+    assert!(result.content.is_some(), "Valid content should expand");
 }
 
 #[test]
@@ -165,7 +166,10 @@ fn test_empty_document() {
     db.set_any("source_storage".to_string(), Box::new(storage));
 
     let parse_result = db.query::<ParseShrubberyQuery>(doc_id.clone());
-    assert!(parse_result.shrubbery.is_none(), "Empty doc should not parse");
+    assert!(
+        parse_result.source.is_none(),
+        "Empty doc should not parse"
+    );
 
     let expand_result = db.query::<ExpandToContentQuery>(doc_id);
     assert!(
@@ -234,7 +238,7 @@ fn test_concurrent_access() {
             thread::spawn(move || {
                 let doc_id = DocId(format!("doc{}", i));
                 let result = db.query::<ParseShrubberyQuery>(doc_id);
-                assert!(result.shrubbery.is_some());
+                assert!(result.source.is_some());
             })
         })
         .collect();

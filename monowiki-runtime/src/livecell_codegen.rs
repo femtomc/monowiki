@@ -130,18 +130,18 @@ impl LiveCellCodeGen {
         // 2. Subscribes to EvalResult
         let run_body = vec![
             // Publish: pattern at 0, JSON at pattern_len
-            Instruction::I32Const(0),                        // pattern_ptr
-            Instruction::I32Const(pattern_len as i32),       // pattern_len
-            Instruction::I32Const(pattern_len as i32),       // value_ptr (JSON starts after pattern)
-            Instruction::I32Const(json_len as i32),          // value_len
+            Instruction::I32Const(0),                  // pattern_ptr
+            Instruction::I32Const(pattern_len as i32), // pattern_len
+            Instruction::I32Const(pattern_len as i32), // value_ptr (JSON starts after pattern)
+            Instruction::I32Const(json_len as i32),    // value_len
             Instruction::Call(publish_idx),
             // Drop the assertion ID (we don't need to retract)
             Instruction::I64Const(0),
             Instruction::I64Const(0),
             // Subscribe to results: pattern at json_offset
-            Instruction::I32Const((pattern_len + json_len) as i32),  // result_pattern_ptr
-            Instruction::I32Const(result_pattern_len as i32),        // result_pattern_len
-            Instruction::I64Const(1),                                // callback_id = 1
+            Instruction::I32Const((pattern_len + json_len) as i32), // result_pattern_ptr
+            Instruction::I32Const(result_pattern_len as i32),       // result_pattern_len
+            Instruction::I64Const(1),                               // callback_id = 1
             Instruction::Call(subscribe_idx),
             // Drop the subscription ID
             Instruction::I64Const(0),
@@ -360,11 +360,11 @@ fn encode_data_section(segments: &[DataSegment]) -> Vec<u8> {
 
     for seg in segments {
         section.push(0x00); // active segment, memory 0
-        // i32.const offset
+                            // i32.const offset
         section.push(0x41);
         section.extend_from_slice(&encode_i32_leb(seg.offset as i32));
         section.push(0x0B); // end
-        // data bytes
+                            // data bytes
         section.extend_from_slice(&encode_u32_leb(seg.data.len() as u32));
         section.extend_from_slice(&seg.data);
     }

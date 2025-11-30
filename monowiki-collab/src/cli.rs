@@ -29,6 +29,10 @@ pub struct Cli {
     #[arg(long, env = "MONOWIKI_WORKDIR", default_value = ".monowiki-collab")]
     pub workdir: PathBuf,
 
+    /// Use current working directory (skip git clone/pull). Dangerous with concurrent users.
+    #[arg(long, env = "MONOWIKI_IN_PLACE", default_value = "true")]
+    pub in_place: bool,
+
     /// Path to monowiki.yml relative to repo root
     #[arg(long, env = "MONOWIKI_CONFIG", default_value = "monowiki.yml")]
     pub config: PathBuf,

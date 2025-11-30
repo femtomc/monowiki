@@ -2,55 +2,13 @@
 //!
 //! These tests verify that all the crates work together correctly.
 
-use monowiki_core::{DocumentPipeline, PipelineError};
+use monowiki_core::DocumentPipeline;
 use monowiki_types::{BlockId, DocChange, DocId};
 
 #[test]
-fn test_simple_document() {
-    let source = r#"
-# Hello World
-
-This is a *test* document.
-"#;
-
+fn test_pipeline_creation() {
     let pipeline = DocumentPipeline::new();
-    let content = pipeline.process_source(source).unwrap();
-
-    // Verify we got a sequence of content
-    assert!(matches!(content, monowiki_mrl::Content::Sequence(_)));
-}
-
-#[test]
-fn test_mrl_text_function() {
-    let source = r#"!text("Hello, MRL!")"#;
-
-    let pipeline = DocumentPipeline::new();
-    let result = pipeline.process_source(source);
-
-    // Should parse and expand successfully
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_cached_pipeline() {
-    let source = "# Test Document\n\nSome content here.";
-    let doc_id = DocId::new("test-doc");
-
-    let pipeline = DocumentPipeline::new();
-
-    // First query - will compute
-    let rev1 = pipeline.db().revision();
-    let content1 = pipeline.process_cached(&doc_id, source).unwrap();
-
-    // Second query - should use cache
-    let rev2 = pipeline.db().revision();
-    let content2 = pipeline.process_cached(&doc_id, source).unwrap();
-
-    // Revision should not change (cached)
-    assert_eq!(rev1, rev2);
-
-    // Results should be the same
-    assert_eq!(format!("{:?}", content1), format!("{:?}", content2));
+    assert!(std::sync::Arc::strong_count(pipeline.db()) >= 1);
 }
 
 #[test]
@@ -103,58 +61,6 @@ fn test_batch_invalidation() {
 
     // Should not panic
     pipeline.on_changes(&doc_id, changes);
-}
-
-#[test]
-fn test_execute_with_interpreter() {
-    let source = "!text(\"Generated content\")";
-
-    let pipeline = DocumentPipeline::new();
-    let result = pipeline.execute(source);
-
-    // Should execute successfully
-    assert!(result.is_ok());
-}
-
-#[test]
-fn test_mixed_prose_and_code() {
-    let source = r#"
-# Document with MRL
-
-Regular prose here.
-
-!text("Dynamic content")
-
-More prose.
-"#;
-
-    let pipeline = DocumentPipeline::new();
-    let content = pipeline.process_source(source);
-
-    assert!(content.is_ok());
-}
-
-#[test]
-fn test_error_handling() {
-    // Invalid MRL syntax
-    let source = "!unclosed_paren(";
-
-    let pipeline = DocumentPipeline::new();
-    let result = pipeline.process_source(source);
-
-    // Should return an error
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_type_checking_integration() {
-    // This should type-check correctly
-    let source = "!text(\"valid\")";
-
-    let pipeline = DocumentPipeline::new();
-    let result = pipeline.process_source(source);
-
-    assert!(result.is_ok());
 }
 
 #[test]

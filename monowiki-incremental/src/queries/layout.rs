@@ -7,7 +7,6 @@ use crate::durability::Durability;
 use crate::queries::expand::{ExpandBlockQuery, ExpandToContentQuery};
 use crate::queries::source::{BlockId, DocId};
 use crate::query::{Query, QueryDatabase};
-use monowiki_mrl::{Block, Content, Inline};
 
 /// Viewport dimensions for layout
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -39,12 +38,10 @@ impl Query for ActiveStylesQuery {
     type Value = StyleConfig;
 
     fn execute<DB: QueryDatabase>(_db: &DB, _key: &Self::Key) -> Self::Value {
-        // In a real implementation, this would load from theme/config
         StyleConfig::default()
     }
 
     fn durability() -> Durability {
-        // Styles change infrequently (durable tier)
         Durability::Durable
     }
 
@@ -58,19 +55,16 @@ impl Query for ActiveStylesQuery {
 pub struct StyleConfig {
     pub font_family: String,
     pub font_size: u32,
-    pub line_height: f32, // f32 doesn't implement Eq/Hash
+    pub line_height: f32,
     pub max_width: Option<u32>,
 }
 
-// Manual Eq implementation for StyleConfig
 impl Eq for StyleConfig {}
 
-// Manual Hash implementation for StyleConfig
 impl std::hash::Hash for StyleConfig {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.font_family.hash(state);
         self.font_size.hash(state);
-        // Hash f32 as bits
         self.line_height.to_bits().hash(state);
         self.max_width.hash(state);
     }
@@ -105,13 +99,12 @@ impl Query for LayoutDocumentQuery {
 
         // Compute layout if we have content
         match expand_result.content {
-            Some(content) => compute_layout(&content, &styles, viewport),
+            Some(text) => compute_text_layout(&text, &styles, viewport),
             None => Layout::new(),
         }
     }
 
     fn durability() -> Durability {
-        // Layout changes when content, styles, or viewport changes
         Durability::Session
     }
 
@@ -121,9 +114,6 @@ impl Query for LayoutDocumentQuery {
 }
 
 /// Query for computing layout of a single block
-///
-/// This enables fine-grained invalidation - when a block changes,
-/// only that block needs to be re-laid out.
 pub struct LayoutBlockQuery;
 
 impl Query for LayoutBlockQuery {
@@ -141,13 +131,12 @@ impl Query for LayoutBlockQuery {
 
         // Compute layout if we have content
         match expand_result.content {
-            Some(content) => compute_layout(&content, &styles, viewport),
+            Some(text) => compute_text_layout(&text, &styles, viewport),
             None => Layout::new(),
         }
     }
 
     fn durability() -> Durability {
-        // Layout changes when content, styles, or viewport changes
         Durability::Session
     }
 
@@ -159,10 +148,7 @@ impl Query for LayoutBlockQuery {
 /// Layout information for rendering
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Layout {
-    /// Layout boxes
     pub boxes: Vec<LayoutBox>,
-
-    /// Total height
     pub total_height: u32,
 }
 
@@ -175,9 +161,7 @@ impl Layout {
     }
 
     pub fn push(&mut self, layout_box: LayoutBox) {
-        self.total_height = self
-            .total_height
-            .max(layout_box.y + layout_box.height);
+        self.total_height = self.total_height.max(layout_box.y + layout_box.height);
         self.boxes.push(layout_box);
     }
 }
@@ -209,24 +193,8 @@ pub enum LayoutKind {
     ThematicBreak,
 }
 
-/// Extract plain text from inline content
-fn inline_to_text(inline: &Inline) -> String {
-    match inline {
-        Inline::Text(t) => t.clone(),
-        Inline::Emphasis(inner) => inline_to_text(inner),
-        Inline::Strong(inner) => inline_to_text(inner),
-        Inline::Code(c) => c.clone(),
-        Inline::Link { body, .. } => inline_to_text(body),
-        Inline::Image { alt, .. } => alt.clone(),
-        Inline::Reference(r) => format!("@{}", r),
-        Inline::Math(m) => m.clone(),
-        Inline::Span { body, .. } => inline_to_text(body),
-        Inline::Sequence(items) => items.iter().map(inline_to_text).collect::<Vec<_>>().join(""),
-    }
-}
-
-/// Compute layout from content
-fn compute_layout(content: &Content, styles: &StyleConfig, viewport: &Viewport) -> Layout {
+/// Compute layout from plain text
+fn compute_text_layout(text: &str, styles: &StyleConfig, viewport: &Viewport) -> Layout {
     let mut layout = Layout::new();
     let mut y = 0u32;
 
@@ -235,230 +203,23 @@ fn compute_layout(content: &Content, styles: &StyleConfig, viewport: &Viewport) 
         .unwrap_or(viewport.width)
         .min(viewport.width);
 
-    layout_content(content, styles, &mut layout, &mut y, width);
+    // Simple text layout - treat as a single paragraph
+    let height = compute_text_height(text, styles, width);
+
+    layout.push(LayoutBox {
+        x: 0,
+        y,
+        width,
+        height,
+        kind: LayoutKind::Paragraph {
+            text: text.to_string(),
+        },
+    });
+
+    y += height + 12;
+    layout.total_height = y;
 
     layout
-}
-
-/// Recursively layout content
-fn layout_content(
-    content: &Content,
-    styles: &StyleConfig,
-    layout: &mut Layout,
-    y: &mut u32,
-    width: u32,
-) {
-    match content {
-        Content::Block(block) => {
-            layout_block(block, styles, layout, y, width);
-        }
-        Content::Inline(inline) => {
-            // Wrap inline in a paragraph for layout
-            let text = inline_to_text(inline);
-            let height = compute_text_height(&text, styles, width);
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::Paragraph { text },
-            });
-
-            *y += height + 12;
-        }
-        Content::Sequence(items) => {
-            for item in items {
-                layout_content(item, styles, layout, y, width);
-            }
-        }
-        Content::Live(cell) => {
-            // Live cells get a placeholder box that will be populated at runtime
-            let height = 48; // Default height for live cell placeholder
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::CodeBlock {
-                    code: format!("[live: {}]", cell.source),
-                    lang: Some("mrl".to_string()),
-                },
-            });
-
-            *y += height + 12;
-        }
-    }
-}
-
-/// Layout a block element
-fn layout_block(
-    block: &Block,
-    styles: &StyleConfig,
-    layout: &mut Layout,
-    y: &mut u32,
-    width: u32,
-) {
-    match block {
-        Block::Heading { level, body, .. } => {
-            let text = inline_to_text(body);
-            let height = (styles.font_size * 2) + (*level as u32 * 4);
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::Heading {
-                    level: *level as usize,
-                    text,
-                },
-            });
-
-            *y += height + 16;
-        }
-
-        Block::Paragraph { body, .. } => {
-            let text = inline_to_text(body);
-            let height = compute_text_height(&text, styles, width);
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::Paragraph { text },
-            });
-
-            *y += height + 12;
-        }
-
-        Block::CodeBlock { lang, code, .. } => {
-            let lines = code.lines().count().max(1);
-            let height = (lines as u32) * styles.font_size;
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::CodeBlock {
-                    lang: lang.clone(),
-                    code: code.clone(),
-                },
-            });
-
-            *y += height + 16;
-        }
-
-        Block::List { items, .. } => {
-            let item_texts: Vec<String> = items
-                .iter()
-                .map(|item| inline_to_text(&item.body))
-                .collect();
-            let height = (items.len() as u32) * ((styles.font_size as f32 * styles.line_height) as u32);
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::List { items: item_texts },
-            });
-
-            *y += height + 12;
-        }
-
-        Block::Blockquote { body, .. } => {
-            let text = content_to_text(body);
-            let height = compute_text_height(&text, styles, width - 20);
-
-            layout.push(LayoutBox {
-                x: 20,
-                y: *y,
-                width: width - 20,
-                height,
-                kind: LayoutKind::Blockquote { text },
-            });
-
-            *y += height + 16;
-        }
-
-        Block::ThematicBreak { .. } => {
-            let height = 1;
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::ThematicBreak,
-            });
-
-            *y += height + 16;
-        }
-
-        Block::Table { .. } => {
-            // Tables need more sophisticated layout
-            let height = styles.font_size * 3;
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::Paragraph {
-                    text: "[table]".to_string(),
-                },
-            });
-
-            *y += height + 12;
-        }
-
-        Block::Directive { name, body, .. } => {
-            // Directives are rendered as their content with a marker
-            let text = format!("!{}: {}", name, content_to_text(body));
-            let height = compute_text_height(&text, styles, width);
-
-            layout.push(LayoutBox {
-                x: 0,
-                y: *y,
-                width,
-                height,
-                kind: LayoutKind::Paragraph { text },
-            });
-
-            *y += height + 12;
-        }
-    }
-}
-
-/// Convert content to plain text
-fn content_to_text(content: &Content) -> String {
-    match content {
-        Content::Block(block) => match block {
-            Block::Paragraph { body, .. } => inline_to_text(body),
-            Block::Heading { body, .. } => inline_to_text(body),
-            Block::CodeBlock { code, .. } => code.clone(),
-            Block::List { items, .. } => items
-                .iter()
-                .map(|item| inline_to_text(&item.body))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            Block::Blockquote { body, .. } => content_to_text(body),
-            Block::Table { .. } => "[table]".to_string(),
-            Block::ThematicBreak { .. } => "---".to_string(),
-            Block::Directive { body, .. } => content_to_text(body),
-        },
-        Content::Inline(inline) => inline_to_text(inline),
-        Content::Sequence(items) => items
-            .iter()
-            .map(content_to_text)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Content::Live(cell) => format!("[live: {}]", cell.source),
-    }
 }
 
 /// Compute text height based on character count
@@ -472,7 +233,7 @@ fn compute_text_height(text: &str, styles: &StyleConfig, width: u32) -> u32 {
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::queries::source::{BlockId, SourceStorage};
+    use crate::queries::source::SourceStorage;
     use std::sync::Arc;
 
     #[test]
@@ -487,8 +248,7 @@ mod tests {
         let viewport = Viewport::new(800, 600);
         let layout = db.query::<LayoutDocumentQuery>((doc_id, viewport));
 
-        // Layout should have at least some boxes (depends on parsing)
-        assert!(layout.total_height >= 0);
+        assert!(layout.total_height > 0);
     }
 
     #[test]
@@ -506,21 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn test_inline_to_text() {
-        let inline = Inline::Text("hello".to_string());
-        assert_eq!(inline_to_text(&inline), "hello");
-
-        let emphasis = Inline::Emphasis(Box::new(Inline::Text("emphasized".to_string())));
-        assert_eq!(inline_to_text(&emphasis), "emphasized");
-
-        let seq = Inline::Sequence(vec![
-            Inline::Text("one ".to_string()),
-            Inline::Text("two".to_string()),
-        ]);
-        assert_eq!(inline_to_text(&seq), "one two");
-    }
-
-    #[test]
     fn test_layout_block_simple() {
         let db = Db::new();
         let storage = Arc::new(SourceStorage::new());
@@ -532,8 +277,7 @@ mod tests {
         let viewport = Viewport::new(800, 600);
         let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
 
-        // Layout should produce output
-        assert!(layout.total_height >= 0);
+        assert!(layout.total_height > 0);
     }
 
     #[test]
@@ -548,26 +292,7 @@ mod tests {
         let viewport = Viewport::new(800, 600);
         let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
 
-        // Empty block should produce empty layout
         assert!(layout.boxes.is_empty());
         assert_eq!(layout.total_height, 0);
-    }
-
-    #[test]
-    fn test_layout_block_query_runs() {
-        let db = Db::new();
-        let storage = Arc::new(SourceStorage::new());
-        let block_id = BlockId(42);
-
-        // Simple content
-        storage.set_block(block_id.clone(), "Some content".to_string());
-        db.set_any("source_storage".to_string(), Box::new(storage));
-
-        let viewport = Viewport::new(800, 600);
-        let layout = db.query::<LayoutBlockQuery>((block_id, viewport));
-
-        // Verify the query runs - layout may be empty if expansion doesn't produce content
-        // This tests that the block-level query pipeline is wired correctly
-        assert!(layout.total_height >= 0);
     }
 }

@@ -13,13 +13,13 @@ Or `cargo install --git https://github.com/femtomc/monowiki monowiki-cli`
 ## Usage
 
 ```bash
-monowiki init         # scaffold vault/ and monowiki.yml
+monowiki init         # scaffold docs/ and monowiki.yml
 monowiki dev          # serve at localhost:8000 with live reload
 monowiki build        # write static site to docs/
 monowiki github-pages # generate GitHub Actions workflow
 ```
 
-Notes go in `vault/`. Frontmatter is optional:
+Notes go in `docs/` by default (configurable via `paths.vault`). Frontmatter is optional:
 
 ```yaml
 ---
@@ -50,7 +50,7 @@ site:
   author: Name
   url: https://example.github.io/repo
 paths:
-  vault: vault
+  vault: docs
   output: docs
 base_url: /repo/  # for GitHub Pages subpaths
 ```

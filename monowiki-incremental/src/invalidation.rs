@@ -24,27 +24,22 @@ impl InvalidationBridge {
                 // Invalidate block source
                 self.db.invalidate::<BlockSourceQuery>(block_id);
                 // Also invalidate document-level queries
-                self.db
-                    .invalidate::<DocumentSourceQuery>(doc_id.clone());
+                self.db.invalidate::<DocumentSourceQuery>(doc_id.clone());
                 self.db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
-                self.db
-                    .invalidate::<ExpandToContentQuery>(doc_id.clone());
+                self.db.invalidate::<ExpandToContentQuery>(doc_id.clone());
             }
             DocChange::BlockInserted { .. }
             | DocChange::BlockDeleted { .. }
             | DocChange::BlockMoved { .. } => {
                 // Structure change - invalidate everything for this doc
-                self.db
-                    .invalidate::<DocumentSourceQuery>(doc_id.clone());
+                self.db.invalidate::<DocumentSourceQuery>(doc_id.clone());
                 self.db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
-                self.db
-                    .invalidate::<ExpandToContentQuery>(doc_id.clone());
+                self.db.invalidate::<ExpandToContentQuery>(doc_id.clone());
             }
             DocChange::MarkChanged { block_id, .. } => {
                 // Mark changes affect parsing
                 self.db.invalidate::<BlockSourceQuery>(block_id);
-                self.db
-                    .invalidate::<DocumentSourceQuery>(doc_id.clone());
+                self.db.invalidate::<DocumentSourceQuery>(doc_id.clone());
                 self.db.invalidate::<ParseShrubberyQuery>(doc_id.clone());
             }
         }
@@ -90,7 +85,10 @@ mod tests {
         );
 
         let rev2 = db.revision();
-        assert!(rev2.0 > rev1.0, "Revision should increase after invalidation");
+        assert!(
+            rev2.0 > rev1.0,
+            "Revision should increase after invalidation"
+        );
     }
 
     #[test]

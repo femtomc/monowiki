@@ -92,10 +92,7 @@ where
 {
     /// Create a new callback handler
     pub fn new(on_add: A, on_remove: R) -> Self {
-        Self {
-            on_add,
-            on_remove,
-        }
+        Self { on_add, on_remove }
     }
 }
 
@@ -219,7 +216,8 @@ impl SubscriptionManager {
         handler: Box<dyn SubscriptionHandler>,
     ) -> SubscriptionId {
         let id = SubscriptionId::new();
-        self.subscriptions.insert(id, Subscription { pattern, handler });
+        self.subscriptions
+            .insert(id, Subscription { pattern, handler });
         id
     }
 
@@ -258,7 +256,9 @@ impl SubscriptionManager {
 
     /// Get patterns for all active subscriptions (for debugging)
     pub fn patterns(&self) -> impl Iterator<Item = (SubscriptionId, &Pattern)> {
-        self.subscriptions.iter().map(|(id, sub)| (*id, &sub.pattern))
+        self.subscriptions
+            .iter()
+            .map(|(id, sub)| (*id, &sub.pattern))
     }
 }
 

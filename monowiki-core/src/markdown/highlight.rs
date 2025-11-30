@@ -45,11 +45,7 @@ impl CodeBlockInfo {
             .map(|caps| caps.get(1).unwrap().as_str().to_string());
 
         // Extract language (first word before any attributes)
-        let lang = info
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_string();
+        let lang = info.split_whitespace().next().unwrap_or("").to_string();
 
         Self { lang, title }
     }
@@ -85,7 +81,8 @@ impl HighlightTransformer {
 
                     // Highlight the code
                     if let Some(info) = &code_info {
-                        let highlighted = self.highlight_code(&code_content, &info.lang, info.title.as_deref());
+                        let highlighted =
+                            self.highlight_code(&code_content, &info.lang, info.title.as_deref());
                         result.push(Event::Html(CowStr::Boxed(highlighted.into_boxed_str())));
                     } else {
                         // No language specified, output as plain pre/code

@@ -229,7 +229,9 @@ mod tests {
 
         let widget = store.get(id).unwrap();
         match widget {
-            Widget::Slider { min, max, value, .. } => {
+            Widget::Slider {
+                min, max, value, ..
+            } => {
                 assert_eq!(*min, 0.0);
                 assert_eq!(*max, 100.0);
                 assert_eq!(*value, 50.0);
@@ -294,9 +296,7 @@ mod tests {
 
         let widget = store.get(id).unwrap();
         match widget {
-            Widget::Button {
-                label, clicked, ..
-            } => {
+            Widget::Button { label, clicked, .. } => {
                 assert_eq!(label, "Click me");
                 assert!(!clicked);
             }

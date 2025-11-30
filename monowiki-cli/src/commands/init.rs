@@ -16,7 +16,7 @@ pub fn init_project(path: Option<&Path>) -> Result<()> {
 
     println!("✓ monowiki initialized in {:?}", root);
     println!("  - Edit monowiki.yml to customize site metadata");
-    println!("  - Write notes in vault/essays/ or vault/thoughts/");
+    println!("  - Write notes in docs/essays/ or docs/thoughts/");
     Ok(())
 }
 
@@ -34,7 +34,7 @@ fn write_config(root: &Path) -> Result<()> {
 }
 
 fn scaffold_vault(root: &Path) -> Result<()> {
-    let vault_root = root.join("vault");
+    let vault_root = root.join("docs");
     let essays = vault_root.join("essays");
     let thoughts = vault_root.join("thoughts");
     let drafts = vault_root.join("drafts");
@@ -70,7 +70,7 @@ description: Welcome to my monowiki site
 
 # Welcome
 
-This is your monowiki site. Start writing notes in `vault/essays/` or `vault/thoughts/`.
+This is your monowiki site. Start writing notes in `docs/essays/` or `docs/thoughts/`.
 
 ## All Notes
 
@@ -90,14 +90,14 @@ tags: [monowiki, intro]
 
 # Welcome
 
-This is your new monowiki vault. Edit `monowiki.yml` to update site metadata, then run:
+This is your new monowiki workspace. Edit `monowiki.yml` to update site metadata, then run:
 
 ```bash
 monowiki build
 monowiki dev
 ```
 
-Create notes in `vault/essays/` or `vault/thoughts/` and link them with `[[Wiki Links]]`.
+Create notes in `docs/essays/` or `docs/thoughts/` and link them with `[[Wiki Links]]`.
 "#
     .to_string()
 }
@@ -123,7 +123,7 @@ This vault ships with a CLI that is designed to be agent-friendly. Key commands:
 - `monowiki graph neighbors --slug <slug> --depth 2 --direction outgoing --json` to fan out.
 - `monowiki graph path --from a --to b --max-depth 4 --json` to find shortest paths.
 - `monowiki export sections --format jsonl --with-links` to stream embedding-ready chunks.
-- `monowiki watch` streams JSON change events from `vault/` (one line per event).
+- `monowiki watch` streams JSON change events from `docs/` (one line per event).
 
 JSON schemas
 

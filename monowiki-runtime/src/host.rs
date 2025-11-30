@@ -3,7 +3,10 @@
 //! This module provides the host-side implementation of all functions
 //! exposed to WASM live cells through the WIT interface.
 
-use crate::abi::{Capabilities, Capability, HttpRequest, HttpResponse, RuntimeError, RuntimeResult, Severity, Span};
+use crate::abi::{
+    Capabilities, Capability, HttpRequest, HttpResponse, RuntimeError, RuntimeResult, Severity,
+    Span,
+};
 use crate::dataspace::DataspaceClient;
 use crate::diagnostics::DiagnosticCollector;
 use crate::signals::SignalStore;
@@ -132,7 +135,12 @@ impl RuntimeHost {
     // ===== Diagnostic Functions =====
 
     /// Emit a diagnostic message
-    pub fn emit_diagnostic(&mut self, severity: Severity, span: Span, msg: &str) -> RuntimeResult<()> {
+    pub fn emit_diagnostic(
+        &mut self,
+        severity: Severity,
+        span: Span,
+        msg: &str,
+    ) -> RuntimeResult<()> {
         self.check_capability(Capability::Diagnostics)?;
         self.diagnostics.emit(severity, span, msg.to_string());
         Ok(())

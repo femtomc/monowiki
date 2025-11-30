@@ -52,10 +52,7 @@ impl Decoration {
     pub fn to_iovalue(&self) -> IOValue {
         // Serialize as a tagged record: <Decoration start end class tooltip>
         let json = serde_json::to_string(self).unwrap_or_default();
-        IOValue::record(
-            IOValue::symbol("Decoration"),
-            vec![IOValue::new(json)],
-        )
+        IOValue::record(IOValue::symbol("Decoration"), vec![IOValue::new(json)])
     }
 
     /// Parse from JSON string
@@ -113,10 +110,7 @@ impl DiagnosticAssertion {
 
     pub fn to_iovalue(&self) -> IOValue {
         let json = serde_json::to_string(self).unwrap_or_default();
-        IOValue::record(
-            IOValue::symbol("Diagnostic"),
-            vec![IOValue::new(json)],
-        )
+        IOValue::record(IOValue::symbol("Diagnostic"), vec![IOValue::new(json)])
     }
 
     pub fn from_json(json: &str) -> Option<Self> {
@@ -151,9 +145,7 @@ pub enum EvalPayload {
     },
     /// Source code string (for interpreted kernels like JS)
     #[serde(rename = "source")]
-    Source {
-        data: String,
-    },
+    Source { data: String },
     /// MRL source code for the MRL kernel
     #[serde(rename = "mrl")]
     Mrl {
@@ -187,7 +179,13 @@ mod serde_bytes_base64 {
 }
 
 impl EvalRequest {
-    pub fn wasm(kernel_id: KernelId, cell_id: CellId, doc_id: DocId, wasm: Vec<u8>, seq: u64) -> Self {
+    pub fn wasm(
+        kernel_id: KernelId,
+        cell_id: CellId,
+        doc_id: DocId,
+        wasm: Vec<u8>,
+        seq: u64,
+    ) -> Self {
         Self {
             kernel_id,
             cell_id,
@@ -197,7 +195,13 @@ impl EvalRequest {
         }
     }
 
-    pub fn source(kernel_id: KernelId, cell_id: CellId, doc_id: DocId, source: String, seq: u64) -> Self {
+    pub fn source(
+        kernel_id: KernelId,
+        cell_id: CellId,
+        doc_id: DocId,
+        source: String,
+        seq: u64,
+    ) -> Self {
         Self {
             kernel_id,
             cell_id,
@@ -208,7 +212,13 @@ impl EvalRequest {
     }
 
     /// Create an MRL evaluation request
-    pub fn mrl(cell_id: CellId, doc_id: DocId, source: String, deps: Vec<String>, seq: u64) -> Self {
+    pub fn mrl(
+        cell_id: CellId,
+        doc_id: DocId,
+        source: String,
+        deps: Vec<String>,
+        seq: u64,
+    ) -> Self {
         Self {
             kernel_id: "mrl".to_string(),
             cell_id,
@@ -253,9 +263,7 @@ pub struct EvalResult {
 pub enum EvalResultKind {
     /// Successful evaluation with raw output bytes
     #[serde(rename = "success")]
-    Success {
-        data: Vec<u8>,
-    },
+    Success { data: Vec<u8> },
     /// Successful evaluation with rendered HTML content (from MRL kernel)
     #[serde(rename = "content")]
     Content {
@@ -299,12 +307,21 @@ impl EvalResult {
     }
 
     /// Create a content result with rendered HTML and JSON representation
-    pub fn content_with_json(cell_id: CellId, doc_id: DocId, seq: u64, html: String, json: String) -> Self {
+    pub fn content_with_json(
+        cell_id: CellId,
+        doc_id: DocId,
+        seq: u64,
+        html: String,
+        json: String,
+    ) -> Self {
         Self {
             cell_id,
             doc_id,
             seq,
-            result: EvalResultKind::Content { html, json: Some(json) },
+            result: EvalResultKind::Content {
+                html,
+                json: Some(json),
+            },
         }
     }
 
@@ -313,17 +330,29 @@ impl EvalResult {
             cell_id,
             doc_id,
             seq,
-            result: EvalResultKind::Error { message, span: None },
+            result: EvalResultKind::Error {
+                message,
+                span: None,
+            },
         }
     }
 
     /// Create an error result with source location
-    pub fn error_with_span(cell_id: CellId, doc_id: DocId, seq: u64, message: String, span: (usize, usize)) -> Self {
+    pub fn error_with_span(
+        cell_id: CellId,
+        doc_id: DocId,
+        seq: u64,
+        message: String,
+        span: (usize, usize),
+    ) -> Self {
         Self {
             cell_id,
             doc_id,
             seq,
-            result: EvalResultKind::Error { message, span: Some(span) },
+            result: EvalResultKind::Error {
+                message,
+                span: Some(span),
+            },
         }
     }
 
@@ -430,10 +459,7 @@ impl CapabilityGrant {
 
     pub fn to_iovalue(&self) -> IOValue {
         let json = serde_json::to_string(self).unwrap_or_default();
-        IOValue::record(
-            IOValue::symbol("CapabilityGrant"),
-            vec![IOValue::new(json)],
-        )
+        IOValue::record(IOValue::symbol("CapabilityGrant"), vec![IOValue::new(json)])
     }
 
     pub fn from_json(json: &str) -> Option<Self> {
@@ -508,8 +534,7 @@ mod tests {
 
     #[test]
     fn test_decoration_serde() {
-        let dec = Decoration::new(10, 20, "highlight")
-            .with_tooltip("Test tooltip");
+        let dec = Decoration::new(10, 20, "highlight").with_tooltip("Test tooltip");
 
         let json = serde_json::to_string(&dec).unwrap();
         let parsed: Decoration = serde_json::from_str(&json).unwrap();

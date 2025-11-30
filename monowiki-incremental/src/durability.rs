@@ -30,12 +30,20 @@ impl Durability {
 
     /// Returns the more volatile of two durabilities
     pub fn min(self, other: Durability) -> Durability {
-        if self < other { self } else { other }
+        if self < other {
+            self
+        } else {
+            other
+        }
     }
 
     /// Returns the more durable of two durabilities
     pub fn max(self, other: Durability) -> Durability {
-        if self > other { self } else { other }
+        if self > other {
+            self
+        } else {
+            other
+        }
     }
 }
 

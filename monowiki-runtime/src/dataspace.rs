@@ -80,10 +80,7 @@ impl DataspaceClient {
     /// are stored as the record's payload.
     pub fn publish(&mut self, pattern: String, value: Vec<u8>) -> RuntimeResult<u64> {
         // Check assert permission
-        let iovalue = IOValue::record(
-            IOValue::symbol(pattern.clone()),
-            vec![IOValue::new(value)],
-        );
+        let iovalue = IOValue::record(IOValue::symbol(pattern.clone()), vec![IOValue::new(value)]);
 
         if let Some(ref filter) = self.permissions.assert_filter {
             if !filter.matches_tagged(&iovalue) {
@@ -316,9 +313,15 @@ mod tests {
     fn test_publish_and_query() {
         let mut client = create_test_client();
 
-        let id1 = client.publish("user.login".to_string(), vec![1, 2, 3]).unwrap();
-        let id2 = client.publish("user.login".to_string(), vec![4, 5, 6]).unwrap();
-        let _id3 = client.publish("user.logout".to_string(), vec![7, 8, 9]).unwrap();
+        let id1 = client
+            .publish("user.login".to_string(), vec![1, 2, 3])
+            .unwrap();
+        let id2 = client
+            .publish("user.login".to_string(), vec![4, 5, 6])
+            .unwrap();
+        let _id3 = client
+            .publish("user.logout".to_string(), vec![7, 8, 9])
+            .unwrap();
 
         let results = client.query("user.login");
         assert_eq!(results.len(), 2);
@@ -332,7 +335,9 @@ mod tests {
     fn test_retract() {
         let mut client = create_test_client();
 
-        let id = client.publish("test.pattern".to_string(), vec![1, 2, 3]).unwrap();
+        let id = client
+            .publish("test.pattern".to_string(), vec![1, 2, 3])
+            .unwrap();
 
         let results = client.query("test.pattern");
         assert_eq!(results.len(), 1);
@@ -374,10 +379,7 @@ mod tests {
         let ds = Arc::new(RwLock::new(LocalDataspace::new("test")));
 
         // Create client with observe-only permissions
-        let mut client = DataspaceClient::with_permissions(
-            ds,
-            Permissions::read_only(),
-        );
+        let mut client = DataspaceClient::with_permissions(ds, Permissions::read_only());
 
         // Should fail because assert_filter is None (no assertion allowed)
         let result = client.publish("test".to_string(), vec![1, 2, 3]);

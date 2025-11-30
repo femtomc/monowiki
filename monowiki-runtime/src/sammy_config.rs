@@ -107,19 +107,14 @@ impl MonowikiRuntime {
     /// The actor is granted capabilities to:
     /// - Read/write doc-view/<doc-id>
     /// - Read doc-content/<doc-id>
-    pub fn spawn_live_cell(
-        &mut self,
-        cell_id: &str,
-        doc_id: &str,
-    ) -> sammy::ActorId {
-        let actor_id = self.inner.spawn_actor(format!("cell:{}/{}", doc_id, cell_id));
+    pub fn spawn_live_cell(&mut self, cell_id: &str, doc_id: &str) -> sammy::ActorId {
+        let actor_id = self
+            .inner
+            .spawn_actor(format!("cell:{}/{}", doc_id, cell_id));
 
         // Grant full access to doc-view for this document
-        self.inner.grant_capability(
-            &actor_id,
-            &names::doc_view(doc_id),
-            Permissions::full(),
-        );
+        self.inner
+            .grant_capability(&actor_id, &names::doc_view(doc_id), Permissions::full());
 
         // Grant read-only access to doc-content
         self.inner.grant_capability(
@@ -140,22 +135,16 @@ impl MonowikiRuntime {
         let actor_id = self.inner.spawn_actor(format!("kernel:{}", kernel_id));
 
         // Grant read access to system dataspace
-        self.inner.grant_capability(
-            &actor_id,
-            names::SYSTEM,
-            Permissions::read_only(),
-        );
+        self.inner
+            .grant_capability(&actor_id, names::SYSTEM, Permissions::read_only());
 
         actor_id
     }
 
     /// Grant a kernel access to a specific document's view space
     pub fn grant_kernel_doc_access(&mut self, kernel_actor: &sammy::ActorId, doc_id: &str) {
-        self.inner.grant_capability(
-            kernel_actor,
-            &names::doc_view(doc_id),
-            Permissions::full(),
-        );
+        self.inner
+            .grant_capability(kernel_actor, &names::doc_view(doc_id), Permissions::full());
     }
 
     /// Create a capability for publishing EvalRequest

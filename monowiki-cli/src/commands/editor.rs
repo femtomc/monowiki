@@ -13,6 +13,7 @@ pub struct EditorStackOpts {
     pub build_on_start: bool,
     pub open_browser: bool,
     pub verbose: bool,
+    pub in_place: bool,
 }
 
 /// Start the collab daemon with embedded editor UI (single origin).
@@ -37,6 +38,7 @@ pub async fn run_editor_stack(opts: EditorStackOpts) -> Result<()> {
         rate_burst: 10,
         rate_per_sec: 1.0,
         deploy_strategy: "subtree".to_string(),
+        in_place: opts.in_place,
     };
 
     let url = format!("http://{}", opts.listen_addr);

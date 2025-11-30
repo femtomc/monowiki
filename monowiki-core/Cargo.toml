@@ -10,7 +10,6 @@ description = "Core library for monowiki static site generator"
 [dependencies]
 # Workspace crates
 monowiki-types = { path = "../monowiki-types" }
-monowiki-mrl = { path = "../monowiki-mrl" }
 monowiki-incremental = { path = "../monowiki-incremental" }
 # Note: monowiki-collab is NOT a dependency to avoid circular deps
 # The collab crate depends on core, so core cannot depend on collab

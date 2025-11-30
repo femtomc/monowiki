@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn test_diagnostic_with_source() {
         let span = Span::new(1, 0, 1, 10);
-        let diag = Diagnostic::error(span, "Test error".to_string())
-            .with_source("test-cell".to_string());
+        let diag =
+            Diagnostic::error(span, "Test error".to_string()).with_source("test-cell".to_string());
 
         assert_eq!(diag.source, Some("test-cell".to_string()));
     }

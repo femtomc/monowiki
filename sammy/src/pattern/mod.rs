@@ -9,8 +9,8 @@ mod tree;
 
 pub use tree::*;
 
-use preserves::IOValue;
 use preserves::types::{CompoundClass, ValueClass};
+use preserves::IOValue;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;

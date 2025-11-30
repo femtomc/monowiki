@@ -1,4 +1,4 @@
-//! Expansion queries - expand shrubbery to Content
+//! Expansion queries - process parsed content
 //!
 //! Provides both document-level and block-level expansion for fine-grained invalidation.
 
@@ -6,12 +6,12 @@ use crate::durability::Durability;
 use crate::queries::parse::{ParseBlockQuery, ParseShrubberyQuery};
 use crate::queries::source::{BlockId, DocId};
 use crate::query::{Query, QueryDatabase};
-use monowiki_mrl::{Content, ExpandValue, Expander, TypeChecker};
 
 /// Expanded content result
 #[derive(Clone, Debug)]
 pub struct ExpandResult {
-    pub content: Option<Content>,
+    /// The expanded source text
+    pub content: Option<String>,
     pub errors: Vec<String>,
 }
 
@@ -22,7 +22,7 @@ impl std::hash::Hash for ExpandResult {
     }
 }
 
-/// Query: Expand shrubbery to typed Content
+/// Query: Expand parsed content
 pub struct ExpandToContentQuery;
 
 impl Query for ExpandToContentQuery {
@@ -33,58 +33,14 @@ impl Query for ExpandToContentQuery {
         // Depend on parse query
         let parse_result = db.query::<ParseShrubberyQuery>(key.clone());
 
-        let shrubbery = match parse_result.shrubbery {
-            Some(s) => s,
-            None => {
-                return ExpandResult {
-                    content: None,
-                    errors: parse_result.errors,
-                };
-            }
-        };
-
-        // Get symbol table from parse result
-        let symbols = parse_result.symbols;
-
-        // Type check first
-        let mut checker = TypeChecker::new();
-        // Register parsed symbols with checker
-        if let Some(ref sym_table) = symbols {
-            checker.register_symbols(sym_table.symbols());
-        }
-        if let Err(e) = checker.check(&shrubbery) {
-            return ExpandResult {
+        match parse_result.source {
+            Some(source) => ExpandResult {
+                content: Some(source),
+                errors: vec![],
+            },
+            None => ExpandResult {
                 content: None,
-                errors: vec![format!("Type error: {}", e)],
-            };
-        }
-
-        // Expand
-        let mut expander = Expander::new();
-        // Register parsed symbols with expander (convert name→symbol to id→name)
-        if let Some(ref sym_table) = symbols {
-            let id_to_name: std::collections::HashMap<u64, String> = sym_table
-                .symbols()
-                .iter()
-                .map(|(name, sym)| (sym.id(), name.clone()))
-                .collect();
-            expander.set_symbols(id_to_name);
-        }
-        match expander.expand(&shrubbery) {
-            Ok(value) => {
-                // Extract Content from ExpandValue
-                let content = match value {
-                    ExpandValue::Content(c) => Some(c),
-                    _ => None, // Non-Content results are valid but don't produce document content
-                };
-                ExpandResult {
-                    content,
-                    errors: vec![],
-                }
-            }
-            Err(e) => ExpandResult {
-                content: None,
-                errors: vec![format!("Expansion error: {}", e)],
+                errors: parse_result.errors,
             },
         }
     }
@@ -98,7 +54,7 @@ impl Query for ExpandToContentQuery {
     }
 }
 
-/// Query: Expand a single block's shrubbery to Content
+/// Query: Expand a single block's parsed content
 ///
 /// This enables fine-grained invalidation - when a block changes,
 /// only that block needs to be re-expanded.
@@ -112,57 +68,14 @@ impl Query for ExpandBlockQuery {
         // Depend on block parse query
         let parse_result = db.query::<ParseBlockQuery>(key.clone());
 
-        let shrubbery = match parse_result.shrubbery {
-            Some(s) => s,
-            None => {
-                return ExpandResult {
-                    content: None,
-                    errors: parse_result.errors,
-                };
-            }
-        };
-
-        // Get symbol table from parse result
-        let symbols = parse_result.symbols;
-
-        // Type check first
-        let mut checker = TypeChecker::new();
-        // Register parsed symbols with checker
-        if let Some(ref sym_table) = symbols {
-            checker.register_symbols(sym_table.symbols());
-        }
-        if let Err(e) = checker.check(&shrubbery) {
-            return ExpandResult {
+        match parse_result.source {
+            Some(source) => ExpandResult {
+                content: Some(source),
+                errors: vec![],
+            },
+            None => ExpandResult {
                 content: None,
-                errors: vec![format!("Type error in block {:?}: {}", key, e)],
-            };
-        }
-
-        // Expand
-        let mut expander = Expander::new();
-        // Register parsed symbols with expander (convert name→symbol to id→name)
-        if let Some(ref sym_table) = symbols {
-            let id_to_name: std::collections::HashMap<u64, String> = sym_table
-                .symbols()
-                .iter()
-                .map(|(name, sym)| (sym.id(), name.clone()))
-                .collect();
-            expander.set_symbols(id_to_name);
-        }
-        match expander.expand(&shrubbery) {
-            Ok(value) => {
-                let content = match value {
-                    ExpandValue::Content(c) => Some(c),
-                    _ => None,
-                };
-                ExpandResult {
-                    content,
-                    errors: vec![],
-                }
-            }
-            Err(e) => ExpandResult {
-                content: None,
-                errors: vec![format!("Expansion error in block {:?}: {}", key, e)],
+                errors: parse_result.errors,
             },
         }
     }
@@ -206,7 +119,7 @@ pub struct MacroConfig {
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::queries::source::{BlockId, SourceStorage};
+    use crate::queries::source::SourceStorage;
     use std::sync::Arc;
 
     #[test]
@@ -215,15 +128,13 @@ mod tests {
         let storage = Arc::new(SourceStorage::new());
         let doc_id = DocId("test".to_string());
 
-        // Simple prose - expansion may not produce content but query should run
         storage.set_document(doc_id.clone(), "Hello world".to_string());
         db.set_any("source_storage".to_string(), Box::new(storage));
 
         let result = db.query::<ExpandToContentQuery>(doc_id);
 
-        // Verify the query ran without panicking
-        // Note: Simple prose may not expand to Content - that's OK for this test
-        assert!(result.errors.is_empty() || result.errors.iter().all(|e| !e.contains("panic")));
+        assert!(result.content.is_some());
+        assert!(result.errors.is_empty());
     }
 
     #[test]
@@ -257,14 +168,13 @@ mod tests {
         let storage = Arc::new(SourceStorage::new());
         let block_id = BlockId(1);
 
-        // Simple content - expansion may not produce Content but query should run
         storage.set_block(block_id.clone(), "Block content".to_string());
         db.set_any("source_storage".to_string(), Box::new(storage));
 
         let result = db.query::<ExpandBlockQuery>(block_id);
 
-        // Verify the block query ran without panicking
-        assert!(result.errors.is_empty() || result.errors.iter().all(|e| !e.contains("panic")));
+        assert!(result.content.is_some());
+        assert!(result.errors.is_empty());
     }
 
     #[test]
@@ -280,22 +190,5 @@ mod tests {
 
         assert!(result.content.is_none(), "Empty block should not expand");
         assert!(!result.errors.is_empty(), "Should have errors");
-    }
-
-    #[test]
-    fn test_expand_block_dependencies() {
-        let db = Db::new();
-        let storage = Arc::new(SourceStorage::new());
-        let block_id = BlockId(42);
-
-        // Test that block expansion depends on block parse
-        storage.set_block(block_id.clone(), "Some content".to_string());
-        db.set_any("source_storage".to_string(), Box::new(storage));
-
-        // First query runs the pipeline
-        let _ = db.query::<ExpandBlockQuery>(block_id.clone());
-
-        // Second query should use cached parse result
-        let _ = db.query::<ExpandBlockQuery>(block_id);
     }
 }

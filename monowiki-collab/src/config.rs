@@ -43,7 +43,10 @@ pub struct CollabConfig {
 
 impl CollabConfig {
     pub fn from_cli(cli: &Cli) -> Result<Self> {
-        let workdir = if cli.workdir.is_relative() {
+        let workdir = if cli.in_place {
+            // In-place mode: use repo root as workdir to avoid clone/pull
+            PathBuf::from(".")
+        } else if cli.workdir.is_relative() {
             std::env::current_dir()?.join(&cli.workdir)
         } else {
             cli.workdir.clone()

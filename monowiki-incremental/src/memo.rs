@@ -170,7 +170,10 @@ impl<Q: Query> MemoTable<Q> {
 
     /// Get all keys currently cached
     pub fn keys(&self) -> Vec<Q::Key> {
-        self.entries.iter().map(|entry| entry.key().clone()).collect()
+        self.entries
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 }
 

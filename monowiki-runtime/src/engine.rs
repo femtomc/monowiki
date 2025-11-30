@@ -106,7 +106,9 @@ impl LiveCellEngine {
             "monowiki:runtime/signals",
             "signal-subscribe",
             |mut caller: Caller<'_, RuntimeHost>, id: i64, callback_id: i64| {
-                let _ = caller.data_mut().signal_subscribe(id as u64, callback_id as u64);
+                let _ = caller
+                    .data_mut()
+                    .signal_subscribe(id as u64, callback_id as u64);
             },
         )?;
 
@@ -135,16 +137,19 @@ impl LiveCellEngine {
              placeholder_ptr: i32,
              placeholder_len: i32,
              initial_ptr: i32,
-             initial_len: i32| -> i64 {
+             initial_len: i32|
+             -> i64 {
                 let mem = match caller.get_export("memory") {
                     Some(Extern::Memory(m)) => m,
                     _ => return -1,
                 };
 
                 let data = mem.data(&caller);
-                let placeholder =
-                    data[placeholder_ptr as usize..(placeholder_ptr + placeholder_len) as usize].to_vec();
-                let initial = data[initial_ptr as usize..(initial_ptr + initial_len) as usize].to_vec();
+                let placeholder = data
+                    [placeholder_ptr as usize..(placeholder_ptr + placeholder_len) as usize]
+                    .to_vec();
+                let initial =
+                    data[initial_ptr as usize..(initial_ptr + initial_len) as usize].to_vec();
 
                 let placeholder_str = match std::str::from_utf8(&placeholder) {
                     Ok(s) => s.to_string(),
@@ -155,7 +160,10 @@ impl LiveCellEngine {
                     Err(_) => return -1,
                 };
 
-                match caller.data_mut().ui_text_input(&placeholder_str, &initial_str) {
+                match caller
+                    .data_mut()
+                    .ui_text_input(&placeholder_str, &initial_str)
+                {
                     Ok(id) => id as i64,
                     Err(_) => -1,
                 }
@@ -263,7 +271,8 @@ impl LiveCellEngine {
                 };
 
                 let data = mem.data(&caller);
-                let class_bytes = data[class_ptr as usize..(class_ptr + class_len) as usize].to_vec();
+                let class_bytes =
+                    data[class_ptr as usize..(class_ptr + class_len) as usize].to_vec();
 
                 let class_str = match std::str::from_utf8(&class_bytes) {
                     Ok(s) => s.to_string(),
@@ -305,7 +314,8 @@ impl LiveCellEngine {
              pattern_ptr: i32,
              pattern_len: i32,
              value_ptr: i32,
-             value_len: i32| -> i64 {
+             value_len: i32|
+             -> i64 {
                 let mem = match caller.get_export("memory") {
                     Some(Extern::Memory(m)) => m,
                     _ => return -1,
@@ -349,7 +359,8 @@ impl LiveCellEngine {
             |mut caller: Caller<'_, RuntimeHost>,
              pattern_ptr: i32,
              pattern_len: i32,
-             callback_id: i64| -> i64 {
+             callback_id: i64|
+             -> i64 {
                 let mem = match caller.get_export("memory") {
                     Some(Extern::Memory(m)) => m,
                     _ => return -1,
@@ -382,7 +393,9 @@ impl LiveCellEngine {
             "monowiki:runtime/dataspace",
             "unsubscribe",
             |mut caller: Caller<'_, RuntimeHost>, subscription_id: i64| {
-                let _ = caller.data_mut().dataspace_unsubscribe(subscription_id as u64);
+                let _ = caller
+                    .data_mut()
+                    .dataspace_unsubscribe(subscription_id as u64);
             },
         )?;
 
@@ -453,13 +466,23 @@ impl LiveCellInstance {
 
 /// Implement ResourceLimiter for RuntimeHost to provide memory limits
 impl ResourceLimiter for RuntimeHost {
-    fn memory_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> anyhow::Result<bool> {
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> anyhow::Result<bool> {
         // Limit memory to 16MB
         const MAX_MEMORY: usize = 16 * 1024 * 1024;
         Ok(desired <= MAX_MEMORY)
     }
 
-    fn table_growing(&mut self, _current: usize, desired: usize, _maximum: Option<usize>) -> anyhow::Result<bool> {
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        _maximum: Option<usize>,
+    ) -> anyhow::Result<bool> {
         // Limit table size to 10000 elements
         const MAX_TABLE_ELEMENTS: usize = 10000;
         Ok(desired <= MAX_TABLE_ELEMENTS)

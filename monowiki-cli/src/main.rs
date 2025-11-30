@@ -120,7 +120,7 @@ enum Commands {
         listen_addr: String,
 
         /// Working directory for cloned repo, temp state, and build artifacts
-        #[arg(long, env = "MONOWIKI_WORKDIR", default_value = ".monowiki-collab")]
+        #[arg(long, env = "MONOWIKI_WORKDIR", default_value = ".")]
         workdir: PathBuf,
 
         /// Path to monowiki.yml relative to repo root
@@ -134,6 +134,10 @@ enum Commands {
         /// Open browser automatically
         #[arg(long)]
         open: bool,
+
+        /// Use the current working tree instead of cloning into a separate workdir (skips git ops)
+        #[arg(long, default_value_t = true)]
+        in_place: bool,
     },
 
     /// Set up GitHub Actions for GitHub Pages deployment
@@ -250,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
             config,
             build_on_start,
             open,
+            in_place,
         } => {
             let opts = commands::editor::EditorStackOpts {
                 repo,
@@ -260,6 +265,7 @@ async fn main() -> anyhow::Result<()> {
                 build_on_start,
                 open_browser: open,
                 verbose: cli.verbose,
+                in_place,
             };
             commands::run_editor_stack(opts).await
         }

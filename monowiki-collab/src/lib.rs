@@ -35,6 +35,7 @@ pub async fn run_with_cli(cli: cli::Cli) -> Result<()> {
         cfg.deploy_branch.clone(),
         cfg.workdir.clone(),
         Some(cfg.staging_prefix.clone()),
+        cli.in_place,
     );
     workspace.prepare().await?;
 

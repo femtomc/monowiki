@@ -1,30 +1,27 @@
-//! Parse queries - convert source text to shrubbery
+//! Parse queries - convert source text to parsed output
 //!
 //! Provides both document-level and block-level parsing for fine-grained invalidation.
 
 use crate::durability::Durability;
 use crate::queries::source::{BlockId, BlockSourceQuery, DocId, DocumentSourceQuery};
 use crate::query::{Query, QueryDatabase};
-use monowiki_mrl::{parse_with_symbols, tokenize, Shrubbery, SymbolTable};
 
-/// Parsed shrubbery result (or error)
+/// Parsed result (or error)
 #[derive(Clone, Debug)]
 pub struct ParseResult {
-    pub shrubbery: Option<Shrubbery>,
-    /// Symbol table from parsing (maps names to symbols)
-    pub symbols: Option<SymbolTable>,
+    /// Raw source text that was parsed
+    pub source: Option<String>,
     pub errors: Vec<String>,
 }
 
 impl std::hash::Hash for ParseResult {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        // Hash based on success/failure and error count
-        self.shrubbery.is_some().hash(state);
+        self.source.is_some().hash(state);
         self.errors.len().hash(state);
     }
 }
 
-/// Query: Parse document source into shrubbery
+/// Query: Parse document source
 pub struct ParseShrubberyQuery;
 
 impl Query for ParseShrubberyQuery {
@@ -37,36 +34,14 @@ impl Query for ParseShrubberyQuery {
 
         if source.is_empty() {
             return ParseResult {
-                shrubbery: None,
-                symbols: None,
+                source: None,
                 errors: vec!["Empty source".to_string()],
             };
         }
 
-        // Tokenize
-        let tokens = match tokenize(&source) {
-            Ok(t) => t,
-            Err(e) => {
-                return ParseResult {
-                    shrubbery: None,
-                    symbols: None,
-                    errors: vec![format!("Lexer error: {}", e)],
-                };
-            }
-        };
-
-        // Parse with symbols
-        match parse_with_symbols(&tokens) {
-            Ok((shrub, symbols)) => ParseResult {
-                shrubbery: Some(shrub),
-                symbols: Some(symbols),
-                errors: vec![],
-            },
-            Err(e) => ParseResult {
-                shrubbery: None,
-                symbols: None,
-                errors: vec![format!("Parser error: {}", e)],
-            },
+        ParseResult {
+            source: Some(source),
+            errors: vec![],
         }
     }
 
@@ -79,7 +54,7 @@ impl Query for ParseShrubberyQuery {
     }
 }
 
-/// Query: Parse a single block's source into shrubbery
+/// Query: Parse a single block's source
 ///
 /// This enables fine-grained invalidation - when a block changes,
 /// only that block needs to be re-parsed.
@@ -95,36 +70,14 @@ impl Query for ParseBlockQuery {
 
         if source.is_empty() {
             return ParseResult {
-                shrubbery: None,
-                symbols: None,
+                source: None,
                 errors: vec!["Empty block source".to_string()],
             };
         }
 
-        // Tokenize
-        let tokens = match tokenize(&source) {
-            Ok(t) => t,
-            Err(e) => {
-                return ParseResult {
-                    shrubbery: None,
-                    symbols: None,
-                    errors: vec![format!("Lexer error in block {:?}: {}", key, e)],
-                };
-            }
-        };
-
-        // Parse with symbols
-        match parse_with_symbols(&tokens) {
-            Ok((shrub, symbols)) => ParseResult {
-                shrubbery: Some(shrub),
-                symbols: Some(symbols),
-                errors: vec![],
-            },
-            Err(e) => ParseResult {
-                shrubbery: None,
-                symbols: None,
-                errors: vec![format!("Parser error in block {:?}: {}", key, e)],
-            },
+        ParseResult {
+            source: Some(source),
+            errors: vec![],
         }
     }
 
@@ -153,7 +106,7 @@ mod tests {
         let doc_id = DocId("test".to_string());
         let result = db.query::<ParseShrubberyQuery>(doc_id);
 
-        assert!(result.shrubbery.is_none());
+        assert!(result.source.is_none());
         assert!(!result.errors.is_empty());
     }
 
@@ -163,32 +116,13 @@ mod tests {
         let storage = Arc::new(SourceStorage::new());
         let doc_id = DocId("test".to_string());
 
-        // Simple MRL document
         storage.set_document(doc_id.clone(), "This is prose.".to_string());
         db.set_any("source_storage".to_string(), Box::new(storage));
 
         let result = db.query::<ParseShrubberyQuery>(doc_id);
 
-        assert!(result.shrubbery.is_some(), "Parse should succeed");
+        assert!(result.source.is_some(), "Parse should succeed");
         assert!(result.errors.is_empty(), "Should have no errors");
-    }
-
-    #[test]
-    fn test_parse_with_code() {
-        let db = Db::new();
-        let storage = Arc::new(SourceStorage::new());
-        let doc_id = DocId("test".to_string());
-
-        // MRL with inline code
-        storage.set_document(
-            doc_id.clone(),
-            "Hello !bold([world])!".to_string(),
-        );
-        db.set_any("source_storage".to_string(), Box::new(storage));
-
-        let result = db.query::<ParseShrubberyQuery>(doc_id);
-
-        assert!(result.shrubbery.is_some(), "Parse should succeed");
     }
 
     #[test]
@@ -202,7 +136,7 @@ mod tests {
 
         let result = db.query::<ParseBlockQuery>(block_id);
 
-        assert!(result.shrubbery.is_some(), "Block parse should succeed");
+        assert!(result.source.is_some(), "Block parse should succeed");
         assert!(result.errors.is_empty(), "Should have no errors");
     }
 
@@ -218,24 +152,7 @@ mod tests {
 
         let result = db.query::<ParseBlockQuery>(block_id);
 
-        assert!(result.shrubbery.is_none(), "Empty block should not parse");
+        assert!(result.source.is_none(), "Empty block should not parse");
         assert!(!result.errors.is_empty(), "Should have errors");
-    }
-
-    #[test]
-    fn test_parse_block_with_macro() {
-        let db = Db::new();
-        let storage = Arc::new(SourceStorage::new());
-        let block_id = BlockId(42);
-
-        storage.set_block(
-            block_id.clone(),
-            "Text with !emphasis([styled])!.".to_string(),
-        );
-        db.set_any("source_storage".to_string(), Box::new(storage));
-
-        let result = db.query::<ParseBlockQuery>(block_id);
-
-        assert!(result.shrubbery.is_some(), "Block with macro should parse");
     }
 }

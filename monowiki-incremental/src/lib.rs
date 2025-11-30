@@ -57,13 +57,13 @@
 #![warn(missing_debug_implementations)]
 
 // Core modules
+pub mod cache;
 pub mod db;
 pub mod durability;
-pub mod query;
-pub mod memo;
-pub mod cache;
 pub mod invalidation;
+pub mod memo;
 pub mod metrics;
+pub mod query;
 
 // Standard queries
 pub mod queries;

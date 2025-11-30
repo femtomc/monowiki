@@ -7,7 +7,7 @@ site:
   url: "https://yourusername.github.io"
 
 paths:
-  vault: "vault"           # Path to your Obsidian vault
+  vault: "docs"            # Path to your vault (default: docs/)
   output: "docs"           # Where to generate HTML (for GitHub Pages)
   templates: null          # null = use built-in templates, or specify custom path
   theme: null              # null = use built-in theme, or specify custom path
@@ -20,7 +20,7 @@ server:
   port: 8000               # Development server port
 
 bibliography:
-  - vault/references.bib   # Optional: list of BibTeX/BibLaTeX files
+  - docs/references.bib    # Optional: list of BibTeX/BibLaTeX files
 
 base_url: "/"              # Deployment base path (prefix for links)
 enable_rss: true

@@ -121,8 +121,7 @@ impl Permissions {
     pub fn can_observe(&self, _pattern: &Pattern) -> bool {
         // For now, we do a simple check. A more sophisticated implementation
         // would check if the subscription pattern is a subset of observe_filter.
-        self.observe_filter.is_none()
-            || self.observe_filter.as_ref().map_or(false, |_| true)
+        self.observe_filter.is_none() || self.observe_filter.as_ref().map_or(false, |_| true)
     }
 
     /// Check if a handle can be retracted with these permissions
@@ -155,7 +154,11 @@ pub struct DataspaceRef<D: Dataspace> {
 
 impl<D: Dataspace> DataspaceRef<D> {
     /// Create a new dataspace reference with the given permissions
-    pub fn new(name: impl Into<String>, dataspace: Arc<RwLock<D>>, permissions: Permissions) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        dataspace: Arc<RwLock<D>>,
+        permissions: Permissions,
+    ) -> Self {
         Self {
             name: name.into(),
             dataspace,

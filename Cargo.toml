@@ -8,7 +8,6 @@ members = [
     "monowiki-adapters",
     "monowiki-collab",
     "monowiki-incremental",
-    "monowiki-mrl",
     "monowiki-runtime",
     "monowiki-agent",
     "sammy",

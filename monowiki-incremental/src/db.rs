@@ -100,7 +100,12 @@ impl Db {
 
         // Update memo table and check for early cutoff
         let current_rev = self.revision();
-        let value_changed = table.update_entry(key.clone(), new_value.clone(), current_rev, dependencies.clone());
+        let value_changed = table.update_entry(
+            key.clone(),
+            new_value.clone(),
+            current_rev,
+            dependencies.clone(),
+        );
 
         // Update dependency tracking
         self.update_dependencies(query_key, dependencies);
@@ -254,9 +259,9 @@ impl QueryDatabase for Db {
     }
 
     fn get_any(&self, key: &str) -> Option<Arc<dyn Any + Send + Sync>> {
-        self.dynamic_storage.get(key).map(|entry| {
-            entry.value().clone()
-        })
+        self.dynamic_storage
+            .get(key)
+            .map(|entry| entry.value().clone())
     }
 
     fn set_any(&self, key: String, value: Box<dyn Any + Send + Sync>) {

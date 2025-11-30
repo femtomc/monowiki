@@ -21,7 +21,9 @@ pub mod source;
 
 // Document-level queries
 pub use expand::{ActiveMacrosQuery, ExpandResult, ExpandToContentQuery, MacroConfig};
-pub use layout::{ActiveStylesQuery, Layout, LayoutBox, LayoutDocumentQuery, LayoutKind, StyleConfig, Viewport};
+pub use layout::{
+    ActiveStylesQuery, Layout, LayoutBox, LayoutDocumentQuery, LayoutKind, StyleConfig, Viewport,
+};
 pub use parse::{ParseResult, ParseShrubberyQuery};
 pub use source::{BlockSourceQuery, DocumentSourceQuery, SourceStorage};
 

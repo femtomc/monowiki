@@ -77,7 +77,10 @@ pub trait Dataspace: Send + Sync {
 
     /// Get all assertion handles and values
     fn assertions(&self) -> Vec<(Handle, IOValue)> {
-        self.store().iter().map(|(h, v)| (h.clone(), v.clone())).collect()
+        self.store()
+            .iter()
+            .map(|(h, v)| (h.clone(), v.clone()))
+            .collect()
     }
 
     /// Get the number of active assertions

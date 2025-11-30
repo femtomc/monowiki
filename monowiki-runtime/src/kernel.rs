@@ -146,8 +146,7 @@ impl WasmKernel {
                 }
             }
             EvalPayload::Source { .. } | EvalPayload::Mrl { .. } => {
-                // WASM kernel doesn't handle source or MRL directly
-                // Return an error suggesting the wrong kernel was used
+                // WASM kernel doesn't handle source directly
                 EvalResult::error(
                     request.cell_id.clone(),
                     request.doc_id.clone(),
@@ -174,11 +173,7 @@ impl WasmKernel {
 }
 
 impl Entity<LocalDataspace<OrSetStore>> for WasmKernel {
-    fn on_assert(
-        &mut self,
-        ctx: &mut EntityContext<LocalDataspace<OrSetStore>>,
-        value: &IOValue,
-    ) {
+    fn on_assert(&mut self, ctx: &mut EntityContext<LocalDataspace<OrSetStore>>, value: &IOValue) {
         // Try to parse the EvalRequest from the IOValue
         // The value should be a record <EvalRequest kernel_id json>
         if let Some((_label, fields)) = extract_record_fields(value) {
@@ -270,11 +265,7 @@ impl<K: SourceKernel> SourceKernelEntity<K> {
 }
 
 impl<K: SourceKernel + 'static> Entity<LocalDataspace<OrSetStore>> for SourceKernelEntity<K> {
-    fn on_assert(
-        &mut self,
-        ctx: &mut EntityContext<LocalDataspace<OrSetStore>>,
-        value: &IOValue,
-    ) {
+    fn on_assert(&mut self, ctx: &mut EntityContext<LocalDataspace<OrSetStore>>, value: &IOValue) {
         if let Some((_label, fields)) = extract_record_fields(value) {
             if fields.len() >= 2 {
                 if let Some(json_str) = fields[1].as_string() {
@@ -297,15 +288,17 @@ impl<K: SourceKernel + 'static> Entity<LocalDataspace<OrSetStore>> for SourceKer
                                         ),
                                     }
                                 }
-                                EvalPayload::Wasm { .. } | EvalPayload::Mrl { .. } => EvalResult::error(
-                                    request.cell_id.clone(),
-                                    request.doc_id.clone(),
-                                    request.seq,
-                                    format!(
-                                        "Source kernel '{}' cannot execute WASM or MRL directly",
-                                        self.inner.kernel_id()
-                                    ),
-                                ),
+                                EvalPayload::Wasm { .. } | EvalPayload::Mrl { .. } => {
+                                    EvalResult::error(
+                                        request.cell_id.clone(),
+                                        request.doc_id.clone(),
+                                        request.seq,
+                                        format!(
+                                            "Source kernel '{}' cannot execute WASM or MRL directly",
+                                            self.inner.kernel_id()
+                                        ),
+                                    )
+                                }
                             };
 
                             let doc_view = names::doc_view(&request.doc_id);
@@ -328,182 +321,6 @@ impl<K: SourceKernel + 'static> Entity<LocalDataspace<OrSetStore>> for SourceKer
     }
 }
 
-/// MRL kernel that interprets MRL source code
-///
-/// This kernel receives EvalRequest assertions containing MRL source,
-/// executes them using the monowiki-mrl interpreter, renders the resulting
-/// Content tree to HTML, and publishes EvalResult assertions with the output.
-pub struct MrlKernel {
-    /// Kernel identifier (typically "mrl")
-    kernel_id: String,
-}
-
-impl MrlKernel {
-    /// Create a new MRL kernel with the default kernel_id "mrl"
-    pub fn new() -> Self {
-        Self {
-            kernel_id: "mrl".to_string(),
-        }
-    }
-
-    /// Create with a custom kernel ID
-    pub fn with_id(kernel_id: impl Into<String>) -> Self {
-        Self {
-            kernel_id: kernel_id.into(),
-        }
-    }
-
-    /// Get the kernel ID
-    pub fn kernel_id(&self) -> &str {
-        &self.kernel_id
-    }
-
-    /// Process an MRL evaluation request
-    fn process_mrl(&self, request: &EvalRequest, source: &str) -> EvalResult {
-        match monowiki_mrl::execute(source) {
-            Ok(content) => {
-                // Render Content to HTML
-                let html = crate::html::render_content(&content);
-
-                // Optionally include JSON representation
-                let json = serde_json::to_string(&content).ok();
-
-                match json {
-                    Some(j) => EvalResult::content_with_json(
-                        request.cell_id.clone(),
-                        request.doc_id.clone(),
-                        request.seq,
-                        html,
-                        j,
-                    ),
-                    None => EvalResult::content(
-                        request.cell_id.clone(),
-                        request.doc_id.clone(),
-                        request.seq,
-                        html,
-                    ),
-                }
-            }
-            Err(e) => {
-                // Extract span information if available
-                let (message, span) = extract_mrl_error(&e);
-                match span {
-                    Some(s) => EvalResult::error_with_span(
-                        request.cell_id.clone(),
-                        request.doc_id.clone(),
-                        request.seq,
-                        message,
-                        s,
-                    ),
-                    None => EvalResult::error(
-                        request.cell_id.clone(),
-                        request.doc_id.clone(),
-                        request.seq,
-                        message,
-                    ),
-                }
-            }
-        }
-    }
-}
-
-impl Default for MrlKernel {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Extract error message and optional span from MrlError
-fn extract_mrl_error(err: &monowiki_mrl::MrlError) -> (String, Option<(usize, usize)>) {
-    let message = err.to_string();
-    let span = err.span();
-    (message, Some((span.start, span.end)))
-}
-
-impl Entity<LocalDataspace<OrSetStore>> for MrlKernel {
-    fn on_assert(
-        &mut self,
-        ctx: &mut EntityContext<LocalDataspace<OrSetStore>>,
-        value: &IOValue,
-    ) {
-        if let Some((_label, fields)) = extract_record_fields(value) {
-            if fields.len() >= 2 {
-                if let Some(json_str) = fields[1].as_string() {
-                    if let Some(request) = EvalRequest::from_json(&json_str) {
-                        if request.kernel_id == self.kernel_id {
-                            tracing::debug!(
-                                kernel = %self.kernel_id,
-                                cell = %request.cell_id,
-                                doc = %request.doc_id,
-                                seq = request.seq,
-                                "Processing MRL eval request"
-                            );
-
-                            let result = match &request.payload {
-                                EvalPayload::Mrl { source, deps: _ } => {
-                                    // Process MRL source
-                                    self.process_mrl(&request, source)
-                                }
-                                EvalPayload::Source { data } => {
-                                    // Also accept source payload (treat as MRL)
-                                    self.process_mrl(&request, data)
-                                }
-                                EvalPayload::Wasm { .. } => {
-                                    EvalResult::error(
-                                        request.cell_id.clone(),
-                                        request.doc_id.clone(),
-                                        request.seq,
-                                        format!(
-                                            "MRL kernel '{}' cannot execute WASM bytecode. \
-                                             Use the WASM kernel instead.",
-                                            self.kernel_id
-                                        ),
-                                    )
-                                }
-                            };
-
-                            // Publish result to doc-view dataspace
-                            let doc_view = names::doc_view(&request.doc_id);
-                            match ctx.assert(&doc_view, result.to_iovalue()) {
-                                Ok(_handle) => {
-                                    tracing::debug!(
-                                        kernel = %self.kernel_id,
-                                        cell = %request.cell_id,
-                                        "Published MRL eval result"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        kernel = %self.kernel_id,
-                                        error = ?e,
-                                        "Failed to publish MRL eval result"
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn on_retract(
-        &mut self,
-        _ctx: &mut EntityContext<LocalDataspace<OrSetStore>>,
-        _value: &IOValue,
-    ) {
-        // Retractions don't require action
-    }
-
-    fn on_stop(&mut self, _ctx: &mut EntityContext<LocalDataspace<OrSetStore>>) {
-        tracing::info!(kernel = %self.kernel_id, "MRL kernel stopping");
-    }
-
-    fn type_name(&self) -> &'static str {
-        "MrlKernel"
-    }
-}
-
 /// A simple echo kernel for testing
 ///
 /// Returns the input source/wasm as output.
@@ -520,11 +337,7 @@ impl EchoKernel {
 }
 
 impl Entity<LocalDataspace<OrSetStore>> for EchoKernel {
-    fn on_assert(
-        &mut self,
-        ctx: &mut EntityContext<LocalDataspace<OrSetStore>>,
-        value: &IOValue,
-    ) {
+    fn on_assert(&mut self, ctx: &mut EntityContext<LocalDataspace<OrSetStore>>, value: &IOValue) {
         if let Some((_label, fields)) = extract_record_fields(value) {
             if fields.len() >= 2 {
                 if let Some(json_str) = fields[1].as_string() {
@@ -591,130 +404,6 @@ mod tests {
     }
 
     #[test]
-    fn test_mrl_kernel_creation() {
-        let kernel = MrlKernel::new();
-        assert_eq!(kernel.kernel_id(), "mrl");
-
-        let custom = MrlKernel::with_id("custom-mrl");
-        assert_eq!(custom.kernel_id(), "custom-mrl");
-    }
-
-    #[test]
-    fn test_mrl_kernel_simple_text() {
-        let kernel = MrlKernel::new();
-
-        // MRL string literal syntax uses double quotes
-        let source = r#""Hello, world!""#;
-        let request = EvalRequest::mrl(
-            "cell1".to_string(),
-            "doc1".to_string(),
-            source.to_string(),
-            vec![],
-            1,
-        );
-
-        let result = kernel.process_mrl(&request, source);
-
-        // Should produce Content result
-        match &result.result {
-            EvalResultKind::Content { html, json } => {
-                assert!(html.contains("Hello, world!"));
-                assert!(json.is_some()); // Should include JSON representation
-            }
-            other => panic!("Expected Content, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_mrl_kernel_number_literal() {
-        let kernel = MrlKernel::new();
-
-        let request = EvalRequest::mrl(
-            "cell1".to_string(),
-            "doc1".to_string(),
-            "42".to_string(),
-            vec![],
-            1,
-        );
-
-        let result = kernel.process_mrl(&request, "42");
-
-        // Should produce Content result
-        match &result.result {
-            EvalResultKind::Content { html, json } => {
-                // The number should be rendered somehow
-                assert!(json.is_some());
-            }
-            other => panic!("Expected Content, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_mrl_kernel_error_handling() {
-        let kernel = MrlKernel::new();
-
-        // Invalid MRL syntax should produce an error
-        let request = EvalRequest::mrl(
-            "cell1".to_string(),
-            "doc1".to_string(),
-            "!invalid_function()".to_string(),
-            vec![],
-            1,
-        );
-
-        let result = kernel.process_mrl(&request, "!invalid_function()");
-
-        // Should produce Error result
-        match &result.result {
-            EvalResultKind::Error { message, .. } => {
-                assert!(!message.is_empty());
-            }
-            other => panic!("Expected Error, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn test_mrl_kernel_wasm_error() {
-        let kernel = MrlKernel::new();
-
-        // Create a WASM request for MRL kernel
-        let request = EvalRequest::wasm(
-            "mrl".to_string(),
-            "cell1".to_string(),
-            "doc1".to_string(),
-            vec![0x00, 0x61, 0x73, 0x6D],
-            1,
-        );
-
-        // MRL kernel should reject WASM payloads
-        let doc_view_ds = create_test_dataspace();
-        let mut caps = HashMap::new();
-
-        let doc_view_ref = sammy::dataspace::DataspaceRef::new(
-            "doc-view/doc1",
-            doc_view_ds.clone(),
-            Permissions::full(),
-        );
-        caps.insert("doc-view/doc1".to_string(), doc_view_ref);
-
-        let facet_id = sammy::types::FacetId::root(sammy::types::ActorId::new("test"));
-        let mut ctx = EntityContext::new(facet_id, &mut caps);
-
-        let mut kernel = kernel;
-        kernel.on_assert(&mut ctx, &request.to_iovalue());
-
-        // Check the result in the dataspace
-        let results = caps
-            .get("doc-view/doc1")
-            .unwrap()
-            .query(&sammy::PatternBuilder::wildcard())
-            .unwrap();
-
-        assert_eq!(results.len(), 1);
-        // The result should be an error about WASM not being supported
-    }
-
-    #[test]
     fn test_echo_kernel() {
         let kernel = EchoKernel::new("echo");
 
@@ -723,11 +412,8 @@ mod tests {
         let mut caps = HashMap::new();
 
         // Add doc-view capability
-        let doc_view_ref = sammy::dataspace::DataspaceRef::new(
-            "doc-view/doc1",
-            doc_view_ds,
-            Permissions::full(),
-        );
+        let doc_view_ref =
+            sammy::dataspace::DataspaceRef::new("doc-view/doc1", doc_view_ds, Permissions::full());
         caps.insert("doc-view/doc1".to_string(), doc_view_ref);
 
         let facet_id = sammy::types::FacetId::root(sammy::types::ActorId::new("test"));

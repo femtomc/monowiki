@@ -177,7 +177,7 @@ impl Default for RuntimeLimits {
     fn default() -> Self {
         Self {
             max_memory: 16 * 1024 * 1024, // 16MB
-            max_execution_time_ms: 5000,   // 5 seconds
+            max_execution_time_ms: 5000,  // 5 seconds
             max_signals: 1000,
             max_widgets: 100,
         }

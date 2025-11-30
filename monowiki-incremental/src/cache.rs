@@ -192,8 +192,7 @@ impl ContentCache {
     pub fn get<T: DeserializeOwned>(&self, key: &CacheKey) -> Option<T> {
         if let Some(mut entry) = self.entries.get_mut(key) {
             entry.record_access();
-            self.hits
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             // Deserialize the value
             serde_json::from_slice(&entry.value).ok()
@@ -207,8 +206,8 @@ impl ContentCache {
     /// Put a value in the cache
     pub fn put<T: Serialize>(&self, key: CacheKey, value: &T) -> Result<(), CacheError> {
         // Serialize the value
-        let serialized = serde_json::to_vec(value)
-            .map_err(|e| CacheError::SerializationError(e.to_string()))?;
+        let serialized =
+            serde_json::to_vec(value).map_err(|e| CacheError::SerializationError(e.to_string()))?;
 
         // Check size limit
         if self.max_size_bytes > 0 {
@@ -234,8 +233,7 @@ impl ContentCache {
     pub fn clear(&self) {
         self.entries.clear();
         self.hits.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.misses
-            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.misses.store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Get cache statistics
@@ -252,10 +250,7 @@ impl ContentCache {
 
     /// Get total size of cached data
     fn total_size(&self) -> usize {
-        self.entries
-            .iter()
-            .map(|entry| entry.value.len())
-            .sum()
+        self.entries.iter().map(|entry| entry.value.len()).sum()
     }
 
     /// Evict entries to make room for new data

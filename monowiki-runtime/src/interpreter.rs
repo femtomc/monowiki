@@ -178,12 +178,9 @@ impl Interpreter {
             SimpleExpr::FieldAccess(obj, field) => {
                 let obj_val = self.eval(obj)?;
                 match obj_val {
-                    Value::Object(ref map) => map
-                        .get(field)
-                        .cloned()
-                        .ok_or_else(|| {
-                            RuntimeError::WasmError(format!("Field not found: {}", field))
-                        }),
+                    Value::Object(ref map) => map.get(field).cloned().ok_or_else(|| {
+                        RuntimeError::WasmError(format!("Field not found: {}", field))
+                    }),
                     _ => Err(RuntimeError::WasmError(format!(
                         "Cannot access field on non-object: {:?}",
                         obj_val
@@ -213,7 +210,9 @@ impl Interpreter {
                 (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
                 (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
                 (Value::String(a), Value::String(b)) => Ok(Value::String(a + &b)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for +".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for +".to_string(),
+                )),
             },
 
             BinOp::Sub => match (lhs, rhs) {
@@ -221,7 +220,9 @@ impl Interpreter {
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
                 (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 - b)),
                 (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b as f64)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for -".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for -".to_string(),
+                )),
             },
 
             BinOp::Mul => match (lhs, rhs) {
@@ -229,7 +230,9 @@ impl Interpreter {
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
                 (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 * b)),
                 (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b as f64)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for *".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for *".to_string(),
+                )),
             },
 
             BinOp::Div => match (lhs, rhs) {
@@ -243,7 +246,9 @@ impl Interpreter {
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
                 (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 / b)),
                 (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / b as f64)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for /".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for /".to_string(),
+                )),
             },
 
             BinOp::Rem => match (lhs, rhs) {
@@ -254,7 +259,9 @@ impl Interpreter {
                         Ok(Value::Int(a % b))
                     }
                 }
-                _ => Err(RuntimeError::WasmError("Invalid operands for %".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for %".to_string(),
+                )),
             },
 
             BinOp::Eq => Ok(Value::Bool(lhs == rhs)),
@@ -263,7 +270,9 @@ impl Interpreter {
             BinOp::Lt => match (lhs, rhs) {
                 (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a < b)),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a < b)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for <".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for <".to_string(),
+                )),
             },
 
             BinOp::Le => match (lhs, rhs) {
@@ -277,7 +286,9 @@ impl Interpreter {
             BinOp::Gt => match (lhs, rhs) {
                 (Value::Int(a), Value::Int(b)) => Ok(Value::Bool(a > b)),
                 (Value::Float(a), Value::Float(b)) => Ok(Value::Bool(a > b)),
-                _ => Err(RuntimeError::WasmError("Invalid operands for >".to_string())),
+                _ => Err(RuntimeError::WasmError(
+                    "Invalid operands for >".to_string(),
+                )),
             },
 
             BinOp::Ge => match (lhs, rhs) {
@@ -314,14 +325,18 @@ impl Interpreter {
         match name {
             "str" => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::WasmError("str() takes 1 argument".to_string()));
+                    return Err(RuntimeError::WasmError(
+                        "str() takes 1 argument".to_string(),
+                    ));
                 }
                 Ok(Value::String(format!("{:?}", args[0])))
             }
 
             "len" => {
                 if args.len() != 1 {
-                    return Err(RuntimeError::WasmError("len() takes 1 argument".to_string()));
+                    return Err(RuntimeError::WasmError(
+                        "len() takes 1 argument".to_string(),
+                    ));
                 }
                 match &args[0] {
                     Value::String(s) => Ok(Value::Int(s.len() as i64)),
@@ -340,7 +355,12 @@ impl Interpreter {
     }
 
     /// Evaluate a method call
-    fn eval_method(&mut self, _obj: Value, method: &str, _args: Vec<Value>) -> RuntimeResult<Value> {
+    fn eval_method(
+        &mut self,
+        _obj: Value,
+        method: &str,
+        _args: Vec<Value>,
+    ) -> RuntimeResult<Value> {
         // Stub - method calls not yet implemented
         Err(RuntimeError::WasmError(format!(
             "Method calls not yet implemented: {}",

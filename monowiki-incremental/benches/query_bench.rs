@@ -2,10 +2,10 @@
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use monowiki_incremental::prelude::*;
+use monowiki_incremental::queries::layout::Viewport;
 use monowiki_incremental::queries::{
     ExpandToContentQuery, LayoutDocumentQuery, ParseShrubberyQuery, SourceStorage,
 };
-use monowiki_incremental::queries::layout::Viewport;
 use std::sync::Arc;
 
 /// Helper to set up a database with source storage
@@ -94,16 +94,14 @@ fn bench_layout_query(c: &mut Criterion) {
         b.iter(|| {
             db.clear_all();
             db.set_any("source_storage".to_string(), Box::new(storage.clone()));
-            let layout =
-                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
+            let layout = db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
 
     c.bench_function("layout_query_hot", |b| {
         b.iter(|| {
-            let layout =
-                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
+            let layout = db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
@@ -131,8 +129,7 @@ fn bench_full_pipeline(c: &mut Criterion) {
         b.iter(|| {
             let _shrubbery = db.query::<ParseShrubberyQuery>(black_box(doc_id.clone()));
             let _content = db.query::<ExpandToContentQuery>(black_box(doc_id.clone()));
-            let layout =
-                db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
+            let layout = db.query::<LayoutDocumentQuery>(black_box((doc_id.clone(), viewport)));
             black_box(layout);
         })
     });
@@ -185,8 +182,7 @@ fn bench_multiple_documents(c: &mut Criterion) {
                     // Query all documents
                     for i in 0..num_docs {
                         let doc_id = DocId::new(format!("doc_{}", i));
-                        let content =
-                            db.query::<ExpandToContentQuery>(black_box(doc_id));
+                        let content = db.query::<ExpandToContentQuery>(black_box(doc_id));
                         black_box(content);
                     }
                 })

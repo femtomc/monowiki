@@ -154,9 +154,8 @@ impl AssertionStore for OrSetStore {
         }
 
         // Remove any of our assertions that are in combined tombstones
-        self.active.retain(|handle, (_, version)| {
-            !all_tombstones.contains(&(handle.clone(), *version))
-        });
+        self.active
+            .retain(|handle, (_, version)| !all_tombstones.contains(&(handle.clone(), *version)));
 
         self.tombstones = all_tombstones;
     }

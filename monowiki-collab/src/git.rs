@@ -13,6 +13,7 @@ pub struct GitWorkspace {
     deploy_branch: Option<String>,
     workdir: PathBuf,
     staging_prefix: Option<String>,
+    in_place: bool,
 }
 
 impl GitWorkspace {
@@ -22,6 +23,7 @@ impl GitWorkspace {
         deploy_branch: Option<String>,
         workdir: PathBuf,
         staging_prefix: Option<String>,
+        in_place: bool,
     ) -> Self {
         Self {
             repo,
@@ -29,6 +31,7 @@ impl GitWorkspace {
             deploy_branch,
             workdir,
             staging_prefix,
+            in_place,
         }
     }
 
@@ -50,6 +53,10 @@ impl GitWorkspace {
 
     /// Ensure we have a checkout of the target branch. If not cloned, clone; otherwise fetch/rebase.
     pub async fn init_or_refresh(&self) -> Result<()> {
+        if self.in_place {
+            info!("in-place mode enabled; skipping git clone/pull");
+            return Ok(());
+        }
         if !self.worktree_path().join(".git").exists() {
             self.clone_branch().await?;
         } else {

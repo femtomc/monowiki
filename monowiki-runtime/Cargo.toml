@@ -32,9 +32,6 @@ base64 = "0.22"
 # Syndicated actor runtime
 sammy = { path = "../sammy" }
 
-# MRL interpreter for MrlKernel
-monowiki-mrl = { path = "../monowiki-mrl" }
-
 [dev-dependencies]
 tempfile = { workspace = true }
 insta = { workspace = true }

@@ -12,11 +12,10 @@
 //!
 //! ## Architecture
 //!
-//! The runtime follows monowiki's three-phase execution model:
+//! The runtime follows monowiki's execution model:
 //!
-//! 1. **Read-time**: Parse source into shrubbery (handled by parser crate)
-//! 2. **Expand-time**: Macro expansion, type checking (handled by MRL crate)
-//! 3. **Render-time**: Live cell execution (THIS CRATE)
+//! 1. **Parse-time**: Parse source into document structure
+//! 2. **Render-time**: Live cell execution (THIS CRATE)
 //!
 //! ## Live Cells
 //!
@@ -102,17 +101,15 @@ pub use dataspace::{Assertion, DataspaceClient, Subscription};
 
 pub use sammy_config::{MonowikiConfig, MonowikiRuntime};
 
-pub use schemas::{
-    CapabilityGrant, DiagnosticAssertion, DiagnosticSeverity, EvalPayload,
-    EvalRequest, EvalResult, EvalResultKind, PluginRegistered,
-};
 pub use schemas::Decoration as DecorationAssertion;
+pub use schemas::{
+    CapabilityGrant, DiagnosticAssertion, DiagnosticSeverity, EvalPayload, EvalRequest, EvalResult,
+    EvalResultKind, PluginRegistered,
+};
 
 pub use diagnostics::{Decoration, Diagnostic, DiagnosticCollector};
 
-pub use emitter::{
-    ExportKind, FuncBody, FuncType, Instruction, ValType, WasmEmitter,
-};
+pub use emitter::{ExportKind, FuncBody, FuncType, Instruction, ValType, WasmEmitter};
 
 pub use engine::{LiveCellEngine, LiveCellInstance};
 
@@ -124,11 +121,13 @@ pub use signals::{Signal, SignalStore};
 
 pub use ui::{Widget, WidgetStore};
 
-pub use html::render_content;
+pub use html::{escape_attr, escape_html};
 
-pub use kernel::{EchoKernel, MrlKernel, SourceKernel, SourceKernelEntity, WasmKernel};
+pub use kernel::{EchoKernel, SourceKernel, SourceKernelEntity, WasmKernel};
 
-pub use livecell_codegen::{LiveCellCodeGen, LiveCellConfig, LiveCellPayload, WasmEmitterWithMemory};
+pub use livecell_codegen::{
+    LiveCellCodeGen, LiveCellConfig, LiveCellPayload, WasmEmitterWithMemory,
+};
 
 #[cfg(test)]
 mod tests {
