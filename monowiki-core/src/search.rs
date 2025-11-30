@@ -1,10 +1,17 @@
+use blake3;
 ///! Section-level search indexing for precise search results
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchEntry {
-    pub id: String,            // Unique ID: "{slug}#{section-id}"
-    pub url: String,           // Page URL with anchor: "/page.html#section"
+    pub id: String,  // Unique ID: "{slug}#{section-id}"
+    pub url: String, // Page URL with anchor: "/page.html#section"
+    /// Stable section identifier: heading slug + hash of normalized text
+    #[serde(default)]
+    pub section_id: String,
+    /// Hash of section text (for change detection)
+    #[serde(default)]
+    pub section_hash: String,
     pub title: String,         // Page title
     pub section_title: String, // Section heading (empty for top matter)
     pub content: String,       // Plain text content
@@ -30,11 +37,15 @@ pub fn build_search_index(
     let sections = extract_sections_from_html(content_html);
 
     if sections.is_empty() {
+        let section_hash = compute_section_hash(&plain_text);
+        let section_id = format!("{}-{}", slug, &section_hash[..8]);
         // Fallback: single entry for whole document
         let snippet = create_snippet(&plain_text, 200);
         return vec![SearchEntry {
             id: slug.to_string(),
             url: format!("{}{}.html", base_url, slug),
+            section_id,
+            section_hash,
             title: title.to_string(),
             section_title: String::new(),
             content: plain_text,
@@ -61,9 +72,21 @@ pub fn build_search_index(
             };
 
             let snippet = create_snippet(&section_text, 200);
+            let section_hash = compute_section_hash(&section_text);
+            let stable_section_id = format!(
+                "{}-{}",
+                if heading_id.is_empty() {
+                    slug.to_string()
+                } else {
+                    heading_id.clone()
+                },
+                &section_hash[..8]
+            );
 
             SearchEntry {
                 id: section_id,
+                section_id: stable_section_id,
+                section_hash,
                 url,
                 title: title.to_string(),
                 section_title: heading,
@@ -194,6 +217,37 @@ fn create_snippet(text: &str, max_chars: usize) -> String {
     } else {
         format!("{}...", truncated)
     }
+}
+
+fn compute_section_hash(text: &str) -> String {
+    let normalized = text.trim();
+    let hash = blake3::hash(normalized.as_bytes());
+    hash.to_hex().to_string()
+}
+
+/// Lightweight digest for section-level change detection
+#[derive(Debug, Clone)]
+pub struct SectionDigest {
+    pub section_id: String,
+    pub heading: String,
+    pub hash: String,
+}
+
+/// Extract section digests (stable IDs + hashes) from rendered HTML
+pub fn section_digests_from_html(
+    slug: &str,
+    title: &str,
+    content_html: &str,
+) -> Vec<SectionDigest> {
+    let entries = build_search_index(slug, title, content_html, &[], "", "/");
+    entries
+        .into_iter()
+        .map(|entry| SectionDigest {
+            section_id: entry.section_id,
+            heading: entry.section_title,
+            hash: entry.section_hash,
+        })
+        .collect()
 }
 
 #[cfg(test)]

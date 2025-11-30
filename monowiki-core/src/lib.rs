@@ -23,5 +23,6 @@ pub use config::Config;
 pub use models::{
     Diagnostic, DiagnosticSeverity, Frontmatter, LinkGraph, Note, NoteType, SiteIndex,
 };
+pub use search::SectionDigest;
 pub use search::{build_search_index, SearchEntry};
 pub use slug::slugify;

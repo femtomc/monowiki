@@ -95,6 +95,21 @@ enum Commands {
         command: ExportCommands,
     },
 
+    /// Summarize changes since a git ref
+    Changes {
+        /// Git ref to diff against (e.g., HEAD~1 or origin/main)
+        #[arg(long, default_value = "HEAD~1")]
+        since: String,
+
+        /// Emit JSON instead of text
+        #[arg(long)]
+        json: bool,
+
+        /// Include section-level details (hashes/headings)
+        #[arg(long)]
+        with_sections: bool,
+    },
+
     /// Verify vault health and emit diagnostics
     Verify {
         /// Emit JSON instead of text
@@ -187,6 +202,11 @@ async fn main() -> anyhow::Result<()> {
                 pretty,
             ),
         },
+        Commands::Changes {
+            since,
+            json,
+            with_sections,
+        } => commands::changes(&cli.config, &since, json, with_sections),
         Commands::Verify { json } => commands::verify_site(&cli.config, json),
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::GithubPages { repo, force } => {

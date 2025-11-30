@@ -27,6 +27,7 @@ typst-assets.workspace = true
 once_cell.workspace = true
 lru.workspace = true
 hayagriva.workspace = true
+blake3.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

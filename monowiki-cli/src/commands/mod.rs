@@ -1,6 +1,7 @@
 //! CLI command implementations.
 
 pub mod build;
+pub mod changes;
 pub mod dev;
 pub mod export;
 pub mod github_pages;
@@ -12,6 +13,7 @@ pub mod verify;
 pub mod watch;
 
 pub use build::build_site;
+pub use changes::{changes, compute_changes};
 pub use dev::dev_server;
 pub use export::export_sections;
 pub use github_pages::setup_github_pages;

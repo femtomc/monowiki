@@ -111,6 +111,7 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
         .route("/api/note/{slug}", get(api_note))
         .route("/api/graph/{slug}", get(api_graph_neighbors))
         .route("/api/graph/path", get(api_graph_path))
+        .route("/api/changes", get(api_changes))
         .route("/{*path}", get(serve_with_404))
         .route("/", get(serve_index))
         .fallback(serve_404)
@@ -239,6 +240,51 @@ async fn api_search(State(state): State<AppState>, Query(params): Query<SearchPa
     );
 
     Json(payload).into_response()
+}
+
+#[derive(Deserialize)]
+struct ChangesParams {
+    since: Option<String>,
+    with_sections: Option<bool>,
+}
+
+async fn api_changes(
+    State(state): State<AppState>,
+    Query(params): Query<ChangesParams>,
+) -> Response {
+    let since = params.since.unwrap_or_else(|| "HEAD~1".to_string());
+    let with_sections = params.with_sections.unwrap_or(false);
+    let data = state.data.read().await;
+    let site_index = data.site_index.clone();
+    let config = data.config.clone();
+
+    // Run blocking git operations off the main executor
+    let result = tokio::task::spawn_blocking(move || {
+        crate::commands::compute_changes(&config, &site_index, &since, with_sections)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(changes)) => {
+            let json = serde_json::to_string(&changes).unwrap_or_else(|_| "{}".into());
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                json,
+            )
+                .into_response()
+        }
+        Ok(Err(err)) => (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to compute changes: {}", err),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task join error: {}", err),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Deserialize)]
