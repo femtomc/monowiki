@@ -318,10 +318,14 @@ fn collect_comments(notes: &[Note]) -> Vec<Comment> {
         let parent_id = note.frontmatter.parent_id.clone();
 
         // Determine if this comment targets another comment
-        let is_reply = target_slug
+        // A comment is a reply if:
+        // 1. Its target_slug points to an existing comment, OR
+        // 2. It has a parent_id set (indicating intent to reply, even if parent is missing)
+        let target_is_comment = target_slug
             .as_ref()
             .map(|s| comment_note_map.contains_key(s))
             .unwrap_or(false);
+        let is_reply = target_is_comment || parent_id.is_some();
 
         let (resolved_anchor, resolved) = if is_reply {
             // Comment targets another comment - use synthetic anchor
