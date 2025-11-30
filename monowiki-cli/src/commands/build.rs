@@ -210,6 +210,7 @@ fn render_comment_page(
         slug: note.slug.clone(),
         source: None,
         comments: vec![], // Comment pages don't show the modal UI
+        has_unanchored_comments: false,
     };
 
     let html = template
@@ -256,6 +257,10 @@ fn render_note_page(
     // Expand {{directory_tree}} macro if present
     let content = expand_macros(&note.content_html, site_index, base_url);
 
+    // Get comments and compute unanchored flag
+    let comments = render_comments_for_note(&site_index.comments, &note.slug);
+    let has_unanchored_comments = comments.iter().any(|c| c.depth == 0 && !c.has_anchor);
+
     let template = PostTemplate {
         title: note.title.clone(),
         description: note
@@ -281,7 +286,8 @@ fn render_note_page(
         base_url: base_url.to_string(),
         slug: note.slug.clone(),
         source: note.raw_body.clone(),
-        comments: render_comments_for_note(&site_index.comments, &note.slug),
+        comments,
+        has_unanchored_comments,
     };
 
     let html = template
@@ -297,6 +303,12 @@ fn render_note_page(
 }
 
 fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> Vec<CommentRender> {
+    // Build lookup for finding root note of orphaned replies
+    let comment_map: std::collections::HashMap<_, _> = comments
+        .iter()
+        .map(|c| (c.id.as_str(), c))
+        .collect();
+
     // Build a set of comment IDs that are top-level comments on this note
     let top_level_ids: std::collections::HashSet<_> = comments
         .iter()
@@ -307,7 +319,7 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
     // Collect:
     // 1. Top-level comments targeting this note (resolved or not)
     // 2. Replies whose thread_root is a top-level comment on this note
-    // 3. Orphaned replies targeting this note (is_reply but thread_root not found)
+    // 3. Orphaned replies (is_reply && thread_root == self) whose ultimate target is this note
     let mut result: Vec<CommentRender> = comments
         .iter()
         .filter(|c| {
@@ -320,10 +332,10 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
                 .map(|root| top_level_ids.contains(root))
                 .unwrap_or(false);
             // Orphaned reply: is_reply but thread_root is self (parent not found)
-            // and originally targeted this note
+            // Trace up to find which note it ultimately belongs to
             let is_orphaned = c.is_reply
                 && c.thread_root.as_ref() == Some(&c.id)
-                && c.target_slug.as_deref() == Some(slug);
+                && find_root_note_slug(c, &comment_map).as_deref() == Some(slug);
             is_top_level || is_in_thread || is_orphaned
         })
         .map(|c| {
@@ -382,6 +394,37 @@ fn extract_order_from_id(id: &str) -> u64 {
         }
     }
     0
+}
+
+/// Trace an orphaned comment-reply up through the comment chain to find
+/// its ultimate target note slug (the first non-comment target).
+fn find_root_note_slug(
+    comment: &monowiki_core::Comment,
+    comment_map: &std::collections::HashMap<&str, &monowiki_core::Comment>,
+) -> Option<String> {
+    let mut current_target = comment.target_slug.as_deref()?;
+    let mut visited = std::collections::HashSet::new();
+
+    // Follow the chain of target_slugs until we find one that's not a comment
+    loop {
+        // Cycle detection
+        if !visited.insert(current_target) {
+            return None;
+        }
+
+        // If this target is a comment, follow its target_slug
+        if let Some(parent_comment) = comment_map.get(current_target) {
+            if let Some(ref next_target) = parent_comment.target_slug {
+                current_target = next_target;
+            } else {
+                // Parent comment has no target - orphan chain
+                return None;
+            }
+        } else {
+            // Not a comment - this is the root note slug
+            return Some(current_target.to_string());
+        }
+    }
 }
 
 fn comment_color_bg(id: &str) -> String {

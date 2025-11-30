@@ -204,6 +204,7 @@
   });
 </script>
 
+{% if has_unanchored_comments %}
 {# Render unanchored/unresolved comments in a visible section #}
 <div class="unanchored-comments" id="unanchored-comments-section">
   <h3 class="unanchored-comments-heading">Unanchored Comments</h3>
@@ -246,15 +247,7 @@
   {% endif %}
   {% endfor %}
 </div>
-<script>
-  // Hide unanchored comments section if empty
-  document.addEventListener('DOMContentLoaded', () => {
-    const section = document.getElementById('unanchored-comments-section');
-    if (section && section.querySelectorAll('.comment-block').length === 0) {
-      section.style.display = 'none';
-    }
-  });
-</script>
+{% endif %}
 {% endif %}
 
   <!-- Global Graph Modal -->

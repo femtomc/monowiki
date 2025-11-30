@@ -175,6 +175,9 @@ pub struct PostTemplate {
 
     // Comments/annotations targeting this note
     pub comments: Vec<CommentRender>,
+
+    // Pre-computed flag for whether any unanchored comments exist
+    pub has_unanchored_comments: bool,
 }
 
 /// Index page template
