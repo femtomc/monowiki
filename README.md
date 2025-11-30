@@ -19,6 +19,7 @@ monowiki build        # write static site to docs/
 monowiki verify       # advisory vault health report (use --json for agents)
 monowiki changes      # summarize git changes since a ref
 monowiki comment add  # create an annotation file in vault/comments/
+monowiki status       # changes + comments in one call
 monowiki github-pages # generate GitHub Actions workflow
 ```
 
@@ -71,6 +72,7 @@ monowiki verify --json  # diagnostics: unresolved links, citations, math, aliase
 monowiki changes --since HEAD~1 --json --with-sections
 monowiki comment list --slug note-slug --json
 monowiki comment add --slug note-slug --anchor section-id --quote "..." --body "text"
+monowiki status --since HEAD~1 --comment-status open --json
 ```
 
 Dev server exposes `/api/search`, `/api/note/<slug>`, `/api/graph/<slug>`.
