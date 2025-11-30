@@ -22,6 +22,7 @@ export interface EditorOptions {
   container: HTMLElement;
   initialDoc?: string;
   onContentChange?: (update: ViewUpdate) => void;
+  onSelectionChange?: (update: ViewUpdate) => void;
 }
 
 export interface EditorInstance {
@@ -33,7 +34,7 @@ export interface EditorInstance {
  * Create a standalone CodeMirror editor. Collaboration is handled outside via Loro.
  */
 export function createEditor(options: EditorOptions): EditorInstance {
-  const { container, initialDoc = '', onContentChange } = options;
+  const { container, initialDoc = '', onContentChange, onSelectionChange } = options;
 
   const state = EditorState.create({
     doc: initialDoc,
@@ -58,6 +59,9 @@ export function createEditor(options: EditorOptions): EditorInstance {
       EditorView.updateListener.of((update) => {
         if (update.docChanged) {
           onContentChange?.(update);
+        }
+        if (update.selectionSet) {
+          onSelectionChange?.(update);
         }
       }),
 

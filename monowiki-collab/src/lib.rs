@@ -11,6 +11,7 @@ pub mod git;
 pub mod ratelimit;
 pub mod render;
 pub mod server;
+pub mod sammy_reactor;
 
 use anyhow::Result;
 use tracing_subscriber::EnvFilter;

@@ -15,12 +15,28 @@
         <span id="connection-status" class="status disconnected">disconnected</span>
       </div>
       <div class="toolbar-right">
-        <input type="text" id="token-input" placeholder="Bearer token" />
-        <button id="flush-btn" title="Flush to disk without commit">Save</button>
-        <button id="checkpoint-btn" title="Commit and push to git">Checkpoint</button>
-        <button id="build-btn" title="Build and deploy">Build</button>
-        <input type="text" id="preview-url" placeholder="/preview" />
-        <button id="refresh-btn" title="Refresh preview">↻</button>
+        <button id="toggle-preview-btn" class="secondary">Show preview</button>
+        <button id="toggle-context-btn" class="secondary">Show context</button>
+        <div class="publishing-container">
+          <button id="publishing-btn" class="secondary">Publishing ▾</button>
+          <div id="publishing-panel" class="publishing-panel hidden">
+            <div class="panel-group">
+              <span class="panel-label">Bearer token</span>
+              <input type="text" id="token-input" placeholder="token for API auth" />
+            </div>
+            <div class="panel-group">
+              <span class="panel-label">Preview base</span>
+              <input type="text" id="preview-url" placeholder="/preview" />
+              <button id="refresh-btn" title="Refresh preview">Refresh preview</button>
+            </div>
+            <div class="panel-group">
+              <span class="panel-label">Publishing</span>
+              <button id="flush-btn" title="Flush to disk without commit">Save</button>
+              <button id="checkpoint-btn" title="Commit and push to git">Checkpoint</button>
+              <button id="build-btn" title="Build and deploy">Build</button>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
     <div id="status-banner" class="status-banner" hidden></div>
@@ -29,6 +45,13 @@
         <div class="sidebar-header">
           <span class="sidebar-title">VAULT</span>
           <button id="new-file-btn" class="sidebar-btn" title="New file">+</button>
+        </div>
+        <div id="new-file-form" class="inline-form hidden">
+          <input type="text" id="new-file-input" placeholder="new-file-name" />
+          <div class="inline-form-actions">
+            <button id="create-file-confirm">Create</button>
+            <button id="create-file-cancel" class="secondary">Cancel</button>
+          </div>
         </div>
         <div class="file-tree" id="file-tree">
           <div class="loading">Loading...</div>
@@ -39,24 +62,64 @@
         <div class="editor-pane">
           <div id="editor"></div>
         </div>
-        <div class="resizer" id="resizer"></div>
-        <div class="preview-pane">
+        <div class="resizer collapsed" id="resizer"></div>
+        <div class="preview-pane collapsed">
           <iframe id="preview-frame" src="about:blank"></iframe>
         </div>
-        <aside class="comments-pane" id="comments-pane">
+        <aside class="comments-pane collapsed" id="comments-pane">
           <div class="comments-header">
             <span>Comments</span>
             <div class="comments-actions">
+              <button id="add-comment-btn" title="Add comment for selection">+</button>
               <button id="comments-refresh" title="Refresh comments">⟳</button>
+            </div>
+          </div>
+          <div id="comment-composer" class="inline-form hidden">
+            <textarea id="comment-input" rows="2" placeholder="Add a comment to your selection"></textarea>
+            <div class="inline-form-actions">
+              <button id="comment-submit">Add</button>
+              <button id="comment-cancel" class="secondary">Cancel</button>
             </div>
           </div>
           <div id="comments-list" class="comments-list">
             <div class="comment-empty">No comments yet</div>
           </div>
+          <div class="context-panel">
+            <div class="context-section">
+              <div class="context-header">
+                <span>Backlinks</span>
+                <button id="backlinks-refresh" title="Refresh backlinks">⟳</button>
+              </div>
+              <div id="backlinks-list" class="context-list"></div>
+            </div>
+            <div class="context-section">
+              <div class="context-header">
+                <span>Related</span>
+              </div>
+              <div id="related-list" class="context-list"></div>
+            </div>
+            <div class="context-section">
+              <div class="context-header">
+                <span>Search</span>
+              </div>
+              <div class="search-bar">
+                <input id="search-input" type="text" placeholder="Search notes..." />
+                <button id="search-btn">Go</button>
+              </div>
+              <div id="search-results" class="context-list"></div>
+            </div>
+            <div class="context-section">
+              <div class="context-header">
+                <span>Events</span>
+              </div>
+              <div id="events-list" class="context-list"></div>
+            </div>
+          </div>
         </aside>
       </div>
     </main>
   </div>
+  <div id="context-menu" class="context-menu hidden"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

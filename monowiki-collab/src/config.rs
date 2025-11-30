@@ -39,6 +39,7 @@ pub struct CollabConfig {
     pub build_on_start: bool,
     pub auth: AuthConfig,
     pub rate_limit: RateLimitConfig,
+    pub in_place: bool,
 }
 
 impl CollabConfig {
@@ -80,11 +81,16 @@ impl CollabConfig {
             build_on_start: cli.build_on_start,
             auth,
             rate_limit,
+            in_place: cli.in_place,
         })
     }
 
     pub fn worktree_path(&self) -> PathBuf {
-        self.workdir.join("worktree")
+        if self.in_place {
+            self.workdir.clone()
+        } else {
+            self.workdir.join("worktree")
+        }
     }
 
     pub fn cache_path(&self) -> PathBuf {

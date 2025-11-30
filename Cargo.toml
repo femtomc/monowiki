@@ -7,7 +7,6 @@ members = [
     "monowiki-render",
     "monowiki-adapters",
     "monowiki-collab",
-    "monowiki-incremental",
     "monowiki-runtime",
     "monowiki-agent",
     "sammy",

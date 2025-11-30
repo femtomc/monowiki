@@ -32,6 +32,7 @@ include_dir = { workspace = true }
 
 # CRDT - Loro (MovableTree + Fugue + Peritext)
 loro = "1.0"
+preserves = { workspace = true }
 
 # Optional: reuse core rendering/parsing logic when turning CRDT -> markdown
 monowiki-core = { path = "../monowiki-core" }
@@ -45,3 +46,9 @@ async-trait = "0.1"
 # Template rendering and date handling
 askama = "0.14"
 chrono = { workspace = true }
+
+# Sammy runtime
+sammy = { path = "../sammy" }
+
+# Sync primitives
+parking_lot = { workspace = true }

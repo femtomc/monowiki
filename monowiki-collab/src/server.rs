@@ -6,7 +6,7 @@ use axum::{
     body::Body,
     extract::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, Path, State,
+        DefaultBodyLimit, Path, Query, State,
     },
     http::{header, StatusCode},
     response::{Html, IntoResponse, Response},
@@ -16,8 +16,12 @@ use axum::{
 use axum_extra::extract::Multipart;
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::sync::broadcast;
 use tracing::{info, warn};
+use sammy::runtime::{DefaultConfig as SammyConfig, Runtime as SammyRuntime};
+use sammy::{dataspace::Permissions as SammyPermissions, Dataspace};
+use preserves::IOValue;
 
 /// Embedded editor UI (built from /editor with bun)
 static EDITOR_DIST: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../editor/dist");
@@ -31,6 +35,7 @@ use crate::{
     git::{GitWorkspace, GitWorkspaceSummary},
     ratelimit::RateLimiter,
     render::SharedRenderCache,
+    sammy_reactor::ensure_doc_reactor,
 };
 // Loro sync protocol: simple binary message passing
 
@@ -46,6 +51,7 @@ pub struct AppState {
     pub rate_limiter: Arc<RateLimiter>,
     pub render_cache: SharedRenderCache,
     pub agent_manager: Arc<AgentManager>,
+    pub sammy: Arc<tokio::sync::Mutex<SammyRuntime<SammyConfig>>>,
 }
 
 pub async fn serve(
@@ -65,6 +71,9 @@ pub async fn serve(
 
     // Initialize render cache with site config
     render_cache.initialize(site_config.clone()).await;
+
+    // Initialize Sammy runtime
+    let sammy = Arc::new(tokio::sync::Mutex::new(SammyRuntime::with_defaults()));
 
     if config.build_on_start {
         builder.ensure_ready().await?;
@@ -103,6 +112,7 @@ pub async fn serve(
         rate_limiter,
         render_cache,
         agent_manager,
+        sammy,
     };
 
     let app = Router::new()
@@ -122,6 +132,8 @@ pub async fn serve(
         .route("/api/status", get(status))
         .route("/api/files", get(list_files))
         .route("/api/note/{*slug}", get(get_note).put(write_note))
+        .route("/api/graph/{*slug}", get(get_graph))
+        .route("/api/search", get(search_notes))
         .route("/api/checkpoint", post(checkpoint))
         .route("/api/build", post(build_now))
         .route("/api/flush", post(flush_now))
@@ -130,10 +142,12 @@ pub async fn serve(
         // Agent endpoints
         .route("/api/agent/ask", post(agent_ask))
         .route("/api/agent/comments/{*slug}", get(get_comments))
+        .route("/api/agent/comments/{*slug}", post(add_comment))
         .route(
-            "/api/agent/comments/{*slug}/{comment_id}/resolve",
+            "/api/agent/comments/resolve/{comment_id}/{*slug}",
             post(resolve_comment),
         )
+        .route("/api/events/{*slug}", get(get_events))
         .route("/ws/agent/{session_id}", get(ws_agent))
         // Document sync
         .route("/ws/note/{*slug}", get(ws_note))
@@ -197,6 +211,24 @@ async fn serve_preview_index(State(state): State<AppState>) -> Response {
         )
             .into_response(),
     }
+}
+
+/// Publish a simple assertion into a document dataspace.
+fn publish_doc_assertion(
+    sammy: &Arc<tokio::sync::Mutex<SammyRuntime<SammyConfig>>>,
+    slug: &str,
+    payload: serde_json::Value,
+) {
+    let ds_name = format!("doc:{}", slug);
+    let payload_io = IOValue::new(payload.to_string());
+    let sammy = sammy.clone();
+    tokio::spawn(async move {
+        let mut rt = sammy.lock().await;
+        ensure_doc_reactor(&mut rt, &ds_name);
+        let ds = rt.dataspace(&ds_name);
+        let mut guard = ds.write();
+        guard.assert(payload_io);
+    });
 }
 
 async fn serve_preview_file(Path(path): Path<String>, State(state): State<AppState>) -> Response {
@@ -402,7 +434,7 @@ struct FileEntry {
 struct NoteResponse {
     slug: String,
     path: String,
-    frontmatter: serde_json::Value,
+    frontmatter: Value,
     body: String,
 }
 
@@ -417,7 +449,24 @@ async fn get_note(
     }
 
     match read_note(&state, &slug).await {
-        Ok(note) => Ok(Json(note).into_response()),
+        Ok(note) => {
+            {
+                let mut rt = state.sammy.lock().await;
+                let ds_name = format!("doc:{}", slug);
+                ensure_doc_reactor(&mut rt, &ds_name);
+            }
+            // Publish assertion for note open
+            publish_doc_assertion(
+                &state.sammy,
+                &slug,
+                serde_json::json!({
+                    "event": "note.open",
+                    "slug": slug,
+                    "path": note.path,
+                }),
+            );
+            Ok(Json(note).into_response())
+        }
         Err(err) => {
             warn!(%slug, ?err, "failed to read note");
             Ok((StatusCode::NOT_FOUND, format!("note not found: {slug}")).into_response())
@@ -439,6 +488,55 @@ struct WriteNoteRequest {
 struct WriteNoteResponse {
     path: String,
     checkpointed: bool,
+}
+
+#[derive(Serialize)]
+struct GraphResponse {
+    slug: String,
+    backlinks: Vec<String>,
+    outgoing: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SearchParams {
+    q: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    10
+}
+
+#[derive(Serialize)]
+struct SearchHit {
+    id: String,
+    slug: String,
+    title: String,
+    section_title: String,
+    snippet: String,
+    url: String,
+    tags: Vec<String>,
+    doc_type: String,
+}
+
+#[derive(Deserialize)]
+struct AddCommentRequest {
+    block_id: String,
+    start: usize,
+    end: usize,
+    content: String,
+    #[serde(default = "default_author")]
+    author: String,
+}
+
+fn default_author() -> String {
+    "editor".to_string()
+}
+
+#[derive(Serialize)]
+struct EventsResponse {
+    events: Vec<String>,
 }
 
 async fn write_note(
@@ -706,6 +804,17 @@ async fn write_note_to_disk(
         .overwrite_from_plain(slug, fm_json, &payload.body, &state.site_config)
         .await?;
 
+    // Publish an assertion for note update
+    publish_doc_assertion(
+        &state.sammy,
+        slug,
+        serde_json::json!({
+            "event": "note.update",
+            "slug": slug,
+            "path": rel_path.to_string_lossy(),
+        }),
+    );
+
     let checkpointed = if payload.checkpoint.unwrap_or(false) {
         commit_and_push(state, "collab save").await?
     } else {
@@ -716,6 +825,172 @@ async fn write_note_to_disk(
         path: rel_path.to_string_lossy().to_string(),
         checkpointed,
     })
+}
+
+/// Return backlinks/outgoing links for a slug using graph.json if present.
+async fn get_graph(
+    Path(slug): Path<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let graph_path = state.site_config.output_dir().join("graph.json");
+    let mut backlinks = std::collections::HashSet::new();
+    let mut outgoing = std::collections::HashSet::new();
+
+    if let Ok(content) = tokio::fs::read_to_string(&graph_path).await {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(edges) = json.get("edges").and_then(|v| v.as_array()) {
+                for edge in edges {
+                    let source = edge.get("source").and_then(|v| v.as_str()).unwrap_or_default();
+                    let target = edge.get("target").and_then(|v| v.as_str()).unwrap_or_default();
+                    if source == slug {
+                        outgoing.insert(target.to_string());
+                    }
+                    if target == slug {
+                        backlinks.insert(source.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Json(GraphResponse {
+        slug: slug.clone(),
+        backlinks: backlinks.into_iter().collect(),
+        outgoing: outgoing.into_iter().collect(),
+    })
+    .into_response()
+}
+
+/// Lightweight substring search over docs/index.json.
+async fn search_notes(
+    State(state): State<AppState>,
+    Query(params): Query<SearchParams>,
+) -> impl IntoResponse {
+    let index_path = state.site_config.output_dir().join("index.json");
+    let mut hits = Vec::new();
+    let q = params.q.to_lowercase();
+    if !q.is_empty() {
+        if let Ok(content) = tokio::fs::read_to_string(&index_path).await {
+            if let Ok(entries) = serde_json::from_str::<Vec<monowiki_core::search::SearchEntry>>(&content) {
+                for entry in entries {
+                    let haystack = format!(
+                        "{} {} {} {} {}",
+                        entry.title,
+                        entry.section_title,
+                        entry.content,
+                        entry.snippet,
+                        entry.tags.join(" "),
+                    )
+                    .to_lowercase();
+                    if haystack.contains(&q) {
+                        let slug = entry
+                            .id
+                            .split('#')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        hits.push(SearchHit {
+                            id: entry.id,
+                            slug,
+                            title: entry.title,
+                            section_title: entry.section_title,
+                            snippet: entry.snippet,
+                            url: entry.url,
+                            tags: entry.tags,
+                            doc_type: entry.doc_type,
+                        });
+                        if hits.len() >= params.limit {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Json(serde_json::json!({ "results": hits })).into_response()
+}
+
+/// Add a comment to a document (block range).
+async fn add_comment(
+    Path(slug): Path<String>,
+    State(state): State<AppState>,
+    MaybeClaims(claims): MaybeClaims,
+    Json(payload): Json<AddCommentRequest>,
+) -> Result<impl IntoResponse, AuthError> {
+    // Require write access
+    if let Some(ref c) = claims {
+        c.authorize(Capability::Write, Some(&slug))?;
+    }
+    let identity = claims
+        .as_ref()
+        .map(|c| c.sub.as_str())
+        .unwrap_or("anonymous");
+    check_rate_limit(&state, identity).await?;
+
+    let doc = match state.crdt.get_or_load(&slug, &state.site_config).await {
+        Ok(doc) => doc,
+        Err(err) => {
+            warn!(%slug, ?err, "failed to load doc for comment");
+            return Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("failed to load doc: {err}") })),
+            )
+                .into_response());
+        }
+    };
+
+    match doc.add_comment(
+        &payload.block_id,
+        payload.start,
+        payload.end,
+        &payload.content,
+        &payload.author,
+    ) {
+        Ok(id) => {
+            // Publish comment assertion
+            publish_doc_assertion(
+                &state.sammy,
+                &slug,
+                serde_json::json!({
+                    "event": "comment.add",
+                    "slug": slug,
+                    "id": id,
+                    "block_id": payload.block_id,
+                    "start": payload.start,
+                    "end": payload.end,
+                    "author": payload.author,
+                }),
+            );
+            Ok(Json(serde_json::json!({ "id": id })).into_response())
+        }
+        Err(err) => {
+            warn!(%slug, ?err, "failed to add comment");
+            Ok((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("{err}") })),
+            )
+                .into_response())
+        }
+    }
+}
+
+/// Get recent events from the doc feed dataspace (simple list of strings).
+async fn get_events(
+    Path(slug): Path<String>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let feed_ds = format!("feed:doc:{}", slug);
+    let mut events = Vec::new();
+    {
+        let mut rt = state.sammy.lock().await;
+        let ds = rt.dataspace(&feed_ds);
+        let guard = ds.read();
+        for (_handle, value) in guard.assertions() {
+            events.push(serde_json::to_string(&value).unwrap_or_default());
+        }
+    }
+    Json(EventsResponse { events }).into_response()
 }
 
 async fn commit_and_push(state: &AppState, message: &str) -> Result<bool> {
@@ -1022,7 +1297,7 @@ async fn get_comments(
 
 /// Resolve a comment.
 async fn resolve_comment(
-    Path((slug, comment_id)): Path<(String, String)>,
+    Path((comment_id, slug)): Path<(String, String)>,
     State(state): State<AppState>,
     MaybeClaims(claims): MaybeClaims,
 ) -> Result<impl IntoResponse, AuthError> {
@@ -1180,6 +1455,19 @@ async fn handle_agent_ws(mut socket: WebSocket, session_id: String, state: AppSt
 }
 
 async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Result<()> {
+    // Ensure per-doc dataspace exists and an actor for this session is spawned
+    let actor_id = {
+        let mut rt = state.sammy.lock().await;
+        let ds_name = format!("doc:{}", slug);
+        if !rt.has_dataspace(&ds_name) {
+            let _ = rt.dataspace(&ds_name);
+        }
+        let actor_id = rt.spawn_actor(format!("session:{}", uuid::Uuid::new_v4()));
+        // Grant full permissions for now; can be scoped later
+        rt.grant_capability(&actor_id, &ds_name, SammyPermissions::full());
+        actor_id
+    };
+
     let doc = state.crdt.get_or_load(&slug, &state.site_config).await?;
     let session_id = doc.next_session_id();
     let mut broadcast_rx = doc.subscribe();
@@ -1234,6 +1522,12 @@ async fn handle_ws(mut socket: WebSocket, slug: String, state: AppState) -> Resu
                 }
             }
         }
+    }
+
+    // Cleanup: stop the actor when socket closes
+    {
+        let mut rt = state.sammy.lock().await;
+        let _ = rt.stop_actor(&actor_id);
     }
 
     Ok(())

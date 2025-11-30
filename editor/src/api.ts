@@ -64,6 +64,38 @@ export interface CommentsResponse {
   comments: Comment[];
 }
 
+export interface GraphResponse {
+  slug: string;
+  backlinks: string[];
+  outgoing: string[];
+}
+
+export interface SearchHit {
+  id: string;
+  slug: string;
+  title: string;
+  section_title: string;
+  snippet: string;
+  url: string;
+  tags: string[];
+  doc_type: string;
+}
+
+export interface SearchResponse {
+  results: SearchHit[];
+}
+
+// Dataspace events (as pulled via graph/search endpoints for now)
+export interface DocEvent {
+  event: string;
+  slug: string;
+  [key: string]: any;
+}
+
+export interface EventsResponse {
+  events: string[];
+}
+
 // Agent streaming events
 export type AgentStreamEvent =
   | { type: 'thinking' }
@@ -257,6 +289,25 @@ export class CollabAPI {
   }
 
   /**
+   * Add a comment to a block range.
+   */
+  async addComment(
+    slug: string,
+    payload: { block_id: string; start: number; end: number; content: string; author?: string },
+  ): Promise<{ id: string }> {
+    const res = await fetch(`${this.baseUrl}/api/agent/comments/${slug}`, {
+      method: 'POST',
+      headers: this.headers(),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}));
+      throw new Error(json.error || `Failed to add comment: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  /**
    * Create a WebSocket connection for streaming agent responses.
    */
   createAgentSocket(sessionId: string): WebSocket {
@@ -266,5 +317,36 @@ export class CollabAPI {
 
     const ws = new WebSocket(url);
     return ws;
+  }
+
+  async getGraph(slug: string): Promise<GraphResponse> {
+    const res = await fetch(`${this.baseUrl}/api/graph/${slug}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch graph: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async search(query: string, limit = 10): Promise<SearchResponse> {
+    const res = await fetch(
+      `${this.baseUrl}/api/search?q=${encodeURIComponent(query)}&limit=${limit}`,
+      { headers: this.headers() },
+    );
+    if (!res.ok) {
+      throw new Error(`Search failed: ${res.status}`);
+    }
+    return res.json();
+  }
+
+  async getEvents(slug: string): Promise<EventsResponse> {
+    const res = await fetch(`${this.baseUrl}/api/events/${slug}`, {
+      headers: this.headers(),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch events: ${res.status}`);
+    }
+    return res.json();
   }
 }

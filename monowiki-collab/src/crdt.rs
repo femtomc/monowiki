@@ -15,6 +15,7 @@ use anyhow::{anyhow, Result};
 use loro::{ExportMode, LoroDoc, LoroList, LoroMap, LoroText, LoroValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use parking_lot::RwLock as SyncRwLock;
 use tokio::sync::{broadcast, RwLock};
 
 // =============================================================================
@@ -368,7 +369,7 @@ impl DocStore {
         site_config: &monowiki_core::Config,
     ) -> Result<()> {
         let doc = self.get_or_load(slug, site_config).await?;
-        doc.replace_body_and_frontmatter(frontmatter, body).await;
+        doc.replace_body_and_frontmatter(frontmatter, body);
         Ok(())
     }
 }
@@ -386,7 +387,7 @@ impl DocStore {
 pub struct LoroNoteDoc {
     doc: LoroDoc,
     /// Cached frontmatter (also stored in doc for sync)
-    frontmatter: RwLock<Value>,
+    frontmatter: SyncRwLock<Value>,
     tx: broadcast::Sender<SyncPacket>,
     dirty: std::sync::atomic::AtomicBool,
     session_counter: std::sync::atomic::AtomicU64,
@@ -411,7 +412,7 @@ impl LoroNoteDoc {
 
         Self {
             doc,
-            frontmatter: RwLock::new(Value::Object(Default::default())),
+            frontmatter: SyncRwLock::new(Value::Object(Default::default())),
             tx,
             dirty: std::sync::atomic::AtomicBool::new(false),
             session_counter: std::sync::atomic::AtomicU64::new(1),
@@ -427,7 +428,7 @@ impl LoroNoteDoc {
         // Parse markdown into blocks and populate the structure
         this.initialize_from_markdown(body)?;
 
-        *this.frontmatter.blocking_write() = frontmatter.clone();
+        *this.frontmatter.write() = frontmatter.clone();
 
         // Also store frontmatter in Loro for sync
         this.set_frontmatter_value(&frontmatter)?;
@@ -1135,8 +1136,8 @@ impl LoroNoteDoc {
         Ok(())
     }
 
-    pub async fn get_frontmatter(&self) -> Value {
-        self.frontmatter.read().await.clone()
+    pub fn get_frontmatter(&self) -> Value {
+        self.frontmatter.read().clone()
     }
 
     // -------------------------------------------------------------------------
@@ -1300,9 +1301,9 @@ impl LoroNoteDoc {
     }
 
     /// Replace body/frontmatter and emit a full update for connected peers.
-    pub async fn replace_body_and_frontmatter(&self, frontmatter: Value, body: &str) {
+    pub fn replace_body_and_frontmatter(&self, frontmatter: Value, body: &str) {
         {
-            let mut guard = self.frontmatter.write().await;
+            let mut guard = self.frontmatter.write();
             *guard = frontmatter.clone();
         }
 
@@ -1339,7 +1340,7 @@ impl LoroNoteDoc {
 
     /// Snapshot to frontmatter + body string
     pub fn snapshot(&self) -> Result<(Value, String)> {
-        let fm = self.frontmatter.blocking_read().clone();
+        let fm = self.frontmatter.read().clone();
         let body = self.to_markdown();
         Ok((fm, body))
     }
@@ -1566,9 +1567,20 @@ async fn load_note_from_disk(
     config: &monowiki_core::Config,
 ) -> Result<(Value, String)> {
     let path = config.vault_dir().join(slug_to_rel(slug)?);
-    let content = tokio::fs::read_to_string(&path).await?;
-    let (fm, body) = monowiki_core::frontmatter::parse_frontmatter(&content)?;
-    Ok((serde_json::to_value(fm)?, body))
+    match tokio::fs::read_to_string(&path).await {
+        Ok(content) => {
+            let (fm, body) = monowiki_core::frontmatter::parse_frontmatter(&content)?;
+            Ok((serde_json::to_value(fm)?, body))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Create an empty document when the file doesn't exist yet.
+            let fm = serde_json::json!({
+                "title": slug,
+            });
+            Ok((fm, String::new()))
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 async fn load_loro_snapshot(slug: &str, config: &monowiki_core::Config) -> Result<Option<Vec<u8>>> {

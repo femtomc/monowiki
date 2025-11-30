@@ -9,7 +9,7 @@
  */
 
 import { createEditor, EditorInstance, ConnectionStatus } from './editor';
-import { CollabAPI, FileEntry, Comment } from './api';
+import { CollabAPI, FileEntry, Comment, Selection, SearchHit } from './api';
 import { Preview } from './preview';
 import { AgentPanel } from './agent-panel';
 import { LoroDoc, LoroMap, LoroList } from 'loro-crdt';
@@ -39,12 +39,30 @@ const previewPane = document.querySelector('.preview-pane') as HTMLDivElement;
 const tokenInput = document.getElementById('token-input') as HTMLInputElement;
 const commentsList = document.getElementById('comments-list') as HTMLDivElement;
 const commentsRefresh = document.getElementById('comments-refresh') as HTMLButtonElement;
+const addCommentBtn = document.getElementById('add-comment-btn') as HTMLButtonElement;
+const backlinksList = document.getElementById('backlinks-list') as HTMLDivElement;
+const backlinksRefresh = document.getElementById('backlinks-refresh') as HTMLButtonElement;
+const commentsPane = document.getElementById('comments-pane') as HTMLDivElement;
+const relatedList = document.getElementById('related-list') as HTMLDivElement;
+const searchInput = document.getElementById('search-input') as HTMLInputElement;
+const searchBtn = document.getElementById('search-btn') as HTMLButtonElement;
+const searchResultsList = document.getElementById('search-results') as HTMLDivElement;
+const eventsList = document.getElementById('events-list') as HTMLDivElement;
+const togglePreviewBtn = document.getElementById('toggle-preview-btn') as HTMLButtonElement;
+const toggleContextBtn = document.getElementById('toggle-context-btn') as HTMLButtonElement;
+const publishingBtn = document.getElementById('publishing-btn') as HTMLButtonElement;
+const publishingPanel = document.getElementById('publishing-panel') as HTMLDivElement;
+const contextMenu = document.getElementById('context-menu') as HTMLDivElement;
 
 // Sidebar elements
 const fileTree = document.getElementById('file-tree') as HTMLDivElement;
 const newFileBtn = document.getElementById('new-file-btn') as HTMLButtonElement;
 const sidebar = document.getElementById('sidebar') as HTMLElement;
 const sidebarResizer = document.getElementById('sidebar-resizer') as HTMLDivElement;
+const newFileForm = document.getElementById('new-file-form') as HTMLDivElement;
+const newFileInput = document.getElementById('new-file-input') as HTMLInputElement;
+const newFileConfirm = document.getElementById('create-file-confirm') as HTMLButtonElement;
+const newFileCancel = document.getElementById('create-file-cancel') as HTMLButtonElement;
 
 // State
 type BlockRange = {
@@ -66,7 +84,20 @@ let collabSocket: WebSocket | null = null;
 let blockRanges: BlockRange[] = [];
 let suppressEditorUpdate = false;
 let commentsCache: Comment[] = [];
+let agentPanel: AgentPanel | null = null;
 let statusTimeout: number | null = null;
+let backlinksCache: string[] = [];
+let outgoingCache: string[] = [];
+let searchResults: SearchHit[] = [];
+let recentEvents: { event: string; slug: string; path?: string; id?: string }[] = [];
+let previewVisible = false;
+let contextVisible = false;
+let publishingOpen = false;
+let contextMenuOpen = false;
+let composerAnchor: { block_id: string; start: number; end: number; from: number; to: number } | null = null;
+let editingCommentId: string | null = null;
+let floatingComposer: HTMLDivElement | null = null;
+let floatingComposerTextarea: HTMLTextAreaElement | null = null;
 
 const RENDER_DEBOUNCE_MS = 100; // Wait 100ms after typing stops before rendering
 
@@ -691,6 +722,57 @@ function formatTimestamp(ts: string): string {
   return d.toLocaleString();
 }
 
+function getCurrentSelection(): Selection | null {
+  if (!currentEditor) return null;
+  const view = currentEditor.view;
+  const { from, to } = view.state.selection.main;
+  if (from === to) return null;
+
+  const block = findBlockForOffset(from);
+  if (!block) return null;
+
+  return {
+    text: view.state.sliceDoc(from, to),
+    block_id: block.id,
+    start: Math.max(0, from - block.textStart),
+    end: Math.max(0, to - block.textStart),
+  };
+}
+
+function updateSelectionDependentUI() {
+  if (!currentSlug) {
+    addCommentBtn.disabled = true;
+    return;
+  }
+  addCommentBtn.disabled = !getCurrentSelection();
+}
+
+function getBlockText(blockId: string): string {
+  if (loroDoc) {
+    const texts = loroDoc.getMap('texts');
+    const value = texts.get(blockId);
+    if (typeof value === 'string') return value;
+  }
+  const range = blockRanges.find((b) => b.id === blockId);
+  return range?.text ?? '';
+}
+
+function getCommentRange(comment: Comment): { from: number; to: number } | null {
+  const block = blockRanges.find((b) => b.id === comment.block_id);
+  if (!block) return null;
+  const from = block.textStart + comment.start;
+  const to = block.textStart + comment.end;
+  return { from, to };
+}
+
+function getAnchorSnippet(comment: Comment, maxLen = 140): string {
+  const text = getBlockText(comment.block_id);
+  const snippet = text.slice(comment.start, comment.end).trim();
+  if (!snippet) return '';
+  if (snippet.length <= maxLen) return snippet;
+  return `${snippet.slice(0, maxLen)}…`;
+}
+
 function renderComments() {
   if (!commentsList) return;
   if (!commentsCache.length) {
@@ -703,12 +785,15 @@ function renderComments() {
     const migrated = c.migrated_from
       ? `<span class="comment-tag migrated">migrated from ${c.migrated_from}</span>`
       : '';
+    const anchorSnippet = getAnchorSnippet(c);
+    const anchor = anchorSnippet ? `<div class="comment-anchor">“${anchorSnippet}”</div>` : '';
     return `
       <div class="comment-card" data-comment-id="${c.id}">
         <div class="comment-meta">
           <span>${c.author || 'unknown'}</span>
           <span>${formatTimestamp(c.created_at)}</span>
         </div>
+        ${anchor}
         <div class="comment-body">${c.content}</div>
         <div class="comment-tags">
           <span class="comment-tag">block ${c.block_id}</span>
@@ -717,7 +802,9 @@ function renderComments() {
           ${migrated}
         </div>
         <div class="comment-actions">
+          <button class="jump" data-comment-id="${c.id}">Jump</button>
           ${c.resolved ? '' : '<button class="resolve" data-comment-id="' + c.id + '">Resolve</button>'}
+          ${c.resolved ? '' : '<button class="edit" data-comment-id="' + c.id + '">Edit</button>'}
         </div>
       </div>
     `;
@@ -737,6 +824,29 @@ function renderComments() {
       }
     });
   });
+
+  commentsList.querySelectorAll('button.jump').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-comment-id');
+      const comment = commentsCache.find((c) => c.id === id);
+      if (!comment || !currentEditor) return;
+      const range = getCommentRange(comment);
+      if (!range) return;
+      currentEditor.view.dispatch({
+        selection: { anchor: range.from, head: range.to },
+        scrollIntoView: true,
+      });
+    });
+  });
+
+  commentsList.querySelectorAll('button.edit').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-comment-id');
+      const comment = commentsCache.find((c) => c.id === id && !c.resolved);
+      if (!comment) return;
+      openComposerForComment(comment);
+    });
+  });
 }
 
 async function loadComments() {
@@ -752,6 +862,147 @@ async function loadComments() {
   } catch (err) {
     console.error('Failed to load comments:', err);
     commentsList.innerHTML = '<div class="comment-empty">Failed to load comments</div>';
+  }
+}
+
+function renderContextList(target: HTMLElement, items: string[], emptyText: string) {
+  if (!items.length) {
+    target.innerHTML = `<div class="context-empty">${emptyText}</div>`;
+    return;
+  }
+  target.innerHTML = items
+    .map((slug) => {
+      const label = slug.replace(/\.md$/, '');
+      return `<div class="context-item" data-slug="${slug}">
+        <div class="title">${label}</div>
+        <div class="meta">open</div>
+      </div>`;
+    })
+    .join('');
+
+  target.querySelectorAll<HTMLElement>('[data-slug]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const slug = el.getAttribute('data-slug');
+      if (slug) {
+        slugInput.value = slug;
+        openNote(slug);
+      }
+    });
+  });
+}
+
+function renderSearchResults() {
+  if (!searchResultsList) return;
+  if (!searchResults.length) {
+    searchResultsList.innerHTML = '<div class="context-empty">No matches</div>';
+    return;
+  }
+  searchResultsList.innerHTML = searchResults
+    .map((hit) => {
+      const label = hit.section_title ? `${hit.title} — ${hit.section_title}` : hit.title;
+      return `<div class="context-item" data-slug="${hit.slug}">
+        <div class="title">${label}</div>
+        <div class="meta">${hit.doc_type}${hit.tags.length ? ' • ' + hit.tags.join(', ') : ''}</div>
+        <div class="meta">${hit.snippet}</div>
+      </div>`;
+    })
+    .join('');
+
+  searchResultsList.querySelectorAll<HTMLElement>('[data-slug]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const slug = el.getAttribute('data-slug');
+      if (slug) {
+        slugInput.value = slug;
+        openNote(slug);
+      }
+    });
+  });
+}
+
+function renderEvents() {
+  if (!eventsList) return;
+  if (!recentEvents.length) {
+    eventsList.innerHTML = '<div class="context-empty">No events</div>';
+    return;
+  }
+  eventsList.innerHTML = recentEvents
+    .slice(-10)
+    .reverse()
+    .map((ev) => {
+      const title = ev.event.replace(/^note\./, 'note ').replace(/^comment\./, 'comment ');
+      const meta = ev.path || ev.id || '';
+      return `<div class="context-item">
+        <div class="title">${title}</div>
+        <div class="meta">${meta}</div>
+      </div>`;
+    })
+    .join('');
+}
+
+async function loadGraph() {
+  if (!currentSlug) {
+    backlinksCache = [];
+    outgoingCache = [];
+    renderContextList(backlinksList, [], 'No backlinks');
+    renderContextList(relatedList, [], 'No related notes');
+    recentEvents = [];
+    renderEvents();
+    return;
+  }
+  try {
+    const res = await api.getGraph(currentSlug);
+    backlinksCache = res.backlinks;
+    outgoingCache = res.outgoing;
+    renderContextList(backlinksList, backlinksCache, 'No backlinks yet');
+    const related = Array.from(new Set([...backlinksCache, ...outgoingCache])).filter(
+      (s) => s !== currentSlug,
+    );
+    renderContextList(relatedList, related, 'No related notes');
+    await loadEvents();
+  } catch (err) {
+    console.error('Failed to load graph:', err);
+    renderContextList(backlinksList, [], 'Failed to load');
+    renderContextList(relatedList, [], 'Failed to load');
+    eventsList.innerHTML = '<div class="context-empty">Failed to load</div>';
+  }
+}
+
+async function loadEvents() {
+  if (!currentSlug) {
+    recentEvents = [];
+    renderEvents();
+    return;
+  }
+  try {
+    const res = await api.getEvents(currentSlug);
+    recentEvents = res.events.slice(-20).map((e) => {
+      try {
+        return JSON.parse(e);
+      } catch {
+        return { event: 'unknown', raw: e };
+      }
+    });
+    renderEvents();
+  } catch (err) {
+    console.error('Failed to load events:', err);
+    eventsList.innerHTML = '<div class="context-empty">Failed to load</div>';
+  }
+}
+
+async function runSearch() {
+  const query = searchInput.value.trim();
+  if (!query) {
+    searchResults = [];
+    renderSearchResults();
+    return;
+  }
+  try {
+    const res = await api.search(query, 12);
+    searchResults = res.results;
+    renderSearchResults();
+  } catch (err) {
+    console.error('Search failed:', err);
+    searchResultsList.innerHTML = '<div class="context-empty">Search failed</div>';
   }
 }
 
@@ -819,30 +1070,6 @@ const preview = new Preview({
   baseUrl: previewUrlInput.value || '/preview',
 });
 
-// Agent panel - self-registers event listeners and keyboard shortcuts
-new AgentPanel({
-  container: document.body,
-  api,
-  getSelection: () => {
-    if (!currentEditor) return null;
-    const view = currentEditor.view;
-    const { from, to } = view.state.selection.main;
-    if (from === to) return null;
-
-    const text = view.state.sliceDoc(from, to);
-    const block = findBlockForOffset(from);
-    if (!block) return null;
-
-    return {
-      text,
-      block_id: block.id,
-      start: Math.max(0, from - block.textStart),
-      end: Math.max(0, to - block.textStart),
-    };
-  },
-  getCurrentSlug: () => currentSlug,
-});
-
 // Load saved preferences
 function loadPreferences() {
   const savedPreviewUrl = localStorage.getItem('monowiki-preview-url');
@@ -870,6 +1097,251 @@ function savePreferences() {
   }
   if (tokenInput.value) {
     localStorage.setItem('monowiki-token', tokenInput.value);
+  }
+}
+
+function setNoteActive(active: boolean) {
+  togglePreviewBtn.disabled = !active;
+  toggleContextBtn.disabled = !active;
+  flushBtn.disabled = !active;
+  checkpointBtn.disabled = !active;
+  buildBtn.disabled = !active;
+  refreshBtn.disabled = !active;
+  previewUrlInput.disabled = !active;
+  addCommentBtn.disabled = !active;
+  commentsRefresh.disabled = !active;
+  backlinksRefresh.disabled = !active;
+  searchInput.disabled = !active;
+  searchBtn.disabled = !active;
+
+  if (!active) {
+    previewVisible = false;
+    contextVisible = false;
+    publishingOpen = false;
+    publishingPanel.classList.add('hidden');
+    updatePreviewVisibility();
+    updateContextVisibility();
+  }
+}
+
+function updatePreviewVisibility() {
+  if (previewVisible && currentSlug) {
+    resizer.classList.remove('collapsed');
+    previewPane.classList.remove('collapsed');
+    togglePreviewBtn.textContent = 'Hide preview';
+  } else {
+    resizer.classList.add('collapsed');
+    previewPane.classList.add('collapsed');
+    togglePreviewBtn.textContent = 'Show preview';
+    editorPane.style.flex = '1 1 auto';
+  }
+}
+
+function updateContextVisibility() {
+  if (contextVisible && currentSlug) {
+    commentsPane.classList.remove('collapsed');
+    toggleContextBtn.textContent = 'Hide context';
+  } else {
+    commentsPane.classList.add('collapsed');
+    toggleContextBtn.textContent = 'Show context';
+  }
+}
+
+function ensureAgentPanel() {
+  if (agentPanel) return;
+  agentPanel = new AgentPanel({
+    container: document.body,
+    api,
+    getSelection: () => getCurrentSelection(),
+    getCurrentSlug: () => currentSlug,
+  });
+}
+
+function closePublishingPanel() {
+  publishingOpen = false;
+  publishingPanel.classList.add('hidden');
+}
+
+function togglePublishingPanel() {
+  if (publishingBtn.disabled) return;
+  publishingOpen = !publishingOpen;
+  publishingPanel.classList.toggle('hidden', !publishingOpen);
+}
+
+type MenuItem = { label: string; action: () => void; disabled?: boolean };
+
+function hideContextMenu() {
+  contextMenuOpen = false;
+  contextMenu.classList.add('hidden');
+}
+
+function showContextMenu(e: MouseEvent, items: MenuItem[]) {
+  e.preventDefault();
+  contextMenu.innerHTML = '';
+  items.forEach((item) => {
+    const btn = document.createElement('button');
+    btn.textContent = item.label;
+    btn.disabled = !!item.disabled;
+    if (!item.disabled) {
+      btn.addEventListener('click', () => {
+        hideContextMenu();
+        item.action();
+      });
+    }
+    contextMenu.appendChild(btn);
+  });
+  contextMenu.style.left = `${e.clientX}px`;
+  contextMenu.style.top = `${e.clientY}px`;
+  contextMenu.classList.remove('hidden');
+  contextMenuOpen = true;
+}
+
+function showNewFileForm() {
+  newFileForm.classList.remove('hidden');
+  newFileInput.value = '';
+  newFileInput.focus();
+}
+
+function hideNewFileForm() {
+  newFileForm.classList.add('hidden');
+}
+
+function normalizeSlug(input: string): string {
+  return input.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+}
+
+function submitNewFile() {
+  const name = normalizeSlug(newFileInput.value);
+  if (!name) {
+    showStatus('Enter a file name', true);
+    return;
+  }
+  slugInput.value = name;
+  openNote(name);
+  hideNewFileForm();
+  setTimeout(loadFileTree, 1000);
+}
+
+function ensureFloatingComposer() {
+  if (floatingComposer) return;
+  floatingComposer = document.createElement('div');
+  floatingComposer.className = 'floating-comment hidden';
+  floatingComposer.innerHTML = `
+    <div class="anchor-preview" id="floating-anchor"></div>
+    <textarea id="floating-textarea" placeholder="Add a comment"></textarea>
+    <div class="actions">
+      <button id="floating-cancel" class="secondary">Cancel</button>
+      <button id="floating-submit">Add</button>
+    </div>
+  `;
+  document.body.appendChild(floatingComposer);
+  floatingComposerTextarea = floatingComposer.querySelector('#floating-textarea') as HTMLTextAreaElement;
+
+  const cancelBtn = floatingComposer.querySelector('#floating-cancel') as HTMLButtonElement;
+  const submitBtn = floatingComposer.querySelector('#floating-submit') as HTMLButtonElement;
+  cancelBtn.addEventListener('click', hideFloatingComposer);
+  submitBtn.addEventListener('click', submitFloatingComment);
+  floatingComposerTextarea?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      hideFloatingComposer();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      submitFloatingComment();
+    }
+  });
+}
+
+function hideFloatingComposer() {
+  if (!floatingComposer) return;
+  floatingComposer.classList.add('hidden');
+  composerAnchor = null;
+  editingCommentId = null;
+}
+
+function openComposerForComment(comment: Comment) {
+  const range = getCommentRange(comment);
+  if (!range || !currentEditor) {
+    showStatus('Cannot locate comment anchor', true);
+    return;
+  }
+  const selection: Selection = {
+    text: getAnchorSnippet(comment) || comment.content,
+    block_id: comment.block_id,
+    start: comment.start,
+    end: comment.end,
+  };
+  currentEditor.view.dispatch({
+    selection: { anchor: range.from, head: range.to },
+    scrollIntoView: true,
+  });
+  showFloatingComposer(selection, comment);
+}
+
+function showFloatingComposer(sel: Selection | null, commentToEdit?: Comment) {
+  if (!sel || !currentSlug) {
+    showStatus('Select text to comment', true);
+    return;
+  }
+  ensureFloatingComposer();
+  if (!floatingComposer || !floatingComposerTextarea) return;
+
+  const range = getCommentRange({
+    id: '',
+    block_id: sel.block_id,
+    start: sel.start,
+    end: sel.end,
+    content: '',
+    author: '',
+    created_at: '',
+    resolved: false,
+  } as Comment);
+
+  if (!range || !currentEditor) return;
+
+  composerAnchor = { block_id: sel.block_id, start: sel.start, end: sel.end, from: range.from, to: range.to };
+  editingCommentId = commentToEdit?.id ?? null;
+  const anchorEl = floatingComposer.querySelector('#floating-anchor') as HTMLDivElement;
+  anchorEl.textContent = sel.text;
+  floatingComposerTextarea.value = commentToEdit ? commentToEdit.content : sel.text;
+
+  const startCoords = currentEditor.view.coordsAtPos(range.from);
+  const endCoords = currentEditor.view.coordsAtPos(range.to);
+  const top = Math.min(startCoords?.top ?? 0, endCoords?.top ?? 0) - 10 + window.scrollY;
+  const left = (startCoords?.left ?? 0) + window.scrollX;
+
+  floatingComposer.classList.remove('hidden');
+  const safeLeft = Math.min(Math.max(12, left), window.scrollX + window.innerWidth - floatingComposer.offsetWidth - 12);
+
+  floatingComposer.style.top = `${Math.max(12, top)}px`;
+  floatingComposer.style.left = `${safeLeft}px`;
+
+  floatingComposerTextarea.focus();
+  floatingComposerTextarea.select();
+}
+
+async function submitFloatingComment() {
+  if (!composerAnchor || !floatingComposerTextarea || !currentSlug) return;
+  const content = floatingComposerTextarea.value.trim();
+  if (!content) {
+    showStatus('Comment cannot be empty', true);
+    return;
+  }
+  try {
+    await api.addComment(currentSlug, {
+      block_id: composerAnchor.block_id,
+      start: composerAnchor.start,
+      end: composerAnchor.end,
+      content,
+    });
+    if (editingCommentId) {
+      await api.resolveComment(currentSlug, editingCommentId);
+    }
+    await loadComments();
+    showStatus(editingCommentId ? 'Comment updated' : 'Comment added');
+  } catch (err) {
+    console.error('Failed to add comment:', err);
+    showStatus('Failed to add comment', true);
+  } finally {
+    hideFloatingComposer();
   }
 }
 
@@ -920,6 +1392,7 @@ async function openNote(slug: string) {
 
   currentSlug = slug;
   savePreferences();
+  setNoteActive(false);
 
   try {
     // Save token to API + local storage
@@ -931,6 +1404,7 @@ async function openNote(slug: string) {
     currentEditor = createEditor({
       container: editorContainer,
       onContentChange: applyEditorChange,
+      onSelectionChange: updateSelectionDependentUI,
     });
     // Expose editor view for automated tests
     if (typeof window !== 'undefined') {
@@ -942,11 +1416,20 @@ async function openNote(slug: string) {
     // Navigate preview
     preview.navigate(slug);
     loadComments();
+    loadGraph();
+    renderEvents();
+    ensureAgentPanel();
+    setNoteActive(true);
+    updatePreviewVisibility();
+    updateContextVisibility();
+    updateSelectionDependentUI();
+    closePublishingPanel();
 
   } catch (err) {
     console.error('Failed to open note:', err);
     updateStatusDisplay('disconnected');
     alert(`Failed to open note: ${err}`);
+    setNoteActive(false);
   }
 }
 
@@ -1145,14 +1628,7 @@ function setupSidebarResizer() {
 
 // New file handler
 newFileBtn.addEventListener('click', () => {
-  const name = prompt('New file name (without .md):');
-  if (name && name.trim()) {
-    const slug = name.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-    slugInput.value = slug;
-    openNote(slug);
-    // Reload file tree after a short delay to pick up the new file
-    setTimeout(loadFileTree, 1000);
-  }
+  showNewFileForm();
 });
 
 // Event listeners
@@ -1162,6 +1638,21 @@ slugInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     openNote(slugInput.value);
   }
+});
+
+togglePreviewBtn.addEventListener('click', () => {
+  if (!currentSlug) return;
+  previewVisible = !previewVisible;
+  updatePreviewVisibility();
+  if (previewVisible) {
+    preview.navigate(currentSlug);
+  }
+});
+
+toggleContextBtn.addEventListener('click', () => {
+  if (!currentSlug) return;
+  contextVisible = !contextVisible;
+  updateContextVisibility();
 });
 
 checkpointBtn.addEventListener('click', doCheckpoint);
@@ -1196,7 +1687,75 @@ commentsRefresh.addEventListener('click', () => {
   loadComments();
 });
 
+addCommentBtn.addEventListener('click', () => {
+  showFloatingComposer(getCurrentSelection());
+});
+
+backlinksRefresh.addEventListener('click', () => {
+  loadGraph();
+});
+
+searchBtn.addEventListener('click', () => {
+  runSearch();
+});
+
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    runSearch();
+  }
+});
+
+publishingBtn.addEventListener('click', () => {
+  togglePublishingPanel();
+});
+
+document.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  if (publishingOpen && !publishingPanel.contains(target) && target !== publishingBtn && !publishingBtn.contains(target)) {
+    closePublishingPanel();
+  }
+  if (contextMenuOpen && !contextMenu.contains(target)) {
+    hideContextMenu();
+  }
+  if (floatingComposer && !floatingComposer.classList.contains('hidden') && !floatingComposer.contains(target)) {
+    hideFloatingComposer();
+  }
+});
+
+newFileConfirm.addEventListener('click', submitNewFile);
+newFileCancel.addEventListener('click', hideNewFileForm);
+newFileInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    submitNewFile();
+  } else if (e.key === 'Escape') {
+    hideNewFileForm();
+  }
+});
+
+// Context menu bindings
+sidebar.addEventListener('contextmenu', (e) => {
+  showContextMenu(e, [
+    { label: 'New file', action: showNewFileForm },
+    { label: 'Refresh files', action: loadFileTree },
+  ]);
+});
+
+editorContainer.addEventListener('contextmenu', (e) => {
+  const selection = getCurrentSelection();
+  showContextMenu(e, [
+    { label: 'Add comment', action: () => showFloatingComposer(selection), disabled: !selection || !currentSlug },
+  ]);
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    hideContextMenu();
+    hideFloatingComposer();
+  }
+});
+
 // Initialize
+setNoteActive(false);
 loadPreferences();
 setupResizer();
 setupSidebarResizer();

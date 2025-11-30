@@ -11,17 +11,12 @@ pub mod config;
 pub mod frontmatter;
 pub mod markdown;
 pub mod models;
-pub mod pipeline;
 pub mod search;
 pub mod slug;
-// pub mod artifacts;
-// pub mod assets;
-// pub mod cleanup;
 
 pub use bibliography::{Bibliography, BibliographyStore};
 pub use builder::SiteBuilder;
 pub use config::Config;
 pub use models::{Frontmatter, LinkGraph, Note, NoteType, SiteIndex};
-pub use pipeline::{DocumentPipeline, PipelineError};
 pub use search::{build_search_index, SearchEntry};
 pub use slug::slugify;
