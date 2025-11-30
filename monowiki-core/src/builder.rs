@@ -379,6 +379,9 @@ fn collect_comments(notes: &[Note]) -> Vec<Comment> {
 }
 
 /// Resolve a comment that targets another comment (returns synthetic anchor)
+/// Note: Returns resolved=false because comment pages aren't rendered yet,
+/// so there's no DOM element to navigate to. The synthetic anchor is kept
+/// for threading purposes.
 fn resolve_comment_anchor(
     target_slug: Option<&str>,
     comment_map: &HashMap<String, &Note>,
@@ -388,7 +391,9 @@ fn resolve_comment_anchor(
     };
     if comment_map.contains_key(slug) {
         // Synthetic anchor for comment notes: comment-{slug}
-        (Some(format!("comment-{}", slug)), true)
+        // Mark as unresolved since comment pages aren't rendered yet
+        // and there's no navigable DOM element
+        (Some(format!("comment-{}", slug)), false)
     } else {
         (None, false)
     }

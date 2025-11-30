@@ -1205,6 +1205,35 @@ h2 {
   margin-right: 0.5ch;
 }
 
+/* Unanchored comments section */
+.unanchored-comments {
+  margin-top: calc(var(--line-height) * 2);
+  padding-top: var(--line-height);
+  border-top: var(--border-thickness) solid var(--border-color);
+}
+
+.unanchored-comments-heading {
+  margin-top: 0;
+  margin-bottom: var(--line-height);
+  color: var(--text-color-alt);
+}
+
+.comment-block {
+  padding: calc(var(--line-height) * 0.5) 1ch;
+  border: var(--border-thickness) solid var(--border-color);
+  margin-bottom: var(--line-height);
+}
+
+.comment-unanchored-badge {
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-color-alt);
+  border: 1px solid var(--border-color);
+  padding: 0 0.5ch;
+  margin-left: auto;
+}
+
 /* Directory tree view for index page */
 .directory-tree {
   margin: var(--line-height) 0;

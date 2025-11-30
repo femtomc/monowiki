@@ -180,45 +180,67 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
         .map(|c| c.id.clone())
         .collect();
 
-    // Collect top-level comments and all their descendants
+    // Collect:
+    // 1. Top-level comments targeting this note (resolved or not)
+    // 2. Replies whose thread_root is a top-level comment on this note
+    // 3. Orphaned replies targeting this note (is_reply but thread_root not found)
     let mut result: Vec<CommentRender> = comments
         .iter()
         .filter(|c| {
-            // Include if: targets this note directly, or thread_root is a top-level comment on this note
+            // Top-level comment on this note
             let is_top_level = c.target_slug.as_deref() == Some(slug) && !c.is_reply;
+            // Reply in a thread rooted on this note
             let is_in_thread = c
                 .thread_root
                 .as_ref()
                 .map(|root| top_level_ids.contains(root))
                 .unwrap_or(false);
-            is_top_level || is_in_thread
+            // Orphaned reply: is_reply but thread_root is self (parent not found)
+            // and originally targeted this note
+            let is_orphaned = c.is_reply
+                && c.thread_root.as_ref() == Some(&c.id)
+                && c.target_slug.as_deref() == Some(slug);
+            is_top_level || is_in_thread || is_orphaned
         })
-        .map(|c| CommentRender {
-            id: c.id.clone(),
-            status: c.status.to_string(),
-            resolved: c.resolved,
-            resolved_anchor: c.resolved_anchor.clone().unwrap_or_default(),
-            has_anchor: c.resolved_anchor.is_some(),
-            author: c.author.clone().unwrap_or_default(),
-            has_author: c.author.is_some(),
-            quote: c.quote.clone().unwrap_or_default(),
-            has_quote: c.quote.is_some(),
-            body_html: c.content_html.clone(),
-            color_bg: comment_color_bg(&c.id),
-            color_border: comment_color_border(&c.id),
-            parent_id: c.parent_id.clone().unwrap_or_default(),
-            has_parent: c.parent_id.is_some(),
-            thread_root: c.thread_root.clone().unwrap_or_default(),
-            depth: c.depth,
-            is_reply: c.is_reply,
+        .map(|c| {
+            // Orphaned replies should be treated as unanchored top-level
+            let effective_depth = if c.is_reply && c.thread_root.as_ref() == Some(&c.id) {
+                0 // Treat orphaned as top-level
+            } else {
+                c.depth
+            };
+            CommentRender {
+                id: c.id.clone(),
+                status: c.status.to_string(),
+                resolved: c.resolved,
+                resolved_anchor: c.resolved_anchor.clone().unwrap_or_default(),
+                has_anchor: c.resolved_anchor.is_some() && c.resolved,
+                author: c.author.clone().unwrap_or_default(),
+                has_author: c.author.is_some(),
+                quote: c.quote.clone().unwrap_or_default(),
+                has_quote: c.quote.is_some(),
+                body_html: c.content_html.clone(),
+                color_bg: comment_color_bg(&c.id),
+                color_border: comment_color_border(&c.id),
+                parent_id: c.parent_id.clone().unwrap_or_default(),
+                has_parent: c.parent_id.is_some(),
+                thread_root: c.thread_root.clone().unwrap_or_default(),
+                depth: effective_depth,
+                is_reply: c.is_reply,
+            }
         })
         .collect();
 
-    // Sort by thread_root, then depth, then order
+    // Sort by thread_root, then depth, then order (timestamp)
     result.sort_by(|a, b| {
         match a.thread_root.cmp(&b.thread_root) {
             std::cmp::Ordering::Equal => match a.depth.cmp(&b.depth) {
-                std::cmp::Ordering::Equal => a.id.cmp(&b.id),
+                std::cmp::Ordering::Equal => {
+                    // Extract order from id suffix for timestamp ordering
+                    let order_a = extract_order_from_id(&a.id);
+                    let order_b = extract_order_from_id(&b.id);
+                    order_a.cmp(&order_b)
+                }
                 other => other,
             },
             other => other,
@@ -226,6 +248,16 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
     });
 
     result
+}
+
+/// Extract timestamp-based order from comment id (e.g., "target-20231215143022" -> 20231215143022)
+fn extract_order_from_id(id: &str) -> u64 {
+    if let Some(pos) = id.rfind('-') {
+        if let Ok(ts) = id[pos + 1..].parse::<u64>() {
+            return ts;
+        }
+    }
+    0
 }
 
 fn comment_color_bg(id: &str) -> String {

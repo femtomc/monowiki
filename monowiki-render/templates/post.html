@@ -111,7 +111,7 @@
 </style>
 
 {% for comment in comments %}
-{% if comment.depth == 0 %}
+{% if comment.depth == 0 && comment.has_anchor %}
 <div
   class="comment-modal {% if comment.resolved %}resolved{% else %}open{% endif %}"
   id="comment-modal-{{ comment.id }}"
@@ -201,6 +201,58 @@
       modal.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
       modal.addEventListener('mouseleave', hideModal);
     });
+  });
+</script>
+
+{# Render unanchored/unresolved comments in a visible section #}
+<div class="unanchored-comments" id="unanchored-comments-section">
+  <h3 class="unanchored-comments-heading">Unanchored Comments</h3>
+  {% for comment in comments %}
+  {% if comment.depth == 0 && !comment.has_anchor %}
+  <div
+    class="comment-block {% if comment.resolved %}resolved{% else %}open{% endif %}"
+    id="comment-{{ comment.id }}"
+    style="background: {{ comment.color_bg }}; border-color: {{ comment.color_border }}"
+  >
+    <div class="comment-thread">
+      <div class="comment-entry depth-0">
+        <div class="comment-meta">
+          <span class="comment-status">{{ comment.status }}</span>
+          {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
+          <span class="comment-unanchored-badge">unanchored</span>
+        </div>
+        <div class="comment-body">{{ comment.body_html | safe }}</div>
+        {% if comment.has_quote %}
+        <div class="comment-quote">"{{ comment.quote }}"</div>
+        {% endif %}
+      </div>
+      {% for reply in comments %}
+      {% if reply.thread_root == comment.id && reply.depth > 0 %}
+      <div class="comment-entry depth-{{ reply.depth }}" style="margin-left: {{ reply.depth }}ch;">
+        <div class="comment-meta">
+          <span class="comment-reply-marker">↳</span>
+          <span class="comment-status">{{ reply.status }}</span>
+          {% if reply.has_author %}<span class="comment-author">{{ reply.author }}</span>{% endif %}
+        </div>
+        <div class="comment-body">{{ reply.body_html | safe }}</div>
+        {% if reply.has_quote %}
+        <div class="comment-quote">"{{ reply.quote }}"</div>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+</div>
+<script>
+  // Hide unanchored comments section if empty
+  document.addEventListener('DOMContentLoaded', () => {
+    const section = document.getElementById('unanchored-comments-section');
+    if (section && section.querySelectorAll('.comment-block').length === 0) {
+      section.style.display = 'none';
+    }
   });
 </script>
 {% endif %}
