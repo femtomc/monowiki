@@ -111,6 +111,7 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
         .route("/api/note/{slug}", get(api_note))
         .route("/api/graph/{slug}", get(api_graph_neighbors))
         .route("/api/graph/path", get(api_graph_path))
+        .route("/api/status", get(api_status))
         .route("/api/comments", get(api_comments))
         .route("/api/changes", get(api_changes))
         .route("/{*path}", get(serve_with_404))
@@ -255,6 +256,13 @@ struct CommentsParams {
     status: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct StatusParams {
+    since: Option<String>,
+    comment_status: Option<String>,
+    with_sections: Option<bool>,
+}
+
 async fn api_changes(
     State(state): State<AppState>,
     Query(params): Query<ChangesParams>,
@@ -299,7 +307,7 @@ async fn api_comments(
     Query(params): Query<CommentsParams>,
 ) -> Response {
     let data = state.data.read().await;
-    let mut comments: Vec<_> = data
+    let mut comments_vec: Vec<_> = data
         .site_index
         .comments
         .iter()
@@ -321,15 +329,83 @@ async fn api_comments(
             slug_ok && status_ok
         })
         .collect();
-    comments.sort_by_key(|c| (&c.target_slug, &c.resolved_anchor, &c.id));
+    comments_vec.sort_by(|a, b| {
+        (&a.target_slug, &a.resolved_anchor, &a.id).cmp(&(
+            &b.target_slug,
+            &b.resolved_anchor,
+            &b.id,
+        ))
+    });
 
-    let json = serde_json::to_string(&comments).unwrap_or_else(|_| "[]".into());
+    let json = serde_json::to_string(&comments_vec).unwrap_or_else(|_| "[]".into());
     (
         StatusCode::OK,
         [(axum::http::header::CONTENT_TYPE, "application/json")],
         json,
     )
         .into_response()
+}
+
+async fn api_status(State(state): State<AppState>, Query(params): Query<StatusParams>) -> Response {
+    let since = params.since.unwrap_or_else(|| "HEAD~1".to_string());
+    let with_sections = params.with_sections.unwrap_or(false);
+    let comment_status = params.comment_status.clone();
+    let data = state.data.read().await;
+    let site_index = data.site_index.clone();
+    let config = data.config.clone();
+
+    let result = tokio::task::spawn_blocking(move || {
+        let changes =
+            crate::commands::compute_changes(&config, &site_index, &since, with_sections)?;
+
+        let mut comments: Vec<_> = site_index
+            .comments
+            .into_iter()
+            .filter(
+                |c| match comment_status.as_deref().map(|s| s.to_lowercase()) {
+                    Some(ref s) if s == "open" => c.status == CommentStatus::Open,
+                    Some(ref s) if s == "resolved" => c.status == CommentStatus::Resolved,
+                    _ => true,
+                },
+            )
+            .collect();
+        comments.sort_by(|a, b| {
+            (&a.target_slug, &a.resolved_anchor, &a.id).cmp(&(
+                &b.target_slug,
+                &b.resolved_anchor,
+                &b.id,
+            ))
+        });
+
+        let payload = serde_json::json!({
+            "changes": changes,
+            "comments": comments,
+        });
+        Ok::<_, anyhow::Error>(payload)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(payload)) => {
+            let json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".into());
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                json,
+            )
+                .into_response()
+        }
+        Ok(Err(err)) => (
+            StatusCode::BAD_REQUEST,
+            format!("Failed to compute status: {}", err),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Task join error: {}", err),
+        )
+            .into_response(),
+    }
 }
 
 #[derive(Deserialize)]

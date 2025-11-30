@@ -123,6 +123,25 @@ enum Commands {
         command: CommentCommands,
     },
 
+    /// Combined status for agents (changes + comments)
+    Status {
+        /// Git ref to diff against (e.g., HEAD~1)
+        #[arg(long, default_value = "HEAD~1")]
+        since: String,
+
+        /// Comment status filter (open/resolved)
+        #[arg(long)]
+        comment_status: Option<String>,
+
+        /// Include section-level details
+        #[arg(long)]
+        with_sections: bool,
+
+        /// Emit JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Stream vault change events for agents
     Watch,
 
@@ -237,6 +256,12 @@ async fn main() -> anyhow::Result<()> {
                 &body,
             ),
         },
+        Commands::Status {
+            since,
+            comment_status,
+            with_sections,
+            json,
+        } => commands::status(&cli.config, &since, comment_status, with_sections, json),
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
