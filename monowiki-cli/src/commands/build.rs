@@ -51,8 +51,14 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
     // Render individual note pages
     for note in &site_index.notes {
         // Skip drafts
-        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
+        if note.is_draft() {
             tracing::debug!("Skipping draft: {}", note.title);
+            continue;
+        }
+
+        // Render comment pages with thread context
+        if note.note_type == monowiki_core::NoteType::Comment {
+            render_comment_page(&config, note, &site_index, &base_url)?;
             continue;
         }
 
@@ -98,6 +104,124 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
     }
 
     Ok((config, site_index))
+}
+
+/// Render a comment page with thread context
+fn render_comment_page(
+    config: &Config,
+    note: &monowiki_core::Note,
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<()> {
+    // Find the comment data
+    let comment = site_index
+        .comments
+        .iter()
+        .find(|c| c.note_slug == note.slug);
+
+    // Build link back to target
+    let target_link = if let Some(c) = comment {
+        if let Some(ref target_slug) = c.target_slug {
+            if let Some(target_note) = site_index.find_by_slug(target_slug) {
+                let anchor = c
+                    .resolved_anchor
+                    .as_ref()
+                    .map(|a| format!("#{}", a))
+                    .unwrap_or_default();
+                Some((
+                    format!("{}{}", target_note.url_with_base(base_url), anchor),
+                    target_note.title.clone(),
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Build content with target link and thread
+    let mut content = String::new();
+
+    // Add "back to target" link
+    if let Some((url, title)) = &target_link {
+        content.push_str(&format!(
+            "<p class=\"comment-target-link\">Comment on: <a href=\"{}\">{}</a></p>\n",
+            url, title
+        ));
+    }
+
+    // Add comment body
+    content.push_str(&note.content_html);
+
+    // Add thread (replies to this comment)
+    let replies: Vec<_> = site_index
+        .comments
+        .iter()
+        .filter(|c| c.parent_id.as_ref() == Some(&note.slug) || c.target_slug.as_ref() == Some(&note.slug))
+        .filter(|c| c.note_slug != note.slug) // Exclude self
+        .collect();
+
+    if !replies.is_empty() {
+        content.push_str("\n<hr>\n<h3>Replies</h3>\n<div class=\"comment-replies\">\n");
+        for reply in replies {
+            let reply_url = format!("{}{}.html", base_url, reply.note_slug);
+            content.push_str(&format!(
+                "<div class=\"reply-entry\" style=\"background: {}; border-left: 3px solid {};\">\n",
+                comment_color_bg(&reply.id),
+                comment_color_border(&reply.id)
+            ));
+            content.push_str(&format!(
+                "  <div class=\"reply-meta\">{} by {}</div>\n",
+                reply.status,
+                reply.author.as_deref().unwrap_or("Anonymous")
+            ));
+            content.push_str(&format!("  <div class=\"reply-body\">{}</div>\n", reply.content_html));
+            content.push_str(&format!(
+                "  <p><a href=\"{}\">View thread →</a></p>\n",
+                reply_url
+            ));
+            content.push_str("</div>\n");
+        }
+        content.push_str("</div>\n");
+    }
+
+    let template = PostTemplate {
+        title: note.title.clone(),
+        description: format!("Comment: {}", note.title),
+        date: None,
+        updated: None,
+        tags: note.tags.clone(),
+        content,
+        toc_html: None,
+        site_title: config.site.title.clone(),
+        site_author: config.site.author.clone(),
+        year: chrono::Utc::now().year(),
+        nav_home: format!("{}index.html", base_url),
+        nav_about: format!("{}about.html", base_url),
+        nav_github: config.site.url.clone(),
+        has_about: false,
+        has_github: true,
+        css_path: base_url.to_string(),
+        backlinks: vec![],
+        base_url: base_url.to_string(),
+        slug: note.slug.clone(),
+        source: None,
+        comments: vec![], // Comment pages don't show the modal UI
+    };
+
+    let html = template
+        .render()
+        .context("Failed to render comment template")?;
+
+    let output_path = config.output_dir().join(note.output_rel_path());
+    fs::write(&output_path, html).with_context(|| format!("Failed to write {:?}", output_path))?;
+
+    tracing::debug!("Rendered comment: {}", note.slug);
+
+    Ok(())
 }
 
 /// Render a single note page
