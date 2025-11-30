@@ -88,6 +88,7 @@ impl SiteBuilder {
                                     note_slug: Some(note.slug.clone()),
                                     source_path: note.source_path.clone(),
                                     context: Some(alias_slug.clone()),
+                                    anchor: None,
                                 });
                             }
                         } else {
@@ -371,7 +372,17 @@ fn resolve_anchor(
         }
     }
 
-    // 2) Fuzzy quote match: find section containing the quote in its content
+    // 2) Exact match on heading id (id part of section id)
+    if let Some(anchor) = target_anchor {
+        if let Some(sec) = sections
+            .iter()
+            .find(|s| s.anchor_id.as_deref() == Some(anchor))
+        {
+            return (Some(sec.section_id.clone()), true);
+        }
+    }
+
+    // 3) Fuzzy quote match: find section containing the quote in its content
     if let Some(q) = quote {
         if let Some(section_id) = find_section_by_quote(target, q) {
             return (Some(section_id), true);

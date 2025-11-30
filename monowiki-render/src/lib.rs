@@ -7,6 +7,6 @@
 pub mod templates;
 
 pub use templates::{
-    Author, BacklinkEntry, DirectoryNode, FileNode, IndexTemplate, NotFoundTemplate, NoteEntry,
-    Paper, PostTemplate,
+    Author, BacklinkEntry, CommentRender, DirectoryNode, FileNode, IndexTemplate, NotFoundTemplate,
+    NoteEntry, Paper, PostTemplate,
 };

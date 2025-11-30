@@ -70,6 +70,7 @@ impl TypstMathRenderer {
                             note_slug: note_slug.map(|s| s.to_string()),
                             source_path: source_path.map(|s| s.to_string()),
                             context: Some(math.to_string()),
+                            anchor: None,
                         });
                         Event::InlineMath(math)
                     }
@@ -85,6 +86,7 @@ impl TypstMathRenderer {
                             note_slug: note_slug.map(|s| s.to_string()),
                             source_path: source_path.map(|s| s.to_string()),
                             context: Some(math.to_string()),
+                            anchor: None,
                         });
                         Event::DisplayMath(math)
                     }

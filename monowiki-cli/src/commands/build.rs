@@ -6,7 +6,9 @@ use askama::Template;
 use chrono::{Datelike, NaiveDate};
 use include_dir::{include_dir, Dir};
 use monowiki_core::{Config, SiteBuilder};
-use monowiki_render::{BacklinkEntry, DirectoryNode, FileNode, NotFoundTemplate, PostTemplate};
+use monowiki_render::{
+    BacklinkEntry, CommentRender, DirectoryNode, FileNode, NotFoundTemplate, PostTemplate,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -63,6 +65,7 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
     // Generate JSON artifacts
     generate_previews_json(&config, &site_index, &base_url)?;
     generate_index_json(&config, &site_index, &base_url)?;
+    generate_annotations_json(&config, &site_index)?;
     if config.enable_backlinks {
         generate_graph_json(&config, &site_index, &base_url)?;
     } else {
@@ -154,6 +157,7 @@ fn render_note_page(
         base_url: base_url.to_string(),
         slug: note.slug.clone(),
         source: note.raw_body.clone(),
+        comments: render_comments_for_note(&site_index.comments, &note.slug),
     };
 
     let html = template
@@ -166,6 +170,24 @@ fn render_note_page(
     tracing::debug!("Rendered: {}", note.slug);
 
     Ok(())
+}
+
+fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> Vec<CommentRender> {
+    comments
+        .iter()
+        .filter(|c| c.target_slug.as_deref() == Some(slug))
+        .map(|c| CommentRender {
+            status: c.status.to_string(),
+            resolved: c.resolved,
+            resolved_anchor: c.resolved_anchor.clone().unwrap_or_default(),
+            has_anchor: c.resolved_anchor.is_some(),
+            author: c.author.clone().unwrap_or_default(),
+            has_author: c.author.is_some(),
+            quote: c.quote.clone().unwrap_or_default(),
+            has_quote: c.quote.is_some(),
+            body_html: c.content_html.clone(),
+        })
+        .collect()
 }
 
 /// Build a directory tree structure from notes with arbitrary nesting
@@ -408,6 +430,43 @@ fn generate_index_json(
 
     tracing::info!("Generated index.json with {} search entries", index.len());
 
+    Ok(())
+}
+
+/// Generate annotations.json for agents (comments + section digests)
+fn generate_annotations_json(config: &Config, site_index: &monowiki_core::SiteIndex) -> Result<()> {
+    use serde_json::json;
+
+    // Section digests keyed by slug
+    let mut sections = serde_json::Map::new();
+    for note in &site_index.notes {
+        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
+            continue;
+        }
+        let digests = monowiki_core::search::section_digests_from_html(
+            &note.slug,
+            &note.title,
+            &note.content_html,
+        );
+        sections.insert(
+            note.slug.clone(),
+            json!(digests
+                .iter()
+                .map(|d| json!({"section_id": d.section_id, "heading": d.heading, "hash": d.hash, "anchor_id": d.anchor_id}))
+                .collect::<Vec<_>>()),
+        );
+    }
+
+    let payload = json!({
+        "comments": site_index.comments,
+        "sections": sections,
+    });
+
+    let output_path = config.output_dir().join("annotations.json");
+    let json = serde_json::to_string_pretty(&payload).context("Failed to serialize annotations")?;
+    fs::write(&output_path, json).context("Failed to write annotations.json")?;
+
+    tracing::info!("Generated annotations.json");
     Ok(())
 }
 

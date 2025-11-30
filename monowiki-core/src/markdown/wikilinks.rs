@@ -214,6 +214,7 @@ impl<'a> WikilinkTransformer<'a> {
                 note_slug: self.note_slug.clone(),
                 source_path: self.source_path.clone(),
                 context: Some(target.to_string()),
+                anchor: None,
             });
         }
 

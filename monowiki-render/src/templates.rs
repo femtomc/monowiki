@@ -111,6 +111,19 @@ pub struct BacklinkEntry {
     pub title: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct CommentRender {
+    pub status: String,
+    pub resolved: bool,
+    pub resolved_anchor: String,
+    pub has_anchor: bool,
+    pub author: String,
+    pub has_author: bool,
+    pub quote: String,
+    pub has_quote: bool,
+    pub body_html: String,
+}
+
 /// Post/note page template
 #[derive(Template)]
 #[template(path = "post.html")]
@@ -150,6 +163,9 @@ pub struct PostTemplate {
 
     // Raw markdown source (without frontmatter) for copy/export
     pub source: Option<String>,
+
+    // Comments/annotations targeting this note
+    pub comments: Vec<CommentRender>,
 }
 
 /// Index page template

@@ -105,6 +105,7 @@ impl<'a> CitationTransformer<'a> {
                         note_slug: self.note_slug.clone(),
                         source_path: self.source_path.clone(),
                         context: Some(key.clone()),
+                        anchor: None,
                     });
                 }
                 CitationRef {

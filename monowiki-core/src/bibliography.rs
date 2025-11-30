@@ -74,6 +74,7 @@ impl BibliographyStore {
                         note_slug: None,
                         source_path: Some(path.to_string_lossy().to_string()),
                         context: None,
+                        anchor: None,
                     });
                     self.cache.insert(path.to_path_buf(), Library::new());
                 }
@@ -87,6 +88,7 @@ impl BibliographyStore {
                     note_slug: None,
                     source_path: Some(path.to_string_lossy().to_string()),
                     context: None,
+                    anchor: None,
                 });
                 self.cache.insert(path.to_path_buf(), Library::new());
             }

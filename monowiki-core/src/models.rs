@@ -393,6 +393,10 @@ pub struct Diagnostic {
     /// Additional context (e.g., target slug, citation key)
     #[serde(default)]
     pub context: Option<String>,
+
+    /// Optional related anchor/id
+    #[serde(default)]
+    pub anchor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -405,6 +409,15 @@ pub enum CommentStatus {
 impl Default for CommentStatus {
     fn default() -> Self {
         CommentStatus::Open
+    }
+}
+
+impl std::fmt::Display for CommentStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CommentStatus::Open => write!(f, "open"),
+            CommentStatus::Resolved => write!(f, "resolved"),
+        }
     }
 }
 
