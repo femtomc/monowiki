@@ -240,8 +240,10 @@ async fn main() -> anyhow::Result<()> {
             CommentCommands::Add {
                 slug,
                 anchor,
+                reply_to,
                 quote,
                 author,
+                git_ref,
                 tags,
                 status,
                 body,
@@ -249,8 +251,10 @@ async fn main() -> anyhow::Result<()> {
                 &cli.config,
                 &slug,
                 anchor.as_deref(),
+                reply_to.as_deref(),
                 quote.as_deref(),
                 author.as_deref(),
+                git_ref.as_deref(),
                 tags,
                 status.as_deref(),
                 &body,
@@ -346,13 +350,17 @@ pub enum CommentCommands {
     },
     /// Add a new comment file in the vault
     Add {
-        /// Target note slug
+        /// Target note slug (or comment slug if using --reply-to)
         #[arg(long)]
         slug: String,
 
         /// Target anchor (section id or heading id)
         #[arg(long)]
         anchor: Option<String>,
+
+        /// Reply to an existing comment (comment id/slug)
+        #[arg(long)]
+        reply_to: Option<String>,
 
         /// Optional quote to help re-anchor
         #[arg(long)]
@@ -361,6 +369,10 @@ pub enum CommentCommands {
         /// Author name
         #[arg(long)]
         author: Option<String>,
+
+        /// Git ref the comment is rooted at (defaults to HEAD)
+        #[arg(long)]
+        git_ref: Option<String>,
 
         /// Tags (comma-separated)
         #[arg(long, value_delimiter = ',')]

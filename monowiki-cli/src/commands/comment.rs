@@ -23,6 +23,12 @@ pub struct CommentPayload<'a> {
     pub content_html: &'a str,
     pub source_path: &'a Option<String>,
     pub note_slug: &'a str,
+    // Threading fields
+    pub parent_id: &'a Option<String>,
+    pub thread_root: &'a Option<String>,
+    pub depth: u8,
+    pub order: u64,
+    pub is_reply: bool,
 }
 
 pub fn list_comments(
@@ -50,7 +56,15 @@ pub fn list_comments(
         })
         .collect();
 
-    comments.sort_by_key(|c| (&c.target_slug, &c.resolved_anchor, &c.id));
+    // Sort by thread_root, then order for threaded display
+    comments.sort_by(|a, b| {
+        let root_a = a.thread_root.as_deref().unwrap_or(&a.id);
+        let root_b = b.thread_root.as_deref().unwrap_or(&b.id);
+        match root_a.cmp(root_b) {
+            std::cmp::Ordering::Equal => a.order.cmp(&b.order),
+            other => other,
+        }
+    });
 
     if json {
         let payload: Vec<_> = comments
@@ -69,13 +83,24 @@ pub fn list_comments(
                 content_html: &c.content_html,
                 source_path: &c.source_path,
                 note_slug: &c.note_slug,
+                parent_id: &c.parent_id,
+                thread_root: &c.thread_root,
+                depth: c.depth,
+                order: c.order,
+                is_reply: c.is_reply,
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         for c in comments {
+            // Indent based on depth for threaded view
+            let indent = "  ".repeat(c.depth as usize);
+            let reply_marker = if c.is_reply { "↳ " } else { "" };
+
             println!(
-                "- {} [{}] -> {}{}{}",
+                "{}{}{} [{}] -> {}{}{}",
+                indent,
+                reply_marker,
                 c.id,
                 match c.status {
                     CommentStatus::Open => "open",
@@ -86,13 +111,13 @@ pub fn list_comments(
                     .as_ref()
                     .map(|a| format!("#{}", a))
                     .unwrap_or_default(),
-                if c.resolved { " (resolved)" } else { "" }
+                if c.resolved { " ✓" } else { "" }
             );
             if let Some(q) = &c.quote {
-                println!("  quote: {}", q);
+                println!("{}  quote: {}", indent, q);
             }
             if let Some(auth) = &c.author {
-                println!("  author: {}", auth);
+                println!("{}  author: {}", indent, auth);
             }
         }
     }
@@ -104,8 +129,10 @@ pub fn add_comment(
     config_path: &Path,
     target_slug: &str,
     target_anchor: Option<&str>,
+    reply_to: Option<&str>,
     quote: Option<&str>,
     author: Option<&str>,
+    git_ref: Option<&str>,
     tags: Vec<String>,
     status: Option<&str>,
     body: &str,
@@ -129,7 +156,17 @@ pub fn add_comment(
     };
 
     let ts = Utc::now().format("%Y%m%d%H%M%S");
-    let file_name = format!("{}-{}.md", target_slug, ts);
+
+    // If replying to a comment, use the parent comment's slug as the base
+    let (effective_target, parent_id) = if let Some(parent) = reply_to {
+        // When replying, target_slug becomes the parent comment's slug
+        // and we record parent_id for threading
+        (parent.to_string(), Some(parent.to_string()))
+    } else {
+        (target_slug.to_string(), None)
+    };
+
+    let file_name = format!("{}-{}.md", effective_target, ts);
     let path = comments_dir.join(file_name);
 
     let status_str = status.unwrap_or("open");
@@ -137,20 +174,36 @@ pub fn add_comment(
         .map(|a| a.to_string())
         .or_else(git_default_author)
         .unwrap_or_default();
+    let git_ref_val = git_ref
+        .map(|r| r.to_string())
+        .or_else(git_head_ref)
+        .unwrap_or_default();
+
+    let title = if reply_to.is_some() {
+        format!("Reply to {}", effective_target)
+    } else {
+        format!("Comment on {}", target_slug)
+    };
+
     let frontmatter = format!(
         r#"---
-title: Comment on {target_slug}
+title: {title}
 type: comment
-target_slug: {target_slug}
-{target_anchor_line}{quote_line}{author_line}status: {status_str}
+target_slug: {effective_target}
+{target_anchor_line}{parent_id_line}{quote_line}{author_line}{git_ref_line}status: {status_str}
 tags: [{tags}]
 ---
 
 {body}
 "#,
-        target_slug = target_slug,
+        title = title,
+        effective_target = effective_target,
         target_anchor_line = target_anchor
             .map(|a| format!("target_anchor: {}\n", a))
+            .unwrap_or_default(),
+        parent_id_line = parent_id
+            .as_ref()
+            .map(|p| format!("parent_id: {}\n", p))
             .unwrap_or_default(),
         quote_line = quote
             .map(|q| format!("quote: \"{}\"\n", escape_yaml(q)))
@@ -159,6 +212,11 @@ tags: [{tags}]
             String::new()
         } else {
             format!("author: \"{}\"\n", escape_yaml(&author_val))
+        },
+        git_ref_line = if git_ref_val.is_empty() {
+            String::new()
+        } else {
+            format!("git_ref: {}\n", git_ref_val)
         },
         status_str = status_str,
         tags = tags.join(", "),
@@ -189,5 +247,21 @@ fn git_default_author() -> Option<String> {
         None
     } else {
         Some(name)
+    }
+}
+
+fn git_head_ref() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if hash.is_empty() {
+        None
+    } else {
+        Some(hash)
     }
 }

@@ -173,10 +173,28 @@ fn render_note_page(
 }
 
 fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> Vec<CommentRender> {
-    comments
+    // Build a set of comment IDs that are top-level comments on this note
+    let top_level_ids: std::collections::HashSet<_> = comments
         .iter()
-        .filter(|c| c.target_slug.as_deref() == Some(slug))
+        .filter(|c| c.target_slug.as_deref() == Some(slug) && !c.is_reply)
+        .map(|c| c.id.clone())
+        .collect();
+
+    // Collect top-level comments and all their descendants
+    let mut result: Vec<CommentRender> = comments
+        .iter()
+        .filter(|c| {
+            // Include if: targets this note directly, or thread_root is a top-level comment on this note
+            let is_top_level = c.target_slug.as_deref() == Some(slug) && !c.is_reply;
+            let is_in_thread = c
+                .thread_root
+                .as_ref()
+                .map(|root| top_level_ids.contains(root))
+                .unwrap_or(false);
+            is_top_level || is_in_thread
+        })
         .map(|c| CommentRender {
+            id: c.id.clone(),
             status: c.status.to_string(),
             resolved: c.resolved,
             resolved_anchor: c.resolved_anchor.clone().unwrap_or_default(),
@@ -188,8 +206,26 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
             body_html: c.content_html.clone(),
             color_bg: comment_color_bg(&c.id),
             color_border: comment_color_border(&c.id),
+            parent_id: c.parent_id.clone().unwrap_or_default(),
+            has_parent: c.parent_id.is_some(),
+            thread_root: c.thread_root.clone().unwrap_or_default(),
+            depth: c.depth,
+            is_reply: c.is_reply,
         })
-        .collect()
+        .collect();
+
+    // Sort by thread_root, then depth, then order
+    result.sort_by(|a, b| {
+        match a.thread_root.cmp(&b.thread_root) {
+            std::cmp::Ordering::Equal => match a.depth.cmp(&b.depth) {
+                std::cmp::Ordering::Equal => a.id.cmp(&b.id),
+                other => other,
+            },
+            other => other,
+        }
+    });
+
+    result
 }
 
 fn comment_color_bg(id: &str) -> String {

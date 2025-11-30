@@ -67,24 +67,6 @@
         <button id="global-graph-toggle" class="graph-btn" type="button" aria-label="Open graph">Graph</button>
       </div>
 
-      {% if comments.len() > 0 %}
-      <div class="comments-sidenotes">
-        {% for comment in comments %}
-        <aside class="sidenote comment-sidenote {% if comment.resolved %}resolved{% else %}open{% endif %}" style="background: {{ comment.color_bg }}; border-left-color: {{ comment.color_border }}">
-          <div class="comment-meta">
-            <span class="comment-status">{{ comment.status }}</span>
-            {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
-            {% if comment.has_anchor %}<span class="comment-anchor">#{{ comment.resolved_anchor }}</span>{% endif %}
-          </div>
-          <div class="comment-body">{{ comment.body_html | safe }}</div>
-          {% if comment.has_quote %}
-          <div class="comment-quote">“{{ comment.quote }}”</div>
-          {% endif %}
-        </aside>
-        {% endfor %}
-      </div>
-      {% endif %}
-
       {{ content|safe }}
 
       {% if backlinks.len() > 0 %}
@@ -114,33 +96,113 @@
 {% if comments.len() > 0 %}
 <style>
   {% for comment in comments %}
-    {% if comment.has_anchor %}
+    {% if comment.has_anchor && comment.depth == 0 %}
       #{{ comment.resolved_anchor }} {
         background: {{ comment.color_bg }};
         box-shadow: inset 0 -2px 0 {{ comment.color_border }};
         transition: background 0.2s ease;
+        cursor: pointer;
+      }
+      #{{ comment.resolved_anchor }}:hover {
+        filter: brightness(0.95);
       }
     {% endif %}
   {% endfor %}
 </style>
-{% endif %}
 
-{% if comments.len() > 0 %}
-<div class="comments-sidenotes">
-  {% for comment in comments %}
-  <aside class="sidenote comment-sidenote {% if comment.resolved %}resolved{% else %}open{% endif %}" style="background: {{ comment.color_bg }}; border-left-color: {{ comment.color_border }}">
-    <div class="comment-meta">
-      <span class="comment-status">{{ comment.status }}</span>
-      {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
-      {% if comment.has_anchor %}<span class="comment-anchor">#{{ comment.resolved_anchor }}</span>{% endif %}
+{% for comment in comments %}
+{% if comment.depth == 0 %}
+<div
+  class="comment-modal {% if comment.resolved %}resolved{% else %}open{% endif %}"
+  id="comment-modal-{{ comment.id }}"
+  style="background: {{ comment.color_bg }}; border-color: {{ comment.color_border }}"
+  data-anchor="{{ comment.resolved_anchor }}"
+  data-thread-root="{{ comment.thread_root }}"
+>
+  <div class="comment-thread">
+    <div class="comment-entry depth-0" id="comment-{{ comment.id }}">
+      <div class="comment-meta">
+        <span class="comment-status">{{ comment.status }}</span>
+        {% if comment.has_author %}<span class="comment-author">{{ comment.author }}</span>{% endif %}
+      </div>
+      <div class="comment-body">{{ comment.body_html | safe }}</div>
+      {% if comment.has_quote %}
+      <div class="comment-quote">"{{ comment.quote }}"</div>
+      {% endif %}
     </div>
-    <div class="comment-body">{{ comment.body_html | safe }}</div>
-    {% if comment.has_quote %}
-    <div class="comment-quote">“{{ comment.quote }}”</div>
+    {% for reply in comments %}
+    {% if reply.thread_root == comment.id && reply.depth > 0 %}
+    <div class="comment-entry depth-{{ reply.depth }}" id="comment-{{ reply.id }}" style="margin-left: {{ reply.depth }}ch;">
+      <div class="comment-meta">
+        <span class="comment-reply-marker">↳</span>
+        <span class="comment-status">{{ reply.status }}</span>
+        {% if reply.has_author %}<span class="comment-author">{{ reply.author }}</span>{% endif %}
+      </div>
+      <div class="comment-body">{{ reply.body_html | safe }}</div>
+      {% if reply.has_quote %}
+      <div class="comment-quote">"{{ reply.quote }}"</div>
+      {% endif %}
+    </div>
     {% endif %}
-  </aside>
-  {% endfor %}
+    {% endfor %}
+  </div>
 </div>
+{% endif %}
+{% endfor %}
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const modals = Array.from(document.querySelectorAll('.comment-modal'));
+
+    modals.forEach((modal) => {
+      const anchor = modal.dataset.anchor;
+      if (!anchor) return;
+      const target = document.getElementById(anchor);
+      if (!target) return;
+
+      let hideTimeout;
+
+      const showModal = (e) => {
+        clearTimeout(hideTimeout);
+        // Hide all other modals
+        modals.forEach(m => m.classList.remove('visible'));
+
+        // Position the modal near the target
+        const rect = target.getBoundingClientRect();
+        const scrollTop = window.scrollY;
+        const scrollLeft = window.scrollX;
+
+        modal.style.top = (rect.bottom + scrollTop + 8) + 'px';
+        modal.style.left = (rect.left + scrollLeft) + 'px';
+
+        modal.classList.add('visible');
+
+        // Adjust if modal goes off-screen right
+        requestAnimationFrame(() => {
+          const modalRect = modal.getBoundingClientRect();
+          if (modalRect.right > window.innerWidth - 16) {
+            modal.style.left = (window.innerWidth - modalRect.width - 16 + scrollLeft) + 'px';
+          }
+          // Adjust if modal goes off-screen bottom
+          if (modalRect.bottom > window.innerHeight) {
+            modal.style.top = (rect.top + scrollTop - modalRect.height - 8) + 'px';
+          }
+        });
+      };
+
+      const hideModal = () => {
+        hideTimeout = setTimeout(() => {
+          modal.classList.remove('visible');
+        }, 50);
+      };
+
+      target.addEventListener('mouseenter', showModal);
+      target.addEventListener('mouseleave', hideModal);
+      modal.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+      modal.addEventListener('mouseleave', hideModal);
+    });
+  });
+</script>
 {% endif %}
 
   <!-- Global Graph Modal -->

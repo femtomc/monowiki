@@ -113,6 +113,7 @@ pub struct BacklinkEntry {
 
 #[derive(Debug, Clone)]
 pub struct CommentRender {
+    pub id: String,
     pub status: String,
     pub resolved: bool,
     pub resolved_anchor: String,
@@ -124,6 +125,12 @@ pub struct CommentRender {
     pub body_html: String,
     pub color_bg: String,
     pub color_border: String,
+    // Threading fields
+    pub parent_id: String,
+    pub has_parent: bool,
+    pub thread_root: String,
+    pub depth: u8,
+    pub is_reply: bool,
 }
 
 /// Post/note page template

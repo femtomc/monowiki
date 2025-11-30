@@ -97,6 +97,10 @@ pub struct Frontmatter {
 
     #[serde(default)]
     pub status: Option<String>,
+
+    /// Parent comment id (for replies to comments)
+    #[serde(default)]
+    pub parent_id: Option<String>,
 }
 
 /// A single note/post in the site
@@ -436,4 +440,21 @@ pub struct Comment {
     pub content_html: String,
     pub source_path: Option<String>,
     pub note_slug: String,
+
+    // Threading fields
+    /// Parent comment id (None for top-level comments on notes)
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// Root of the thread (self id for top-level, ancestor for replies)
+    #[serde(default)]
+    pub thread_root: Option<String>,
+    /// Nesting depth (0 for top-level comments)
+    #[serde(default)]
+    pub depth: u8,
+    /// Timestamp-based ordering within thread
+    #[serde(default)]
+    pub order: u64,
+    /// Whether this comment targets another comment (vs a note)
+    #[serde(default)]
+    pub is_reply: bool,
 }

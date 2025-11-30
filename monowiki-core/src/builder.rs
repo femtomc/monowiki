@@ -295,7 +295,7 @@ fn should_ignore(path: &str, ignores: &[Regex]) -> bool {
 
 /// Extract comments/annotations from notes of type Comment and resolve anchors.
 fn collect_comments(notes: &[Note]) -> Vec<Comment> {
-    // Build lookup of target notes by slug for resolution
+    // Build lookup of content notes by slug for resolution
     let mut note_map: HashMap<String, &Note> = HashMap::new();
     for note in notes {
         if note.note_type != NoteType::Comment {
@@ -303,18 +303,38 @@ fn collect_comments(notes: &[Note]) -> Vec<Comment> {
         }
     }
 
+    // Build lookup of comment notes by slug (for comment-to-comment resolution)
+    let mut comment_note_map: HashMap<String, &Note> = HashMap::new();
+    for note in notes.iter().filter(|n| n.note_type == NoteType::Comment) {
+        comment_note_map.insert(note.slug.clone(), note);
+    }
+
+    // First pass: collect all comments with basic resolution
     let mut comments = Vec::new();
     for note in notes.iter().filter(|n| n.note_type == NoteType::Comment) {
         let target_slug = note.frontmatter.target_slug.clone();
         let target_anchor = note.frontmatter.target_anchor.clone();
         let quote = note.frontmatter.quote.clone();
+        let parent_id = note.frontmatter.parent_id.clone();
 
-        let (resolved_anchor, resolved) = resolve_anchor(
-            target_slug.as_deref(),
-            target_anchor.as_deref(),
-            quote.as_deref(),
-            &note_map,
-        );
+        // Determine if this comment targets another comment
+        let is_reply = target_slug
+            .as_ref()
+            .map(|s| comment_note_map.contains_key(s))
+            .unwrap_or(false);
+
+        let (resolved_anchor, resolved) = if is_reply {
+            // Comment targets another comment - use synthetic anchor
+            resolve_comment_anchor(target_slug.as_deref(), &comment_note_map)
+        } else {
+            // Comment targets a content note
+            resolve_anchor(
+                target_slug.as_deref(),
+                target_anchor.as_deref(),
+                quote.as_deref(),
+                &note_map,
+            )
+        };
 
         let status = note
             .frontmatter
@@ -326,6 +346,9 @@ fn collect_comments(notes: &[Note]) -> Vec<Comment> {
                 _ => None,
             })
             .unwrap_or_default();
+
+        // Extract order from slug suffix (timestamp) for deterministic sorting
+        let order = extract_order_from_slug(&note.slug);
 
         comments.push(Comment {
             id: note.slug.clone(),
@@ -341,10 +364,120 @@ fn collect_comments(notes: &[Note]) -> Vec<Comment> {
             content_html: note.content_html.clone(),
             source_path: note.source_path.clone(),
             note_slug: note.slug.clone(),
+            parent_id,
+            thread_root: None, // Computed below
+            depth: 0,          // Computed below
+            order,
+            is_reply,
         });
     }
 
+    // Second pass: compute thread metadata (thread_root, depth)
+    compute_thread_metadata(&mut comments);
+
     comments
+}
+
+/// Resolve a comment that targets another comment (returns synthetic anchor)
+fn resolve_comment_anchor(
+    target_slug: Option<&str>,
+    comment_map: &HashMap<String, &Note>,
+) -> (Option<String>, bool) {
+    let Some(slug) = target_slug else {
+        return (None, false);
+    };
+    if comment_map.contains_key(slug) {
+        // Synthetic anchor for comment notes: comment-{slug}
+        (Some(format!("comment-{}", slug)), true)
+    } else {
+        (None, false)
+    }
+}
+
+/// Extract timestamp-based order from comment slug (e.g., "target-20231215143022" -> 20231215143022)
+fn extract_order_from_slug(slug: &str) -> u64 {
+    // Comment slugs are typically: {target_slug}-{timestamp}
+    // Try to extract the numeric suffix
+    if let Some(pos) = slug.rfind('-') {
+        if let Ok(ts) = slug[pos + 1..].parse::<u64>() {
+            return ts;
+        }
+    }
+    0
+}
+
+/// Compute thread_root and depth for all comments, detecting cycles
+fn compute_thread_metadata(comments: &mut [Comment]) {
+    // Build id -> index map
+    let id_map: HashMap<String, usize> = comments
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (c.id.clone(), i))
+        .collect();
+
+    // For each comment, walk up the parent chain to find thread_root and depth
+    let mut results: Vec<(Option<String>, u8)> = Vec::with_capacity(comments.len());
+
+    for comment in comments.iter() {
+        let (thread_root, depth) = compute_single_thread_info(comment, &id_map, comments);
+        results.push((thread_root, depth));
+    }
+
+    // Apply results
+    for (i, (thread_root, depth)) in results.into_iter().enumerate() {
+        comments[i].thread_root = thread_root;
+        comments[i].depth = depth;
+    }
+}
+
+/// Compute thread_root and depth for a single comment
+fn compute_single_thread_info(
+    comment: &Comment,
+    id_map: &HashMap<String, usize>,
+    comments: &[Comment],
+) -> (Option<String>, u8) {
+    if !comment.is_reply {
+        // Top-level comment on a note
+        return (Some(comment.id.clone()), 0);
+    }
+
+    // Walk up parent chain, detecting cycles
+    let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut current_id = comment.parent_id.clone().or(comment.target_slug.clone());
+    let mut depth: u8 = 1;
+    let max_depth: u8 = 50; // Prevent infinite loops
+
+    while let Some(ref pid) = current_id {
+        if visited.contains(pid) {
+            // Cycle detected
+            tracing::warn!("Cycle detected in comment thread at {}", comment.id);
+            return (Some(comment.id.clone()), depth);
+        }
+        visited.insert(pid.clone());
+
+        if let Some(&idx) = id_map.get(pid) {
+            let parent = &comments[idx];
+            if !parent.is_reply {
+                // Found the root (a comment on a note, not on another comment)
+                return (Some(parent.id.clone()), depth);
+            }
+            // Continue up the chain
+            current_id = parent.parent_id.clone().or(parent.target_slug.clone());
+            depth = depth.saturating_add(1);
+            if depth >= max_depth {
+                tracing::warn!("Max depth exceeded for comment {}", comment.id);
+                return (Some(comment.id.clone()), depth);
+            }
+        } else {
+            // Parent not found (might be targeting a note slug, not a comment)
+            // This comment is a reply but its target isn't in the comment map
+            // It's effectively a root of its own thread
+            return (Some(comment.id.clone()), depth.saturating_sub(1));
+        }
+    }
+
+    // No parent found
+    (Some(comment.id.clone()), 0)
 }
 
 fn resolve_anchor(
