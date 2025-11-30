@@ -1,6 +1,7 @@
 //! Inline citation handling and reference list rendering.
 
 use crate::bibliography::Bibliography;
+use crate::models::{Diagnostic, DiagnosticSeverity};
 use hayagriva::{types::Person, Entry};
 use once_cell::sync::Lazy;
 use pulldown_cmark::{CowStr, Event};
@@ -27,22 +28,31 @@ pub struct CitationTransformer<'a> {
     ctx: &'a CitationContext<'a>,
     order: Vec<String>,
     index: HashMap<String, usize>,
+    note_slug: Option<String>,
+    source_path: Option<String>,
 }
 
 impl<'a> CitationTransformer<'a> {
-    pub fn new(ctx: &'a CitationContext<'a>) -> Self {
+    pub fn new(
+        ctx: &'a CitationContext<'a>,
+        note_slug: Option<String>,
+        source_path: Option<String>,
+    ) -> Self {
         Self {
             ctx,
             order: Vec::new(),
             index: HashMap::new(),
+            note_slug,
+            source_path,
         }
     }
 
     pub fn transform(
         mut self,
         events: Vec<Event<'static>>,
-    ) -> (Vec<Event<'static>>, Vec<CitationRef>) {
+    ) -> (Vec<Event<'static>>, Vec<CitationRef>, Vec<Diagnostic>) {
         let mut out = Vec::with_capacity(events.len());
+        let mut diagnostics = Vec::new();
 
         for event in events {
             match event {
@@ -88,6 +98,14 @@ impl<'a> CitationTransformer<'a> {
                 let entry = self.ctx.bibliography.get(key).cloned();
                 if entry.is_none() {
                     warn!("Missing bibliography entry for key '{}'", key);
+                    diagnostics.push(Diagnostic {
+                        code: "citation.missing_entry".to_string(),
+                        message: format!("Missing bibliography entry for key '{}'", key),
+                        severity: DiagnosticSeverity::Warning,
+                        note_slug: self.note_slug.clone(),
+                        source_path: self.source_path.clone(),
+                        context: Some(key.clone()),
+                    });
                 }
                 CitationRef {
                     key: key.clone(),
@@ -97,7 +115,7 @@ impl<'a> CitationTransformer<'a> {
             })
             .collect();
 
-        (out, references)
+        (out, references, diagnostics)
     }
 
     fn render_citation(&mut self, inner: &str) -> String {

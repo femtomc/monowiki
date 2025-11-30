@@ -79,21 +79,20 @@ pub fn setup_github_pages(repo: Option<&str>, force: bool) -> Result<()> {
     };
 
     // Extract just the repository name (without username)
-    let repo_name = full_repo
-        .split('/')
-        .nth(1)
-        .unwrap_or(&full_repo);
+    let repo_name = full_repo.split('/').nth(1).unwrap_or(&full_repo);
 
     // Create .github/workflows directory
-    fs::create_dir_all(workflows_dir)
-        .context("Failed to create .github/workflows directory")?;
+    fs::create_dir_all(workflows_dir).context("Failed to create .github/workflows directory")?;
 
     // Write workflow file with repo name substituted
     let workflow_content = WORKFLOW_TEMPLATE.replace("{repo_name}", repo_name);
     fs::write(&workflow_path, workflow_content)
         .with_context(|| format!("Failed to write workflow to {:?}", workflow_path))?;
 
-    println!("✓ Created GitHub Actions workflow at {}", workflow_path.display());
+    println!(
+        "✓ Created GitHub Actions workflow at {}",
+        workflow_path.display()
+    );
     println!();
     println!("Next steps:");
     println!("  1. Commit and push the workflow:");
@@ -102,14 +101,19 @@ pub fn setup_github_pages(repo: Option<&str>, force: bool) -> Result<()> {
     println!("     git push");
     println!();
     println!("  2. Enable GitHub Pages in your repository settings:");
-    println!("     - Go to: https://github.com/{}/settings/pages", full_repo);
+    println!(
+        "     - Go to: https://github.com/{}/settings/pages",
+        full_repo
+    );
     println!("     - Source: GitHub Actions");
     println!();
     println!("  3. Push to main branch to trigger deployment");
     println!();
-    println!("Your site will be live at: https://{}.github.io/{}/",
-             full_repo.split('/').next().unwrap_or(""),
-             repo_name);
+    println!(
+        "Your site will be live at: https://{}.github.io/{}/",
+        full_repo.split('/').next().unwrap_or(""),
+        repo_name
+    );
 
     Ok(())
 }

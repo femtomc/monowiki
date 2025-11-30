@@ -6,6 +6,7 @@ use std::{
     sync::Mutex,
 };
 
+use crate::models::{Diagnostic, DiagnosticSeverity};
 use anyhow::{anyhow, Result};
 use lru::LruCache;
 use once_cell::sync::Lazy;
@@ -50,14 +51,26 @@ impl TypstMathRenderer {
         &self,
         events: Vec<Event<'static>>,
         preamble: Option<&str>,
-    ) -> Vec<Event<'static>> {
-        events
+        note_slug: Option<&str>,
+        source_path: Option<&str>,
+    ) -> (Vec<Event<'static>>, Vec<Diagnostic>) {
+        let mut diagnostics = Vec::new();
+
+        let events = events
             .into_iter()
             .map(|event| match event {
                 Event::InlineMath(math) => match self.render_math_block(&math, false, preamble) {
                     Ok(html) => Event::InlineHtml(CowStr::Boxed(html.into_boxed_str())),
                     Err(err) => {
                         warn!("Typst inline math failed: {err}");
+                        diagnostics.push(Diagnostic {
+                            code: "math.render_failed".to_string(),
+                            message: format!("Math rendering failed: {err}"),
+                            severity: DiagnosticSeverity::Warning,
+                            note_slug: note_slug.map(|s| s.to_string()),
+                            source_path: source_path.map(|s| s.to_string()),
+                            context: Some(math.to_string()),
+                        });
                         Event::InlineMath(math)
                     }
                 },
@@ -65,12 +78,22 @@ impl TypstMathRenderer {
                     Ok(html) => Event::Html(CowStr::Boxed(html.into_boxed_str())),
                     Err(err) => {
                         warn!("Typst display math failed: {err}");
+                        diagnostics.push(Diagnostic {
+                            code: "math.render_failed".to_string(),
+                            message: format!("Math rendering failed: {err}"),
+                            severity: DiagnosticSeverity::Warning,
+                            note_slug: note_slug.map(|s| s.to_string()),
+                            source_path: source_path.map(|s| s.to_string()),
+                            context: Some(math.to_string()),
+                        });
                         Event::DisplayMath(math)
                     }
                 },
                 other => other,
             })
-            .collect()
+            .collect();
+
+        (events, diagnostics)
     }
 
     fn render_math_block(

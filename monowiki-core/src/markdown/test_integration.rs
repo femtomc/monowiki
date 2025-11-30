@@ -13,7 +13,7 @@ fn test_full_pipeline_with_wikilinks() {
     slug_map.insert("rust-safety".to_string(), "Rust Safety".to_string());
 
     let processor = MarkdownProcessor::new();
-    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None, None);
+    let (html, links, toc, _) = processor.convert(markdown, &slug_map, "/", None, None, None, None);
 
     println!("Input: {}", markdown);
     println!("Output: {}", html);
@@ -33,7 +33,7 @@ fn test_wikilink_in_paragraph() {
     let slug_map = HashMap::new();
 
     let processor = MarkdownProcessor::new();
-    let (html, links, toc) = processor.convert(markdown, &slug_map, "/", None, None);
+    let (html, links, toc, _) = processor.convert(markdown, &slug_map, "/", None, None, None, None);
 
     println!("HTML: {}", html);
     println!("Links: {:?}", links);
@@ -49,8 +49,15 @@ fn test_typst_preamble_applied() {
     let markdown = "$$ #foo $$";
     let slug_map = HashMap::new();
     let processor = MarkdownProcessor::new();
-    let (html, _links, _toc) =
-        processor.convert(markdown, &slug_map, "/", Some("#let foo = 42"), None);
+    let (html, _links, _toc, _) = processor.convert(
+        markdown,
+        &slug_map,
+        "/",
+        Some("#let foo = 42"),
+        None,
+        None,
+        None,
+    );
 
     assert!(
         html.contains("typst-display"),
@@ -64,7 +71,8 @@ fn test_nota_block_transformer_wraps_paragraph() {
     let mut slug_map = HashMap::new();
     slug_map.insert("eval".to_string(), "/eval".to_string());
     let processor = MarkdownProcessor::new();
-    let (html, links, _toc) = processor.convert(markdown, &slug_map, "/", None, None);
+    let (html, links, _toc, _) =
+        processor.convert(markdown, &slug_map, "/", None, None, None, None);
 
     assert!(
         html.contains("nota-block nota-definition"),
@@ -99,12 +107,14 @@ fn test_citations_render_references() {
 
     let slug_map = HashMap::new();
     let processor = MarkdownProcessor::new();
-    let (html, _links, _toc) = processor.convert(
+    let (html, _links, _toc, _) = processor.convert(
         "See [@knuth1990] for details.",
         &slug_map,
         "/",
         None,
         Some(&ctx),
+        None,
+        None,
     );
 
     assert!(

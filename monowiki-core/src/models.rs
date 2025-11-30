@@ -198,6 +198,8 @@ impl LinkGraph {
 pub struct SiteIndex {
     pub notes: Vec<Note>,
     pub graph: LinkGraph,
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
 }
 
 impl SiteIndex {
@@ -205,6 +207,7 @@ impl SiteIndex {
         Self {
             notes: Vec::new(),
             graph: LinkGraph::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -337,4 +340,33 @@ fn normalize_permalink(permalink: &str) -> String {
 
 fn normalize_base_url(base_url: &str) -> String {
     crate::config::normalize_base_url(base_url)
+}
+
+/// Severity level for diagnostics emitted during build/verification
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DiagnosticSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// Structured diagnostic record for verification
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Diagnostic {
+    /// Machine-readable code (e.g., "link.unresolved")
+    pub code: String,
+    /// Human-friendly message
+    pub message: String,
+    /// Severity of the issue
+    pub severity: DiagnosticSeverity,
+    /// Note slug associated with this diagnostic (if any)
+    #[serde(default)]
+    pub note_slug: Option<String>,
+    /// Source path of the note within the vault (if known)
+    #[serde(default)]
+    pub source_path: Option<String>,
+    /// Additional context (e.g., target slug, citation key)
+    #[serde(default)]
+    pub context: Option<String>,
 }

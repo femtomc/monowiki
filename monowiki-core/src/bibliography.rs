@@ -3,21 +3,25 @@
 use hayagriva::{io::from_biblatex_str, Entry, Library};
 use std::{
     collections::HashMap,
-    fs,
+    fs, mem,
     path::{Path, PathBuf},
 };
 use tracing::warn;
+
+use crate::models::{Diagnostic, DiagnosticSeverity};
 
 /// Cached bibliography loader to avoid re-reading the same `.bib` files.
 #[derive(Debug, Default)]
 pub struct BibliographyStore {
     cache: HashMap<PathBuf, Library>,
+    diagnostics: Vec<Diagnostic>,
 }
 
 impl BibliographyStore {
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),
+            diagnostics: Vec::new(),
         }
     }
 
@@ -63,14 +67,35 @@ impl BibliographyStore {
                         .collect::<Vec<_>>()
                         .join("; ");
                     warn!("Failed to parse bibliography {:?}: {}", path, joined);
+                    self.diagnostics.push(Diagnostic {
+                        code: "bibliography.load_failed".to_string(),
+                        message: format!("Failed to parse bibliography: {}", joined),
+                        severity: DiagnosticSeverity::Warning,
+                        note_slug: None,
+                        source_path: Some(path.to_string_lossy().to_string()),
+                        context: None,
+                    });
                     self.cache.insert(path.to_path_buf(), Library::new());
                 }
             },
             Err(err) => {
                 warn!("Failed to read bibliography {:?}: {}", path, err);
+                self.diagnostics.push(Diagnostic {
+                    code: "bibliography.load_failed".to_string(),
+                    message: format!("Failed to read bibliography: {}", err),
+                    severity: DiagnosticSeverity::Warning,
+                    note_slug: None,
+                    source_path: Some(path.to_string_lossy().to_string()),
+                    context: None,
+                });
                 self.cache.insert(path.to_path_buf(), Library::new());
             }
         }
+    }
+
+    /// Take accumulated diagnostics (clearing the internal buffer).
+    pub fn take_diagnostics(&mut self) -> Vec<Diagnostic> {
+        mem::take(&mut self.diagnostics)
     }
 }
 

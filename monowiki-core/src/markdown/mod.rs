@@ -19,6 +19,8 @@ use citations::{render_references, CitationContext, CitationTransformer};
 use pulldown_cmark::{html, CowStr, Event, Options, Parser, Tag};
 use std::collections::HashMap;
 
+use crate::models::Diagnostic;
+
 pub use highlight::HighlightTransformer;
 pub use math::MathTransformer;
 pub use nota_blocks::NotaBlockTransformer;
@@ -64,13 +66,16 @@ impl MarkdownProcessor {
         base_url: &str,
         typst_preamble: Option<&str>,
         citation_context: Option<&CitationContext>,
-    ) -> (String, Vec<String>, Option<String>) {
+        note_slug: Option<&str>,
+        source_path: Option<&str>,
+    ) -> (String, Vec<String>, Option<String>, Vec<Diagnostic>) {
         // Parse markdown into events
         let parser = Parser::new_ext(markdown, self.options);
         let events: Vec<Event> = parser.collect();
 
         // Collect headings for TOC and later ID injection
         let headings = collect_headings(&events);
+        let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
         // Transform math delimiters first ($$, $, etc.)
         let math_transformer = MathTransformer::new();
@@ -81,7 +86,9 @@ impl MarkdownProcessor {
         let events = nota_transformer.transform(events);
 
         // Render math to SVG
-        let events = MATH_RENDERER.render_math(events, typst_preamble);
+        let (events, mut math_diags) =
+            MATH_RENDERER.render_math(events, typst_preamble, note_slug, source_path);
+        diagnostics.append(&mut math_diags);
 
         // Unwrap paragraphs with display math (must be after nota blocks)
         let events = math_transformer.unwrap_display_math_paragraphs(events);
@@ -91,15 +98,26 @@ impl MarkdownProcessor {
         let events = sidenote_transformer.transform(events);
 
         // Apply wikilink transform
-        let wikilink_transformer = WikilinkTransformer::new(slug_map, base_url);
-        let (events, outgoing_links) = wikilink_transformer.transform(events);
+        let wikilink_transformer = WikilinkTransformer::new(
+            slug_map,
+            base_url,
+            note_slug.map(|s| s.to_string()),
+            source_path.map(|s| s.to_string()),
+        );
+        let (events, outgoing_links, mut link_diags) = wikilink_transformer.transform(events);
+        diagnostics.append(&mut link_diags);
 
         // Apply citation transform
         let mut citation_references = Vec::new();
         let events = if let Some(ctx) = citation_context {
-            let transformer = CitationTransformer::new(ctx);
-            let (events, refs) = transformer.transform(events);
+            let transformer = CitationTransformer::new(
+                ctx,
+                note_slug.map(|s| s.to_string()),
+                source_path.map(|s| s.to_string()),
+            );
+            let (events, refs, mut cite_diags) = transformer.transform(events);
             citation_references = refs;
+            diagnostics.append(&mut cite_diags);
             events
         } else {
             events
@@ -128,13 +146,13 @@ impl MarkdownProcessor {
             Some(render_toc(&headings))
         };
 
-        (html_output, outgoing_links, toc_html)
+        (html_output, outgoing_links, toc_html, diagnostics)
     }
 
     /// Convert markdown to HTML without link tracking
     pub fn convert_simple(&self, markdown: &str) -> String {
         let slug_map = HashMap::new();
-        let (html, _, _) = self.convert(markdown, &slug_map, "/", None, None);
+        let (html, _, _, _) = self.convert(markdown, &slug_map, "/", None, None, None, None);
         html
     }
 }

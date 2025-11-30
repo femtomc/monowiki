@@ -58,6 +58,7 @@ impl SiteBuilder {
         let mut notes = Vec::new();
         let mut slug_map: HashMap<String, String> = HashMap::new();
         let base_url = self.config.normalized_base_url();
+        let mut diagnostics: Vec<Diagnostic> = Vec::new();
 
         for file_path in &markdown_files {
             match self.parse_note(file_path) {
@@ -72,7 +73,25 @@ impl SiteBuilder {
                     slug_map.insert(note.slug.clone(), href.clone());
                     // Aliases also resolve to the same target
                     for alias in &note.aliases {
-                        slug_map.insert(slugify(alias), href.clone());
+                        let alias_slug = slugify(alias);
+                        if let Some(existing) = slug_map.get(&alias_slug) {
+                            // Only flag if the alias would point somewhere else
+                            if existing != &href {
+                                diagnostics.push(Diagnostic {
+                                    code: "alias.duplicate".to_string(),
+                                    message: format!(
+                                        "Alias '{}' on '{}' conflicts with an existing target",
+                                        alias, note.slug
+                                    ),
+                                    severity: DiagnosticSeverity::Warning,
+                                    note_slug: Some(note.slug.clone()),
+                                    source_path: note.source_path.clone(),
+                                    context: Some(alias_slug.clone()),
+                                });
+                            }
+                        } else {
+                            slug_map.insert(alias_slug, href.clone());
+                        }
                     }
                     notes.push(note);
                 }
@@ -98,17 +117,20 @@ impl SiteBuilder {
                 })
             };
 
-            let (html, outgoing_links, toc_html) = self.processor.convert(
+            let (html, outgoing_links, toc_html, mut note_diags) = self.processor.convert(
                 &body,
                 &slug_map,
                 &base_url,
                 frontmatter.typst_preamble.as_deref(),
                 citation_ctx.as_ref(),
+                Some(&note.slug),
+                note.source_path.as_deref(),
             );
             note.content_html = html;
             note.outgoing_links = outgoing_links;
             note.toc_html = toc_html;
             note.raw_body = Some(body);
+            diagnostics.append(&mut note_diags);
         }
 
         // Build link graph
@@ -119,9 +141,16 @@ impl SiteBuilder {
             }
         }
 
+        // Carry over bibliography load diagnostics
+        diagnostics.extend(bibliography_store.take_diagnostics());
+
         tracing::info!("Built site index with {} notes", notes.len());
 
-        Ok(SiteIndex { notes, graph })
+        Ok(SiteIndex {
+            notes,
+            graph,
+            diagnostics,
+        })
     }
 
     /// Discover all markdown files in the vault

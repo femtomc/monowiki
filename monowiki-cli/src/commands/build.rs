@@ -4,13 +4,13 @@ use crate::cache;
 use anyhow::{Context, Result};
 use askama::Template;
 use chrono::{Datelike, NaiveDate};
+use include_dir::{include_dir, Dir};
 use monowiki_core::{Config, SiteBuilder};
 use monowiki_render::{BacklinkEntry, DirectoryNode, FileNode, NotFoundTemplate, PostTemplate};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
-use include_dir::{include_dir, Dir};
 
 // Embed the theme bundle at compile time so it's available after cargo install
 static THEME_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../theme/dist");
@@ -169,10 +169,7 @@ fn render_note_page(
 }
 
 /// Build a directory tree structure from notes with arbitrary nesting
-fn build_directory_tree(
-    notes: &[&monowiki_core::Note],
-    base_url: &str,
-) -> Vec<DirectoryNode> {
+fn build_directory_tree(notes: &[&monowiki_core::Note], base_url: &str) -> Vec<DirectoryNode> {
     // Build a hierarchical tree structure
     let mut root_dirs: HashMap<String, DirectoryNode> = HashMap::new();
 
@@ -194,17 +191,21 @@ fn build_directory_tree(
 
             if path_parts.len() == 1 {
                 // File at root level
-                let root_dir = root_dirs.entry(String::new()).or_insert_with(|| {
-                    DirectoryNode {
+                let root_dir = root_dirs
+                    .entry(String::new())
+                    .or_insert_with(|| DirectoryNode {
                         name: String::new(),
                         files: Vec::new(),
                         subdirs: Vec::new(),
-                    }
-                });
+                    });
                 root_dir.files.push(file_node);
             } else {
                 // File in nested directories
-                insert_into_tree(&mut root_dirs, &path_parts[..path_parts.len() - 1], file_node);
+                insert_into_tree(
+                    &mut root_dirs,
+                    &path_parts[..path_parts.len() - 1],
+                    file_node,
+                );
             }
         }
     }
@@ -226,13 +227,13 @@ fn insert_into_tree(
     let first_dir = dir_path[0];
     let rest = &dir_path[1..];
 
-    let dir_node = tree.entry(first_dir.to_string()).or_insert_with(|| {
-        DirectoryNode {
+    let dir_node = tree
+        .entry(first_dir.to_string())
+        .or_insert_with(|| DirectoryNode {
             name: first_dir.to_string(),
             files: Vec::new(),
             subdirs: Vec::new(),
-        }
-    });
+        });
 
     if rest.is_empty() {
         // We're at the final directory level - add the file here
@@ -271,11 +272,7 @@ fn sort_directory_tree(tree: HashMap<String, DirectoryNode>) -> Vec<DirectoryNod
 }
 
 /// Expand macros like {{directory_tree}} in content
-fn expand_macros(
-    content: &str,
-    site_index: &monowiki_core::SiteIndex,
-    base_url: &str,
-) -> String {
+fn expand_macros(content: &str, site_index: &monowiki_core::SiteIndex, base_url: &str) -> String {
     // Check for {{directory_tree}} macro (may be wrapped in <p> tags by markdown parser)
     if !content.contains("{{directory_tree}}") {
         return content.to_string();

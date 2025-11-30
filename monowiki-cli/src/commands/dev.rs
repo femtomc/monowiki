@@ -610,6 +610,7 @@ enable_backlinks: true
             preview: Some("Rust content".into()),
             toc_html: None,
             raw_body: Some("# Intro\nRust content".into()),
+            source_path: None,
         };
 
         let note_b = Note {
@@ -627,11 +628,13 @@ enable_backlinks: true
             preview: Some("Memory".into()),
             toc_html: None,
             raw_body: Some("Memory".into()),
+            source_path: None,
         };
 
         let mut site_index = SiteIndex {
             notes: vec![note_a.clone(), note_b.clone()],
             graph,
+            diagnostics: Vec::new(),
         };
 
         let base_url = config.normalized_base_url();

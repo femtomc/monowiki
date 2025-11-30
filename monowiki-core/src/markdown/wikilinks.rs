@@ -1,5 +1,6 @@
 //! Wikilink transformation for [[target]] and [[target|text]] syntax.
 
+use crate::models::{Diagnostic, DiagnosticSeverity};
 use crate::slug::slugify;
 use pulldown_cmark::{CowStr, Event, Tag, TagEnd};
 use std::collections::HashMap;
@@ -8,22 +9,35 @@ use std::collections::HashMap;
 pub struct WikilinkTransformer<'a> {
     slug_map: &'a HashMap<String, String>,
     base_url: String,
+    note_slug: Option<String>,
+    source_path: Option<String>,
 }
 
 impl<'a> WikilinkTransformer<'a> {
-    pub fn new(slug_map: &'a HashMap<String, String>, base_url: &str) -> Self {
+    pub fn new(
+        slug_map: &'a HashMap<String, String>,
+        base_url: &str,
+        note_slug: Option<String>,
+        source_path: Option<String>,
+    ) -> Self {
         Self {
             slug_map,
             base_url: crate::config::normalize_base_url(base_url),
+            note_slug,
+            source_path,
         }
     }
 
     /// Transform events, converting [[wikilinks]] to HTML links
     ///
     /// Returns (transformed_events, outgoing_links)
-    pub fn transform(&self, events: Vec<Event<'_>>) -> (Vec<Event<'static>>, Vec<String>) {
+    pub fn transform(
+        &self,
+        events: Vec<Event<'_>>,
+    ) -> (Vec<Event<'static>>, Vec<String>, Vec<Diagnostic>) {
         let mut result = Vec::new();
         let mut outgoing_links = Vec::new();
+        let mut diagnostics = Vec::new();
         let mut i = 0;
         let mut in_code_block = false;
 
@@ -67,9 +81,10 @@ impl<'a> WikilinkTransformer<'a> {
 
                 // Check if merged text contains wikilink syntax
                 if merged_text.contains("[[") && merged_text.contains("]]") {
-                    let (transformed, links) = self.process_wikilinks(&merged_text);
+                    let (transformed, links, mut diags) = self.process_wikilinks(&merged_text);
                     result.extend(transformed);
                     outgoing_links.extend(links);
+                    diagnostics.append(&mut diags);
                 } else {
                     result.push(Event::Text(CowStr::Boxed(merged_text.into_boxed_str())));
                 }
@@ -79,12 +94,13 @@ impl<'a> WikilinkTransformer<'a> {
             }
         }
 
-        (result, outgoing_links)
+        (result, outgoing_links, diagnostics)
     }
 
-    fn process_wikilinks(&self, text: &str) -> (Vec<Event<'static>>, Vec<String>) {
+    fn process_wikilinks(&self, text: &str) -> (Vec<Event<'static>>, Vec<String>, Vec<Diagnostic>) {
         let mut events = Vec::new();
         let mut links = Vec::new();
+        let mut diagnostics = Vec::new();
         let mut remaining = text;
 
         while let Some(start) = remaining.find("[[") {
@@ -98,11 +114,14 @@ impl<'a> WikilinkTransformer<'a> {
             // Find the closing ]]
             if let Some(end) = remaining[start..].find("]]") {
                 let wikilink = &remaining[start + 2..start + end];
-                let (link_event, target_slug) = self.create_link(wikilink);
+                let (link_event, target_slug, diag) = self.create_link(wikilink);
                 events.extend(link_event);
 
                 if let Some(slug) = target_slug {
                     links.push(slug);
+                }
+                if let Some(diag) = diag {
+                    diagnostics.push(diag);
                 }
 
                 remaining = &remaining[start + end + 2..];
@@ -122,10 +141,13 @@ impl<'a> WikilinkTransformer<'a> {
             )));
         }
 
-        (events, links)
+        (events, links, diagnostics)
     }
 
-    fn create_link(&self, wikilink: &str) -> (Vec<Event<'static>>, Option<String>) {
+    fn create_link(
+        &self,
+        wikilink: &str,
+    ) -> (Vec<Event<'static>>, Option<String>, Option<Diagnostic>) {
         // Parse [[target|display text]] or [[target]]
         let (target, display) = if let Some(pipe_pos) = wikilink.find('|') {
             let target = wikilink[..pipe_pos].trim();
@@ -165,6 +187,7 @@ impl<'a> WikilinkTransformer<'a> {
         };
 
         let mut events = Vec::new();
+        let mut diagnostic = None;
 
         // Create link: <a href="...">
         events.push(Event::Start(Tag::Link {
@@ -183,7 +206,18 @@ impl<'a> WikilinkTransformer<'a> {
         events.push(Event::End(TagEnd::Link));
 
         let outgoing = if slug.is_empty() { None } else { Some(slug) };
-        (events, outgoing)
+        if outgoing.is_some() && !self.slug_map.contains_key(outgoing.as_ref().unwrap()) {
+            diagnostic = Some(Diagnostic {
+                code: "link.unresolved".to_string(),
+                message: format!("Unresolved wikilink target '{}'", target),
+                severity: DiagnosticSeverity::Warning,
+                note_slug: self.note_slug.clone(),
+                source_path: self.source_path.clone(),
+                context: Some(target.to_string()),
+            });
+        }
+
+        (events, outgoing, diagnostic)
     }
 }
 
@@ -313,10 +347,10 @@ mod tests {
         let slug_map =
             HashMap::from([("rust-safety".to_string(), "/rust-safety.html".to_string())]);
 
-        let transformer = WikilinkTransformer::new(&slug_map, "/");
+        let transformer = WikilinkTransformer::new(&slug_map, "/", None, None);
         let events = vec![Event::Text(CowStr::Borrowed("Check out [[Rust Safety]]"))];
 
-        let (_result, links) = transformer.transform(events);
+        let (_result, links, _diags) = transformer.transform(events);
 
         assert_eq!(links, vec!["rust-safety"]);
         // Should contain link events
@@ -328,12 +362,12 @@ mod tests {
     #[test]
     fn test_wikilink_with_display_text() {
         let slug_map = HashMap::new();
-        let transformer = WikilinkTransformer::new(&slug_map, "/");
+        let transformer = WikilinkTransformer::new(&slug_map, "/", None, None);
 
         let events = vec![Event::Text(CowStr::Borrowed(
             "See [[rust-safety|this guide]]",
         ))];
-        let (_result, links) = transformer.transform(events);
+        let (_result, links, _diags) = transformer.transform(events);
 
         assert_eq!(links, vec!["rust-safety"]);
     }
@@ -341,12 +375,12 @@ mod tests {
     #[test]
     fn test_multiple_wikilinks() {
         let slug_map = HashMap::new();
-        let transformer = WikilinkTransformer::new(&slug_map, "/");
+        let transformer = WikilinkTransformer::new(&slug_map, "/", None, None);
 
         let events = vec![Event::Text(CowStr::Borrowed(
             "Check [[Page One]] and [[Page Two]]",
         ))];
-        let (_, links) = transformer.transform(events);
+        let (_, links, _diags) = transformer.transform(events);
 
         assert_eq!(links.len(), 2);
         assert!(links.contains(&"page-one".to_string()));
@@ -357,12 +391,12 @@ mod tests {
     fn test_wikilink_with_fragment() {
         let slug_map =
             HashMap::from([("rust-safety".to_string(), "/rust-safety.html".to_string())]);
-        let transformer = WikilinkTransformer::new(&slug_map, "/");
+        let transformer = WikilinkTransformer::new(&slug_map, "/", None, None);
 
         let events = vec![Event::Text(CowStr::Borrowed(
             "See [[Rust Safety#Memory Model]]",
         ))];
-        let (result, links) = transformer.transform(events);
+        let (result, links, _diags) = transformer.transform(events);
 
         assert_eq!(links, vec!["rust-safety"]);
 
@@ -379,5 +413,29 @@ mod tests {
             Some("/rust-safety.html#memory-model"),
             "href should include fragment slug"
         );
+    }
+
+    #[test]
+    fn test_collects_unresolved_wikilink_diagnostic() {
+        let slug_map = HashMap::new();
+        let transformer = WikilinkTransformer::new(
+            &slug_map,
+            "/",
+            Some("note-a".to_string()),
+            Some("path/to/note.md".to_string()),
+        );
+
+        let events = vec![Event::Text(CowStr::Borrowed("See [[Missing Note]]"))];
+        let (_result, _links, diags) = transformer.transform(events);
+
+        assert_eq!(
+            diags.len(),
+            1,
+            "Should emit one diagnostic for unresolved link"
+        );
+        let diag = &diags[0];
+        assert_eq!(diag.code, "link.unresolved");
+        assert_eq!(diag.note_slug.as_deref(), Some("note-a"));
+        assert_eq!(diag.source_path.as_deref(), Some("path/to/note.md"));
     }
 }

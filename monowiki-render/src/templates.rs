@@ -36,8 +36,14 @@ impl DirectoryNode {
 
         html.push_str("<details class=\"directory-node\" open>\n");
         html.push_str("  <summary class=\"directory-name\">\n");
-        html.push_str(&format!("    <span class=\"dir-label\">{}/</span>\n", self.name));
-        html.push_str(&format!("    <span class=\"file-count\">({} files)</span>\n", self.files.len()));
+        html.push_str(&format!(
+            "    <span class=\"dir-label\">{}/</span>\n",
+            self.name
+        ));
+        html.push_str(&format!(
+            "    <span class=\"file-count\">({} files)</span>\n",
+            self.files.len()
+        ));
         html.push_str("  </summary>\n");
 
         // Render subdirectories
@@ -54,9 +60,15 @@ impl DirectoryNode {
             html.push_str("  <ul class=\"file-list\">\n");
             for file in &self.files {
                 html.push_str("    <li class=\"file-item\">\n");
-                html.push_str(&format!("      <a href=\"{}\" class=\"file-link\">{}</a>\n",
-                    html_escape(&file.url), html_escape(&file.title)));
-                html.push_str(&format!("      <span class=\"file-type-badge\">{}</span>\n", file.note_type));
+                html.push_str(&format!(
+                    "      <a href=\"{}\" class=\"file-link\">{}</a>\n",
+                    html_escape(&file.url),
+                    html_escape(&file.title)
+                ));
+                html.push_str(&format!(
+                    "      <span class=\"file-type-badge\">{}</span>\n",
+                    file.note_type
+                ));
                 html.push_str("    </li>\n");
             }
             html.push_str("  </ul>\n");

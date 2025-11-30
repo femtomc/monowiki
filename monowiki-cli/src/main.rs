@@ -95,6 +95,13 @@ enum Commands {
         command: ExportCommands,
     },
 
+    /// Verify vault health and emit diagnostics
+    Verify {
+        /// Emit JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+
     /// Stream vault change events for agents
     Watch,
 
@@ -180,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 pretty,
             ),
         },
+        Commands::Verify { json } => commands::verify_site(&cli.config, json),
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
