@@ -35,6 +35,10 @@ jobs:
             target: aarch64-apple-darwin
             artifact_name: monowiki
             asset_name: monowiki-macos-aarch64.tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: monowiki.exe
+            asset_name: monowiki-windows-x86_64.zip
 
     steps:
       - name: Checkout
@@ -70,13 +74,19 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} --bin monowiki
 
       - name: Strip binary
+        if: runner.os != 'Windows'
         run: |
           strip target/${{ matrix.target }}/release/${{ matrix.artifact_name }} || true
 
-      - name: Create tarball
+      - name: Create archive
+        shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z a ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          else
+            tar czf ${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+          fi
           mv ${{ matrix.asset_name }} ${{ github.workspace }}/
 
       - name: Upload artifact
