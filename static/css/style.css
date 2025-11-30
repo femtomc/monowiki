@@ -1114,24 +1114,8 @@ h2 {
   margin-top: var(--line-height);
 }
 
-.comment-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
 .comment-sidenote {
-  display: block;
-  float: right;
-  clear: right;
-  margin-right: calc(-1 * (var(--sidenote-width) + var(--sidenote-gap)));
   width: var(--sidenote-width);
-  font-size: 0.9rem;
-  line-height: var(--line-height);
-  padding: 0.75rem 1ch;
-  margin-top: 0.25rem;
-  border-left: var(--border-thickness) solid var(--text-color-alt);
-  border-radius: 4px;
 }
 
 .comment-sidenote.resolved {
