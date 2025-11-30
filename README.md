@@ -20,6 +20,7 @@ monowiki verify       # advisory vault health report (use --json for agents)
 monowiki changes      # summarize git changes since a ref
 monowiki comment add  # create an annotation file in vault/comments/
 monowiki status       # changes + comments in one call
+# Tip: use "-" for comment body to read from stdin; default author from git config
 monowiki github-pages # generate GitHub Actions workflow
 ```
 

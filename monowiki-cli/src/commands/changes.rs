@@ -320,6 +320,25 @@ fn latest_commit_since(
         .output()
         .context("Failed to run git log")?;
     if !output.status.success() {
+        return latest_commit(&path.to_string_lossy());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    if stdout.trim().is_empty() {
+        return latest_commit(&path.to_string_lossy());
+    }
+    let mut parts = stdout.trim().split('|');
+    let hash = parts.next().map(|s| s.to_string());
+    let ts = parts.next().and_then(|s| s.parse::<i64>().ok());
+    let author = parts.next().map(|s| s.to_string());
+    Ok((hash, ts, author))
+}
+
+fn latest_commit(path: &str) -> Result<(Option<String>, Option<i64>, Option<String>)> {
+    let output = Command::new("git")
+        .args(["log", "-1", "--format=%H|%ct|%an", "--", path])
+        .output()
+        .context("Failed to run git log fallback")?;
+    if !output.status.success() {
         return Ok((None, None, None));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);

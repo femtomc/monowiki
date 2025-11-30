@@ -402,10 +402,34 @@ fn find_section_by_quote(note: &Note, quote: &str) -> Option<String> {
         "/",
     );
     let quote_norm = quote.to_lowercase();
-    for entry in entries {
+
+    // Exact substring match first
+    for entry in &entries {
         if entry.content.to_lowercase().contains(&quote_norm) {
-            return Some(entry.section_id);
+            return Some(entry.section_id.clone());
         }
     }
-    None
+
+    // Token overlap heuristic
+    let quote_tokens: std::collections::HashSet<_> = quote_norm
+        .split_whitespace()
+        .map(|s| s.to_string())
+        .collect();
+    let mut best: Option<(usize, String)> = None;
+    for entry in &entries {
+        let entry_tokens: std::collections::HashSet<_> = entry
+            .content
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        let overlap = quote_tokens.intersection(&entry_tokens).count();
+        if overlap > 0 {
+            match &best {
+                Some((best_overlap, _)) if overlap <= *best_overlap => {}
+                _ => best = Some((overlap, entry.section_id.clone())),
+            }
+        }
+    }
+    best.map(|(_, id)| id)
 }

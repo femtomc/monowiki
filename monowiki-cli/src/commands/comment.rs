@@ -116,11 +116,27 @@ pub fn add_comment(
     fs::create_dir_all(&comments_dir)
         .with_context(|| format!("Failed to create comments dir {:?}", comments_dir))?;
 
+    // Body: if "-" read stdin
+    let body = if body == "-" {
+        use std::io::Read;
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("Failed to read comment body from stdin")?;
+        buf
+    } else {
+        body.to_string()
+    };
+
     let ts = Utc::now().format("%Y%m%d%H%M%S");
     let file_name = format!("{}-{}.md", target_slug, ts);
     let path = comments_dir.join(file_name);
 
     let status_str = status.unwrap_or("open");
+    let author_val = author
+        .map(|a| a.to_string())
+        .or_else(git_default_author)
+        .unwrap_or_default();
     let frontmatter = format!(
         r#"---
 title: Comment on {target_slug}
@@ -139,9 +155,11 @@ tags: [{tags}]
         quote_line = quote
             .map(|q| format!("quote: \"{}\"\n", escape_yaml(q)))
             .unwrap_or_default(),
-        author_line = author
-            .map(|a| format!("author: \"{}\"\n", escape_yaml(a)))
-            .unwrap_or_default(),
+        author_line = if author_val.is_empty() {
+            String::new()
+        } else {
+            format!("author: \"{}\"\n", escape_yaml(&author_val))
+        },
         status_str = status_str,
         tags = tags.join(", "),
         body = body
@@ -156,4 +174,20 @@ tags: [{tags}]
 
 fn escape_yaml(input: &str) -> String {
     input.replace('"', "\\\"")
+}
+
+fn git_default_author() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["config", "user.name"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
