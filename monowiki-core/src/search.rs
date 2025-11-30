@@ -231,6 +231,8 @@ pub struct SectionDigest {
     pub section_id: String,
     pub heading: String,
     pub hash: String,
+    /// Original anchor id (heading slug) if available
+    pub anchor_id: Option<String>,
 }
 
 /// Extract section digests (stable IDs + hashes) from rendered HTML
@@ -246,6 +248,7 @@ pub fn section_digests_from_html(
             section_id: entry.section_id,
             heading: entry.section_title,
             hash: entry.section_hash,
+            anchor_id: entry.id.split('#').nth(1).map(|s| s.to_string()),
         })
         .collect()
 }

@@ -18,6 +18,7 @@ monowiki dev          # serve at localhost:8000 with live reload
 monowiki build        # write static site to docs/
 monowiki verify       # advisory vault health report (use --json for agents)
 monowiki changes      # summarize git changes since a ref
+monowiki comment add  # create an annotation file in vault/comments/
 monowiki github-pages # generate GitHub Actions workflow
 ```
 
@@ -68,6 +69,8 @@ monowiki graph neighbors --slug <slug> --json
 monowiki export sections --format jsonl  # for embeddings
 monowiki verify --json  # diagnostics: unresolved links, citations, math, aliases
 monowiki changes --since HEAD~1 --json --with-sections
+monowiki comment list --slug note-slug --json
+monowiki comment add --slug note-slug --anchor section-id --quote "..." --body "text"
 ```
 
 Dev server exposes `/api/search`, `/api/note/<slug>`, `/api/graph/<slug>`.

@@ -117,6 +117,12 @@ enum Commands {
         json: bool,
     },
 
+    /// Manage comments/annotations
+    Comment {
+        #[command(subcommand)]
+        command: CommentCommands,
+    },
+
     /// Stream vault change events for agents
     Watch,
 
@@ -208,6 +214,29 @@ async fn main() -> anyhow::Result<()> {
             with_sections,
         } => commands::changes(&cli.config, &since, json, with_sections),
         Commands::Verify { json } => commands::verify_site(&cli.config, json),
+        Commands::Comment { command } => match command {
+            CommentCommands::List { slug, status, json } => {
+                commands::list_comments(&cli.config, slug.as_deref(), status.as_deref(), json)
+            }
+            CommentCommands::Add {
+                slug,
+                anchor,
+                quote,
+                author,
+                tags,
+                status,
+                body,
+            } => commands::add_comment(
+                &cli.config,
+                &slug,
+                anchor.as_deref(),
+                quote.as_deref(),
+                author.as_deref(),
+                tags,
+                status.as_deref(),
+                &body,
+            ),
+        },
         Commands::Watch => commands::watch_changes(&cli.config).await,
         Commands::GithubPages { repo, force } => {
             commands::setup_github_pages(repo.as_deref(), force)
@@ -271,6 +300,53 @@ pub enum GraphCommands {
         /// Emit JSON instead of text
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CommentCommands {
+    /// List comments/annotations
+    List {
+        /// Target slug filter
+        #[arg(long)]
+        slug: Option<String>,
+
+        /// Status filter (open/resolved)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Emit JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add a new comment file in the vault
+    Add {
+        /// Target note slug
+        #[arg(long)]
+        slug: String,
+
+        /// Target anchor (section id or heading id)
+        #[arg(long)]
+        anchor: Option<String>,
+
+        /// Optional quote to help re-anchor
+        #[arg(long)]
+        quote: Option<String>,
+
+        /// Author name
+        #[arg(long)]
+        author: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        tags: Vec<String>,
+
+        /// Status (open/resolved)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Comment body text
+        body: String,
     },
 }
 

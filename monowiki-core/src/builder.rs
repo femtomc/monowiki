@@ -6,6 +6,7 @@ use crate::{
     frontmatter::parse_frontmatter,
     markdown::{citations::CitationContext, MarkdownProcessor},
     models::*,
+    search::section_digests_from_html,
     slug::slugify,
 };
 use regex::Regex;
@@ -136,6 +137,9 @@ impl SiteBuilder {
         // Build link graph
         let mut graph = LinkGraph::new();
         for note in &notes {
+            if note.note_type == NoteType::Comment {
+                continue;
+            }
             for target in &note.outgoing_links {
                 graph.add_link(&note.slug, target);
             }
@@ -146,10 +150,14 @@ impl SiteBuilder {
 
         tracing::info!("Built site index with {} notes", notes.len());
 
+        // Collect comments and resolve anchors
+        let comments = collect_comments(&notes);
+
         Ok(SiteIndex {
             notes,
             graph,
             diagnostics,
+            comments,
         })
     }
 
@@ -282,4 +290,111 @@ fn compile_ignore_patterns(patterns: &[String]) -> Vec<Regex> {
 
 fn should_ignore(path: &str, ignores: &[Regex]) -> bool {
     ignores.iter().any(|re| re.is_match(path))
+}
+
+/// Extract comments/annotations from notes of type Comment and resolve anchors.
+fn collect_comments(notes: &[Note]) -> Vec<Comment> {
+    // Build lookup of target notes by slug for resolution
+    let mut note_map: HashMap<String, &Note> = HashMap::new();
+    for note in notes {
+        if note.note_type != NoteType::Comment {
+            note_map.insert(note.slug.clone(), note);
+        }
+    }
+
+    let mut comments = Vec::new();
+    for note in notes.iter().filter(|n| n.note_type == NoteType::Comment) {
+        let target_slug = note.frontmatter.target_slug.clone();
+        let target_anchor = note.frontmatter.target_anchor.clone();
+        let quote = note.frontmatter.quote.clone();
+
+        let (resolved_anchor, resolved) = resolve_anchor(
+            target_slug.as_deref(),
+            target_anchor.as_deref(),
+            quote.as_deref(),
+            &note_map,
+        );
+
+        let status = note
+            .frontmatter
+            .status
+            .as_deref()
+            .and_then(|s| match s.to_lowercase().as_str() {
+                "resolved" => Some(CommentStatus::Resolved),
+                "open" => Some(CommentStatus::Open),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        comments.push(Comment {
+            id: note.slug.clone(),
+            target_slug: target_slug.clone(),
+            target_anchor: target_anchor.clone(),
+            resolved_anchor,
+            resolved,
+            git_ref: note.frontmatter.git_ref.clone(),
+            quote,
+            author: note.frontmatter.author.clone(),
+            tags: note.tags.clone(),
+            status,
+            content_html: note.content_html.clone(),
+            source_path: note.source_path.clone(),
+            note_slug: note.slug.clone(),
+        });
+    }
+
+    comments
+}
+
+fn resolve_anchor(
+    target_slug: Option<&str>,
+    target_anchor: Option<&str>,
+    quote: Option<&str>,
+    note_map: &HashMap<String, &Note>,
+) -> (Option<String>, bool) {
+    let Some(slug) = target_slug else {
+        return (None, false);
+    };
+    let Some(target) = note_map.get(slug) else {
+        return (None, false);
+    };
+
+    let sections = section_digests_from_html(&target.slug, &target.title, &target.content_html);
+
+    // 1) Exact match on stable section id
+    if let Some(anchor) = target_anchor {
+        if sections
+            .iter()
+            .any(|s| s.section_id == anchor || s.anchor_id.as_deref() == Some(anchor))
+        {
+            return (Some(anchor.to_string()), true);
+        }
+    }
+
+    // 2) Fuzzy quote match: find section containing the quote in its content
+    if let Some(q) = quote {
+        if let Some(section_id) = find_section_by_quote(target, q) {
+            return (Some(section_id), true);
+        }
+    }
+
+    (None, false)
+}
+
+fn find_section_by_quote(note: &Note, quote: &str) -> Option<String> {
+    let entries = crate::search::build_search_index(
+        &note.slug,
+        &note.title,
+        &note.content_html,
+        &note.tags,
+        note.note_type.as_str(),
+        "/",
+    );
+    let quote_norm = quote.to_lowercase();
+    for entry in entries {
+        if entry.content.to_lowercase().contains(&quote_norm) {
+            return Some(entry.section_id);
+        }
+    }
+    None
 }

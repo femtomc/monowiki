@@ -12,7 +12,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use monowiki_core::{build_search_index, slugify, Config, SearchEntry};
+use monowiki_core::{build_search_index, slugify, CommentStatus, Config, SearchEntry};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -111,6 +111,7 @@ pub async fn dev_server(config_path: &Path, port: u16) -> Result<()> {
         .route("/api/note/{slug}", get(api_note))
         .route("/api/graph/{slug}", get(api_graph_neighbors))
         .route("/api/graph/path", get(api_graph_path))
+        .route("/api/comments", get(api_comments))
         .route("/api/changes", get(api_changes))
         .route("/{*path}", get(serve_with_404))
         .route("/", get(serve_index))
@@ -248,6 +249,12 @@ struct ChangesParams {
     with_sections: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct CommentsParams {
+    slug: Option<String>,
+    status: Option<String>,
+}
+
 async fn api_changes(
     State(state): State<AppState>,
     Query(params): Query<ChangesParams>,
@@ -285,6 +292,44 @@ async fn api_changes(
         )
             .into_response(),
     }
+}
+
+async fn api_comments(
+    State(state): State<AppState>,
+    Query(params): Query<CommentsParams>,
+) -> Response {
+    let data = state.data.read().await;
+    let mut comments: Vec<_> = data
+        .site_index
+        .comments
+        .iter()
+        .filter(|c| {
+            let slug_ok = params
+                .slug
+                .as_ref()
+                .map(|s| c.target_slug.as_deref() == Some(s.as_str()))
+                .unwrap_or(true);
+            let status_ok = params
+                .status
+                .as_ref()
+                .map(|st| match st.to_lowercase().as_str() {
+                    "open" => c.status == CommentStatus::Open,
+                    "resolved" => c.status == CommentStatus::Resolved,
+                    _ => true,
+                })
+                .unwrap_or(true);
+            slug_ok && status_ok
+        })
+        .collect();
+    comments.sort_by_key(|c| (&c.target_slug, &c.resolved_anchor, &c.id));
+
+    let json = serde_json::to_string(&comments).unwrap_or_else(|_| "[]".into());
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/json")],
+        json,
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -444,7 +489,7 @@ fn compute_search_entries(
 ) -> Vec<SearchEntry> {
     let mut entries = Vec::new();
     for note in &site_index.notes {
-        if note.is_draft() {
+        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
             continue;
         }
 
@@ -680,6 +725,7 @@ enable_backlinks: true
         let mut site_index = SiteIndex {
             notes: vec![note_a.clone(), note_b.clone()],
             graph,
+            comments: Vec::new(),
             diagnostics: Vec::new(),
         };
 

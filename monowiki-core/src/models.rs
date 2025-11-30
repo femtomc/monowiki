@@ -12,6 +12,7 @@ pub enum NoteType {
     Thought,
     Draft,
     Doc, // For code documentation
+    Comment,
 }
 
 impl NoteType {
@@ -21,6 +22,7 @@ impl NoteType {
             "thought" => Some(NoteType::Thought),
             "draft" => Some(NoteType::Draft),
             "doc" => Some(NoteType::Doc),
+            "comment" => Some(NoteType::Comment),
             _ => None,
         }
     }
@@ -31,6 +33,7 @@ impl NoteType {
             NoteType::Thought => "thought",
             NoteType::Draft => "draft",
             NoteType::Doc => "doc",
+            NoteType::Comment => "comment",
         }
     }
 }
@@ -76,6 +79,24 @@ pub struct Frontmatter {
 
     #[serde(default)]
     pub bibliography: Vec<String>,
+
+    #[serde(default)]
+    pub target_slug: Option<String>,
+
+    #[serde(default)]
+    pub target_anchor: Option<String>,
+
+    #[serde(default)]
+    pub git_ref: Option<String>,
+
+    #[serde(default)]
+    pub quote: Option<String>,
+
+    #[serde(default)]
+    pub author: Option<String>,
+
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// A single note/post in the site
@@ -200,6 +221,8 @@ pub struct SiteIndex {
     pub graph: LinkGraph,
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
+    #[serde(default)]
+    pub comments: Vec<Comment>,
 }
 
 impl SiteIndex {
@@ -208,6 +231,7 @@ impl SiteIndex {
             notes: Vec::new(),
             graph: LinkGraph::new(),
             diagnostics: Vec::new(),
+            comments: Vec::new(),
         }
     }
 
@@ -369,4 +393,34 @@ pub struct Diagnostic {
     /// Additional context (e.g., target slug, citation key)
     #[serde(default)]
     pub context: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CommentStatus {
+    Open,
+    Resolved,
+}
+
+impl Default for CommentStatus {
+    fn default() -> Self {
+        CommentStatus::Open
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Comment {
+    pub id: String,
+    pub target_slug: Option<String>,
+    pub target_anchor: Option<String>,
+    pub resolved_anchor: Option<String>,
+    pub resolved: bool,
+    pub git_ref: Option<String>,
+    pub quote: Option<String>,
+    pub author: Option<String>,
+    pub tags: Vec<String>,
+    pub status: CommentStatus,
+    pub content_html: String,
+    pub source_path: Option<String>,
+    pub note_slug: String,
 }

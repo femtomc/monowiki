@@ -21,7 +21,8 @@ pub use bibliography::{Bibliography, BibliographyStore};
 pub use builder::SiteBuilder;
 pub use config::Config;
 pub use models::{
-    Diagnostic, DiagnosticSeverity, Frontmatter, LinkGraph, Note, NoteType, SiteIndex,
+    Comment, CommentStatus, Diagnostic, DiagnosticSeverity, Frontmatter, LinkGraph, Note, NoteType,
+    SiteIndex,
 };
 pub use search::SectionDigest;
 pub use search::{build_search_index, SearchEntry};

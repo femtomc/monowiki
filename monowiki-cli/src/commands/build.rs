@@ -49,7 +49,7 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
     // Render individual note pages
     for note in &site_index.notes {
         // Skip drafts
-        if note.is_draft() {
+        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
             tracing::debug!("Skipping draft: {}", note.title);
             continue;
         }
@@ -337,7 +337,7 @@ fn generate_previews_json(
     let mut previews = serde_json::Map::new();
 
     for note in &site_index.notes {
-        if note.is_draft() {
+        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
             continue;
         }
 
@@ -385,7 +385,7 @@ fn generate_index_json(
     let mut index = Vec::new();
 
     for note in &site_index.notes {
-        if note.is_draft() {
+        if note.is_draft() || note.note_type == monowiki_core::NoteType::Comment {
             continue;
         }
 
