@@ -16,6 +16,7 @@ Or `cargo install --git https://github.com/femtomc/monowiki monowiki-cli`
 monowiki init         # scaffold vault/ and monowiki.yml
 monowiki dev          # serve at localhost:8000 with live reload
 monowiki build        # write static site to docs/
+monowiki verify       # advisory vault health report (use --json for agents)
 monowiki github-pages # generate GitHub Actions workflow
 ```
 
@@ -64,6 +65,7 @@ monowiki search "query" --json --with-links
 monowiki note <slug> --format json
 monowiki graph neighbors --slug <slug> --json
 monowiki export sections --format jsonl  # for embeddings
+monowiki verify --json  # diagnostics: unresolved links, citations, math, aliases
 ```
 
 Dev server exposes `/api/search`, `/api/note/<slug>`, `/api/graph/<slug>`.
