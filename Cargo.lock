@@ -1786,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "monowiki-adapters"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "insta",
@@ -1797,7 +1797,7 @@ dependencies = [
 
 [[package]]
 name = "monowiki-cli"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -1825,7 +1825,7 @@ dependencies = [
 
 [[package]]
 name = "monowiki-core"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "monowiki-render"
-version = "0.3.1"
+version = "0.3.3"
 dependencies = [
  "askama",
  "insta",
