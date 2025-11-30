@@ -186,8 +186,27 @@ fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> 
             quote: c.quote.clone().unwrap_or_default(),
             has_quote: c.quote.is_some(),
             body_html: c.content_html.clone(),
+            color_bg: comment_color_bg(&c.id),
+            color_border: comment_color_border(&c.id),
         })
         .collect()
+}
+
+fn comment_color_bg(id: &str) -> String {
+    let hue = color_hue(id);
+    format!("hsl({hue}, 75%, 92%)", hue = hue)
+}
+
+fn comment_color_border(id: &str) -> String {
+    let hue = color_hue(id);
+    format!("hsl({hue}, 75%, 45%)", hue = hue)
+}
+
+fn color_hue(id: &str) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    id.hash(&mut hasher);
+    (hasher.finish() % 360) as u32
 }
 
 /// Build a directory tree structure from notes with arbitrary nesting

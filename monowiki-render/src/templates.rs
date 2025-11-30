@@ -122,6 +122,8 @@ pub struct CommentRender {
     pub quote: String,
     pub has_quote: bool,
     pub body_html: String,
+    pub color_bg: String,
+    pub color_border: String,
 }
 
 /// Post/note page template

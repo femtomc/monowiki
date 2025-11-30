@@ -1168,6 +1168,38 @@ h2 {
   font-style: italic;
 }
 
+/* Comment sidebar layout */
+.page-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(18ch, 30ch);
+  gap: clamp(2ch, 4vw, 6ch);
+  align-items: start;
+}
+
+.page-body {
+  min-width: 0;
+}
+
+.comments-sidebar {
+  position: sticky;
+  top: 1.5rem;
+  border-left: 1px solid var(--border-color);
+  padding-left: 1.5ch;
+}
+
+@media screen and (max-width: 900px) {
+  .page-layout {
+    display: block;
+  }
+
+  .comments-sidebar {
+    position: static;
+    border-left: none;
+    padding-left: 0;
+    margin-top: var(--line-height);
+  }
+}
+
 /* Directory tree view for index page */
 .directory-tree {
   margin: var(--line-height) 0;
