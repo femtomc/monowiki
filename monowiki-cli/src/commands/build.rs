@@ -94,6 +94,9 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
     // Copy CSS/JS assets
     copy_assets(&config)?;
 
+    // Copy vault assets (images, PDFs, etc.) preserving directory structure
+    copy_vault_assets(&config)?;
+
     let non_draft_count = site_index.notes.iter().filter(|n| !n.is_draft()).count();
 
     tracing::info!("✓ Built {} pages", non_draft_count);
@@ -766,6 +769,70 @@ fn generate_graph_json(
     fs::write(&output_path, json).context("Failed to write graph.json")?;
 
     tracing::info!("Generated graph.json");
+
+    Ok(())
+}
+
+/// Static asset file extensions to copy from vault
+const VAULT_ASSET_EXTENSIONS: &[&str] = &[
+    // Images
+    "png", "jpg", "jpeg", "gif", "svg", "webp", "ico", "bmp", "tiff", "tif",
+    // Documents
+    "pdf",
+    // Audio/Video
+    "mp3", "mp4", "wav", "ogg", "webm", "m4a",
+    // Data files
+    "json", "csv", "xml",
+    // Archives
+    "zip", "tar", "gz",
+    // Other
+    "woff", "woff2", "ttf", "otf", "eot",
+];
+
+/// Copy static assets (images, PDFs, etc.) from vault to output directory
+fn copy_vault_assets(config: &Config) -> Result<()> {
+    let vault_dir = config.vault_dir();
+    let output_dir = config.output_dir();
+    let mut copied_count = 0;
+
+    for entry in WalkDir::new(&vault_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        let path = entry.path();
+
+        // Skip markdown files (already processed)
+        if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            continue;
+        }
+
+        // Check if file has an allowed extension
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase());
+
+        if let Some(ext) = extension {
+            if VAULT_ASSET_EXTENSIONS.contains(&ext.as_str()) {
+                // Preserve relative path structure
+                let relative = path.strip_prefix(&vault_dir).unwrap_or(path);
+                let target = output_dir.join(relative);
+
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+
+                fs::copy(path, &target)
+                    .with_context(|| format!("Failed to copy vault asset {:?} to {:?}", path, target))?;
+                copied_count += 1;
+            }
+        }
+    }
+
+    if copied_count > 0 {
+        tracing::info!("Copied {} vault assets (images, PDFs, etc.)", copied_count);
+    }
 
     Ok(())
 }
