@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="Monowiki" width="200" />
+</p>
+
 # Monowiki
 
 Static site generator for markdown vaults. Monospace theme, wikilinks, backlinks graph, Typst math, sidenotes, search.
