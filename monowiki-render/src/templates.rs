@@ -19,6 +19,9 @@ pub struct FileNode {
     pub url: String,
     pub title: String,
     pub note_type: String,
+    /// The kind of API item (e.g., "struct", "enum", "trait", "function", "method", "module")
+    /// Extracted from `kind:` tags for doc notes.
+    pub kind: Option<String>,
 }
 
 /// A directory entry in the directory tree
@@ -28,6 +31,16 @@ pub struct DirectoryNode {
     pub files: Vec<FileNode>,
     pub subdirs: Vec<DirectoryNode>,
 }
+
+/// The display order and label for each API kind
+const KIND_ORDER: &[(&str, &str)] = &[
+    ("module", "Modules"),
+    ("trait", "Traits"),
+    ("struct", "Structs"),
+    ("enum", "Enums"),
+    ("function", "Functions"),
+    ("method", "Methods"),
+];
 
 impl DirectoryNode {
     /// Render this directory node and its children to HTML
@@ -55,28 +68,83 @@ impl DirectoryNode {
             html.push_str("  </div>\n");
         }
 
-        // Render files
+        // Render files grouped by kind for doc notes
         if !self.files.is_empty() {
-            html.push_str("  <ul class=\"file-list\">\n");
-            for file in &self.files {
-                html.push_str("    <li class=\"file-item\">\n");
-                html.push_str(&format!(
-                    "      <a href=\"{}\" class=\"file-link\">{}</a>\n",
-                    html_escape(&file.url),
-                    html_escape(&file.title)
-                ));
-                html.push_str(&format!(
-                    "      <span class=\"file-type-badge\">{}</span>\n",
-                    file.note_type
-                ));
-                html.push_str("    </li>\n");
+            // Check if any file has a kind (i.e., this is an API docs directory)
+            let has_kinds = self.files.iter().any(|f| f.kind.is_some());
+
+            if has_kinds {
+                // Group files by kind
+                let mut kind_groups: std::collections::HashMap<&str, Vec<&FileNode>> =
+                    std::collections::HashMap::new();
+                let mut other_files: Vec<&FileNode> = Vec::new();
+
+                for file in &self.files {
+                    if let Some(ref kind) = file.kind {
+                        kind_groups.entry(kind.as_str()).or_default().push(file);
+                    } else {
+                        other_files.push(file);
+                    }
+                }
+
+                // Render each kind group in order
+                for (kind_key, kind_label) in KIND_ORDER {
+                    if let Some(files) = kind_groups.get(*kind_key) {
+                        html.push_str(&format!(
+                            "  <div class=\"kind-group\">\n    <h4 class=\"kind-heading\">{}</h4>\n",
+                            kind_label
+                        ));
+                        html.push_str("    <ul class=\"file-list\">\n");
+                        for file in files {
+                            render_file_item(&mut html, file);
+                        }
+                        html.push_str("    </ul>\n");
+                        html.push_str("  </div>\n");
+                    }
+                }
+
+                // Render any files without a recognized kind
+                if !other_files.is_empty() {
+                    html.push_str("  <ul class=\"file-list\">\n");
+                    for file in other_files {
+                        render_file_item(&mut html, file);
+                    }
+                    html.push_str("  </ul>\n");
+                }
+            } else {
+                // No kinds - render as flat list (non-API content)
+                html.push_str("  <ul class=\"file-list\">\n");
+                for file in &self.files {
+                    render_file_item(&mut html, file);
+                }
+                html.push_str("  </ul>\n");
             }
-            html.push_str("  </ul>\n");
         }
 
         html.push_str("</details>\n");
         html
     }
+}
+
+/// Render a single file item as an <li> element
+fn render_file_item(html: &mut String, file: &FileNode) {
+    html.push_str("      <li class=\"file-item\">\n");
+    html.push_str(&format!(
+        "        <a href=\"{}\" class=\"file-link\">{}</a>\n",
+        html_escape(&file.url),
+        html_escape(&file.title)
+    ));
+    // Use kind badge if available, otherwise note_type
+    let badge = file
+        .kind
+        .as_ref()
+        .map(|k| k.to_uppercase())
+        .unwrap_or_else(|| file.note_type.clone());
+    html.push_str(&format!(
+        "        <span class=\"file-type-badge\">{}</span>\n",
+        badge
+    ));
+    html.push_str("      </li>\n");
 }
 
 /// HTML escape function to prevent XSS

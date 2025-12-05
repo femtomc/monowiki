@@ -447,7 +447,30 @@ fn color_hue(id: &str) -> u32 {
     (hasher.finish() % 360) as u32
 }
 
-/// Build a directory tree structure from notes with arbitrary nesting
+/// Check if a path segment is a type-level name (starts with uppercase).
+/// These are filtered out from directory headings since they represent
+/// types (structs, enums, traits) rather than modules.
+fn is_type_segment(segment: &str) -> bool {
+    segment
+        .chars()
+        .next()
+        .map(|c| c.is_uppercase())
+        .unwrap_or(false)
+}
+
+/// Extract the API kind from a note's tags (e.g., "kind:struct" -> "struct").
+fn extract_kind_from_tags(tags: &[String]) -> Option<String> {
+    for tag in tags {
+        if let Some(kind) = tag.strip_prefix("kind:") {
+            return Some(kind.to_string());
+        }
+    }
+    None
+}
+
+/// Build a directory tree structure from notes with arbitrary nesting.
+/// Filters out uppercase/type-level segments so only snake_case module paths
+/// appear as directory headings.
 fn build_directory_tree(notes: &[&monowiki_core::Note], base_url: &str) -> Vec<DirectoryNode> {
     // Build a hierarchical tree structure
     let mut root_dirs: HashMap<String, DirectoryNode> = HashMap::new();
@@ -466,10 +489,19 @@ fn build_directory_tree(notes: &[&monowiki_core::Note], base_url: &str) -> Vec<D
                 url: note.url_with_base(base_url),
                 title: note.title.clone(),
                 note_type: note.note_type.as_str().to_uppercase(),
+                kind: extract_kind_from_tags(&note.tags),
             };
 
-            if path_parts.len() == 1 {
-                // File at root level
+            // Filter out type-level segments (uppercase names like Bibliography, Config)
+            // keeping only module-level segments (snake_case names like bibliography, config)
+            let dir_parts: Vec<&str> = path_parts[..path_parts.len() - 1]
+                .iter()
+                .copied()
+                .filter(|seg| !is_type_segment(seg))
+                .collect();
+
+            if dir_parts.is_empty() {
+                // File at root level (or all parent dirs were type-level)
                 let root_dir = root_dirs
                     .entry(String::new())
                     .or_insert_with(|| DirectoryNode {
@@ -480,11 +512,7 @@ fn build_directory_tree(notes: &[&monowiki_core::Note], base_url: &str) -> Vec<D
                 root_dir.files.push(file_node);
             } else {
                 // File in nested directories
-                insert_into_tree(
-                    &mut root_dirs,
-                    &path_parts[..path_parts.len() - 1],
-                    file_node,
-                );
+                insert_into_tree(&mut root_dirs, &dir_parts, file_node);
             }
         }
     }
