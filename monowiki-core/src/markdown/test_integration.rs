@@ -45,23 +45,27 @@ fn test_wikilink_in_paragraph() {
 }
 
 #[test]
-fn test_typst_preamble_applied() {
-    let markdown = "$$ #foo $$";
+fn test_display_math_renders() {
+    let markdown = "$$ x^2 + y^2 $$";
     let slug_map = HashMap::new();
     let processor = MarkdownProcessor::new();
     let (html, _links, _toc, _) = processor.convert(
         markdown,
         &slug_map,
         "/",
-        Some("#let foo = 42"),
+        None,
         None,
         None,
         None,
     );
 
     assert!(
-        html.contains("typst-display"),
-        "Typst preamble should allow rendering math blocks"
+        html.contains("math-display"),
+        "Display math should be wrapped with math-display class for MathJax"
+    );
+    assert!(
+        html.contains(r"\["),
+        "Display math should use \\[ delimiter for MathJax"
     );
 }
 

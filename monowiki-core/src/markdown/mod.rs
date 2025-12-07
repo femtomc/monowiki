@@ -3,9 +3,9 @@
 pub mod citations;
 pub mod highlight;
 pub mod math;
+pub mod mathjax;
 pub mod nota_blocks;
 pub mod sidenotes;
-pub mod typst_math;
 pub mod wikilinks;
 
 #[cfg(test)]
@@ -23,9 +23,9 @@ use crate::models::Diagnostic;
 
 pub use highlight::HighlightTransformer;
 pub use math::MathTransformer;
+use mathjax::render_math_for_mathjax;
 pub use nota_blocks::NotaBlockTransformer;
 pub use sidenotes::SidenoteTransformer;
-use typst_math::MATH_RENDERER;
 pub use wikilinks::WikilinkTransformer;
 
 #[derive(Debug, Clone)]
@@ -64,7 +64,7 @@ impl MarkdownProcessor {
         markdown: &str,
         slug_map: &HashMap<String, String>,
         base_url: &str,
-        typst_preamble: Option<&str>,
+        _typst_preamble: Option<&str>, // Kept for API compatibility, unused with MathJax
         citation_context: Option<&CitationContext>,
         note_slug: Option<&str>,
         source_path: Option<&str>,
@@ -85,9 +85,8 @@ impl MarkdownProcessor {
         let nota_transformer = NotaBlockTransformer::new();
         let events = nota_transformer.transform(events);
 
-        // Render math to SVG
-        let (events, mut math_diags) =
-            MATH_RENDERER.render_math(events, typst_preamble, note_slug, source_path);
+        // Render math for MathJax (client-side rendering)
+        let (events, mut math_diags) = render_math_for_mathjax(events);
         diagnostics.append(&mut math_diags);
 
         // Unwrap paragraphs with display math (must be after nota blocks)

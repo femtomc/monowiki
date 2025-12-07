@@ -138,8 +138,8 @@ impl MathTransformer {
                         for ev in paragraph {
                             // Check if this is rendered display math HTML
                             let is_display_math = match &ev {
-                                Event::Html(html) => html.contains("typst-display"),
-                                Event::InlineHtml(html) => html.contains("typst-display"),
+                                Event::Html(html) => html.contains("math-display"),
+                                Event::InlineHtml(html) => html.contains("math-display"),
                                 _ => false,
                             };
 
@@ -184,8 +184,8 @@ impl MathTransformer {
 
     fn paragraph_has_rendered_display_math(&self, events: &[Event<'static>]) -> bool {
         events.iter().any(|event| {
-            matches!(event, Event::Html(html) if html.contains("typst-display"))
-                || matches!(event, Event::InlineHtml(html) if html.contains("typst-display"))
+            matches!(event, Event::Html(html) if html.contains("math-display"))
+                || matches!(event, Event::InlineHtml(html) if html.contains("math-display"))
         })
     }
 
