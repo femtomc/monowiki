@@ -1,4 +1,4 @@
-# Monowiki
+# monowiki
 
 <p align="center">
   <img src="logo.png" alt="Monowiki" width="200" />
