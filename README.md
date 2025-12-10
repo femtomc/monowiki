@@ -4,7 +4,7 @@
   <img src="logo.png" alt="Monowiki" width="200" />
 </p>
 
-Static site generator for Markdown vaults. Monospace theme, wikilinks, backlinks graph, Typst math, sidenotes, search.
+Static site generator for Markdown vaults. Monospace theme, wikilinks, backlinks graph, math (MathJax), sidenotes, search.
 
 ## Install
 

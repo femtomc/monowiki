@@ -120,7 +120,7 @@ def greet():
 
 ## Math Support
 
-Math is rendered to inline SVG at build time with [Typst](https://typst.app), so there’s no client-side JavaScript required. Use standard `$ ... $` for inline math and `$$ ... $$` for display equations.
+Math is rendered client-side with [MathJax](https://www.mathjax.org/). Use `\( ... \)` for inline math and `\[ ... \]` or `$$ ... $$` for display equations.
 
 Inline example: $E = m c^2$.
 

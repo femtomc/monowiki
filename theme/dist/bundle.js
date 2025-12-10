@@ -135,83 +135,6 @@ function initTOC() {
     tocManager.init();
   }
 }
-function initMathCopy() {
-  const mathNodes = /* @__PURE__ */ new Set();
-  const attach = (mathEl) => {
-    if (!(mathEl instanceof HTMLElement) || mathNodes.has(mathEl)) return;
-    mathNodes.add(mathEl);
-    mathEl.style.userSelect = "text";
-    mathEl.style.cursor = "text";
-    const handleCopy = (e) => {
-      const mathSource = mathEl.getAttribute("data-math") || "";
-      if (!mathSource || !selectionIntersects(mathEl)) return;
-      e.preventDefault();
-      copyText$2(mathSource).then();
-    };
-    mathEl.addEventListener("copy", handleCopy);
-  };
-  document.querySelectorAll(".typst-math").forEach(attach);
-  const observer = new MutationObserver((mutations) => {
-    for (const mutation of mutations) {
-      mutation.addedNodes.forEach((node) => {
-        var _a, _b;
-        if (!(node instanceof Element)) return;
-        if ((_a = node.classList) == null ? void 0 : _a.contains("typst-math")) {
-          attach(node);
-        }
-        (_b = node.querySelectorAll) == null ? void 0 : _b.call(node, ".typst-math").forEach(attach);
-      });
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-  document.addEventListener("selectionchange", () => {
-    const sel = window.getSelection();
-    mathNodes.forEach((el) => {
-      if (sel && !sel.isCollapsed && selectionIntersects(el)) {
-        el.classList.add("selecting");
-      } else {
-        el.classList.remove("selecting");
-      }
-    });
-  });
-}
-async function copyText$2(text) {
-  var _a;
-  try {
-    if ((_a = navigator.clipboard) == null ? void 0 : _a.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (err) {
-    console.warn("Navigator clipboard copy failed, falling back", err);
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  let success = false;
-  try {
-    success = document.execCommand("copy");
-  } catch (err) {
-    console.warn("Fallback copy failed", err);
-  } finally {
-    document.body.removeChild(textarea);
-  }
-  return success;
-}
-function selectionIntersects(el) {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return false;
-  try {
-    const range = sel.getRangeAt(0);
-    return range.intersectsNode(el);
-  } catch {
-    return false;
-  }
-}
 function initCopyPageSource() {
   const button = document.getElementById("copy-page-source");
   const source = readSourcePayload();
@@ -332,7 +255,6 @@ function init() {
   setupSearchLoader();
   setupGraphLoader();
   initTOC();
-  initMathCopy();
   initCopyPageSource();
   initCopyCode();
 }

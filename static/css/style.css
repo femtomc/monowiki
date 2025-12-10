@@ -652,73 +652,6 @@ label input {
   }
 }
 
-/* Typst math output styling */
-.typst-math {
-  line-height: 1;
-  color: inherit;
-  font-size: 1em;
-  position: relative;
-}
-
-.typst-math:focus-visible {
-  outline: 1px solid var(--accent-color);
-  outline-offset: 2px;
-}
-
-.typst-math svg {
-  fill: currentColor;
-  max-width: 100%;
-  overflow: visible;
-}
-
-.typst-math svg [fill]:not([fill="none"]) {
-  fill: currentColor;
-}
-
-.typst-math svg [stroke]:not([stroke="none"]) {
-  stroke: currentColor;
-}
-
-.typst-inline {
-  display: inline;
-  vertical-align: baseline;
-}
-
-.typst-inline svg {
-  display: inline;
-  height: 1em;
-  width: auto;
-  vertical-align: -0.2ex;
-}
-
-.typst-display {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 0.75rem 0;
-  overflow-x: auto;
-}
-
-.typst-display svg {
-  display: block;
-  width: auto;
-  height: auto;
-}
-
-/* Selection feedback for math elements */
-.typst-math::selection,
-.typst-math *::selection {
-  background-color: var(--accent-color-light);
-  color: var(--text-color);
-}
-
-/* Active/selected state visual feedback */
-.typst-math:active,
-.typst-math.selecting {
-  background-color: var(--accent-color-light);
-  border-radius: 2px;
-}
-
 /* Tighter spacing for cleaner look */
 body {
   max-width: calc(min(var(--content-max), round(down, 100%, 1ch)));
@@ -1018,10 +951,6 @@ h2 {
 .nota-block-body p {
   margin-top: calc(var(--line-height) * 0.35);
   margin-bottom: 0;
-}
-
-.nota-block-body .typst-display {
-  margin: calc(var(--line-height) * 0.5) 0;
 }
 
 .note-list {

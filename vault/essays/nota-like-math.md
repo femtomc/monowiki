@@ -2,52 +2,54 @@
 title: "Nota-style math in monowiki"
 date: "2025-01-22"
 type: doc
-tags: [math, typst, nota]
+tags: [math, mathjax, nota]
 bibliography:
   - vault/references/nota.bib
-typst_preamble: |
-  #let typeOf(e, t) = $ Γ ⊢ #e : #t $
-  #let step(e1, e2) = $ #e1 → #e2 $
 ---
 
 This note shows how to get a Nota-like experience while staying in plain Markdown (inspired by the Nota language [@nota]). Two building blocks matter:
 
-- A per-note Typst preamble (set in frontmatter) so you can define macros and reuse them across inline and display math.
+- LaTeX math rendered client-side with MathJax, supporting macros via `\newcommand`.
 - A lightweight `@Block` syntax for callouts like definitions and theorems without leaving Markdown.
 
-## Typst preamble in frontmatter
+## Math with MathJax
 
-Add any Typst setup under `typst_preamble` in frontmatter. It is prepended to every math expression in the note and cached per-preable:
+Use `\( ... \)` for inline math and `\[ ... \]` or `$$ ... $$` for display equations. MathJax supports standard LaTeX math syntax.
 
-```yaml
-typst_preamble: |
-  #let typeOf(e, t) = $ Γ ⊢ #e : #t $
-  #let step(e1, e2) = $ #e1 → #e2 $
-```
+Inline example: \( E = mc^2 \) or $\alpha \to \beta$.
 
-Use your macros in math as usual (pass math content as `$...$` so Typst knows the arguments are math expressions):
-
-Inline: `$#step($e$, $e′$)$` renders a single-step reduction arrow.
-
-Display:
+Display example:
 
 $$
-#typeOf($e$, $τ$)
+\Gamma \vdash e : \tau
 $$
 
-Use `$$...$$` for display math (shown above). Single `$...$` works for inline math like $x + y = z$ or $alpha arrow.r beta$ (Typst uses words for Greek letters and symbols).
+## LaTeX macros
+
+You can define macros using standard LaTeX `\newcommand` syntax in display math blocks:
+
+$$
+\newcommand{\typeOf}[2]{\Gamma \vdash #1 : #2}
+\newcommand{\step}[2]{#1 \to #2}
+$$
+
+Then use them in subsequent math:
+
+$$
+\typeOf{e}{\tau}
+$$
 
 ## Nota-like blocks
 
-Start a paragraph with `@Kind[label]{Title}: ...` to wrap it in a styled block. The label becomes the `id` (defaults to a slug of the title). Wikilinks, math, and typst macros still work inside the body.
+Start a paragraph with `@Kind[label]{Title}: ...` to wrap it in a styled block. The label becomes the `id` (defaults to a slug of the title). Wikilinks and math still work inside the body.
 
 Example definition:
 
-@Definition[label=typing]{Typing judgment}: Every well-formed expression obeys $$ #typeOf($e$, $τ$) $$.
+@Definition[label=typing]{Typing judgment}: Every well-formed expression obeys $$ \Gamma \vdash e : \tau $$.
 
 Example theorem:
 
-@Theorem{Progress}: If $$ #typeOf($e$, $τ$) $$ then either `e` is a value or there exists `e′` such that $$ #step($e$, $e′$) $$. See [the typing definition](#typing).
+@Theorem{Progress}: If $$ \Gamma \vdash e : \tau $$ then either `e` is a value or there exists `e'` such that $$ e \to e' $$. See [the typing definition](#typing).
 
 You can link to these blocks with standard anchors: `[Typing](#typing)`, `[Progress](#progress)`, etc.
 
@@ -60,17 +62,17 @@ Here are some examples inspired by programming language theory papers:
 A typical type checking judgment uses multiple contexts:
 
 $$
-Sigma; Delta; Gamma tack.r e : tau arrow.r.double Gamma'
+\Sigma; \Delta; \Gamma \vdash e : \tau \Rightarrow \Gamma'
 $$
 
-Where $Sigma$ is the global function context, $Delta$ contains type variables, and $Gamma$ tracks local bindings.
+Where $\Sigma$ is the global function context, $\Delta$ contains type variables, and $\Gamma$ tracks local bindings.
 
 ### Inference rules
 
 Rules can have multiple premises stacked vertically using a fraction for the inference line:
 
 $$
-frac(Gamma tack.r e_1 : tau_1, Gamma tack.r "let" x = e_1 "in" e_2 : tau_2)
+\frac{\Gamma \vdash e_1 : \tau_1 \quad \Gamma, x : \tau_1 \vdash e_2 : \tau_2}{\Gamma \vdash \text{let } x = e_1 \text{ in } e_2 : \tau_2}
 $$
 
 ### Set operations and mappings
@@ -78,11 +80,11 @@ $$
 Dependency contexts map memory locations to sets of dependencies:
 
 $$
-cal(D) : { overline(ell |-> { overline(ell') }) }
+\mathcal{D} : \{ \overline{\ell \mapsto \{ \overline{\ell'} \}} \}
 $$
 
-After an assignment $x := e$ at location $ell_3$, we update conflicts:
+After an assignment $x := e$ at location $\ell_3$, we update conflicts:
 
 $$
-cal(D)' = cal(D)[x |-> cal(D)(x) union {ell_3}]
+\mathcal{D}' = \mathcal{D}[x \mapsto \mathcal{D}(x) \cup \{\ell_3\}]
 $$
