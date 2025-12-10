@@ -98,6 +98,31 @@ pub struct Frontmatter {
     /// Parent comment id (for replies to comments)
     #[serde(default)]
     pub parent_id: Option<String>,
+
+    // === API Documentation Fields ===
+    /// Parent item for methods/nested items (e.g., "config::Config" for from_file method)
+    #[serde(default)]
+    pub parent_item: Option<String>,
+
+    /// Kind of API item (function, struct, method, etc.)
+    #[serde(default)]
+    pub doc_kind: Option<String>,
+
+    /// Direct URL to source code (e.g., GitHub link)
+    #[serde(default)]
+    pub source_url: Option<String>,
+
+    /// Source file path (relative)
+    #[serde(default)]
+    pub source_file: Option<String>,
+
+    /// Source line range as "start-end"
+    #[serde(default)]
+    pub source_lines: Option<String>,
+
+    /// Code signature (for API docs)
+    #[serde(default)]
+    pub signature: Option<String>,
 }
 
 /// A single note/post in the site

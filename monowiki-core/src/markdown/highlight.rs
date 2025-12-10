@@ -250,3 +250,21 @@ fn html_escape(text: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
 }
+
+/// Highlight a code snippet and return HTML.
+/// Returns just the highlighted `<pre>` block without wrapper divs.
+pub fn highlight_code(code: &str, lang: &str) -> String {
+    let ss = syntax_set();
+    let syntax = ss
+        .find_syntax_by_token(lang)
+        .or_else(|| ss.find_syntax_by_extension(lang))
+        .unwrap_or_else(|| ss.find_syntax_plain_text());
+
+    match highlighted_html_for_string(code, ss, syntax, theme()) {
+        Ok(html) => html,
+        Err(_) => {
+            // Fallback to plain code block
+            format!("<pre><code>{}</code></pre>", html_escape(code))
+        }
+    }
+}

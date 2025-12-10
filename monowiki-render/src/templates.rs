@@ -248,6 +248,68 @@ pub struct PostTemplate {
     pub has_unanchored_comments: bool,
 }
 
+/// API documentation page template
+#[derive(Template)]
+#[template(path = "api.html")]
+pub struct ApiTemplate {
+    // Page metadata
+    pub title: String,
+    pub description: String,
+
+    // Content (docstring rendered to HTML)
+    pub content: String,
+
+    // Site metadata
+    pub site_title: String,
+    pub site_author: String,
+    pub year: i32,
+
+    // Navigation
+    pub nav_home: String,
+    pub nav_about: String,
+    pub nav_github: String,
+    pub has_about: bool,
+    pub has_github: bool,
+
+    // Path adjustments
+    pub css_path: String,
+
+    // Backlinks
+    pub backlinks: Vec<BacklinkEntry>,
+
+    // Site base URL and current slug
+    pub base_url: String,
+    pub slug: String,
+
+    // Raw markdown source for copy/export
+    pub source: Option<String>,
+
+    // === API-specific fields ===
+    /// Kind of item (function, struct, method, etc.)
+    pub doc_kind: String,
+
+    /// Code signature (raw text for copy)
+    pub signature: String,
+
+    /// Syntax-highlighted signature HTML
+    pub signature_html: String,
+
+    /// Source URL (e.g., GitHub link)
+    pub source_url: Option<String>,
+
+    /// Source file path
+    pub source_file: Option<String>,
+
+    /// Source line range (e.g., "42-50")
+    pub source_lines: Option<String>,
+
+    /// Parent item name for breadcrumbs (e.g., "config::Config")
+    pub parent_item: Option<String>,
+
+    /// Parent item URL for breadcrumbs
+    pub parent_item_url: Option<String>,
+}
+
 /// Index page template
 #[derive(Template)]
 #[template(path = "index.html")]

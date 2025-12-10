@@ -27,3 +27,4 @@ pub use models::{
 pub use search::SectionDigest;
 pub use search::{build_search_index, SearchEntry};
 pub use slug::slugify;
+pub use markdown::highlight_code;

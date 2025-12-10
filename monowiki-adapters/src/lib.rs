@@ -329,6 +329,22 @@ pub fn build_frontmatter(item: &DocItem, language: &str) -> Frontmatter {
 
     let slug = monowiki_core::slugify(&item.name.replace("::", "-"));
 
+    // Build parent_item for methods (e.g., "config::Config" for config::Config::from_file)
+    let parent_item = item.container.as_ref().map(|container| {
+        if item.module_path.is_empty() {
+            container.clone()
+        } else {
+            format!("{}::{}", item.module_path.join("::"), container)
+        }
+    });
+
+    // Build source line range string
+    let source_lines = match (item.location.start_line, item.location.end_line) {
+        (Some(start), Some(end)) => Some(format!("{}-{}", start, end)),
+        (Some(start), None) => Some(format!("{}", start)),
+        _ => None,
+    };
+
     Frontmatter {
         title: item.name.clone(),
         slug: Some(slug),
@@ -336,36 +352,27 @@ pub fn build_frontmatter(item: &DocItem, language: &str) -> Frontmatter {
         tags,
         aliases: vec![item.name.clone()],
         summary: item.summary(),
+        // API-specific fields
+        parent_item,
+        doc_kind: Some(item.kind.as_str().to_string()),
+        source_url: item.location.to_url(),
+        source_file: Some(item.location.file.to_string_lossy().to_string()),
+        source_lines,
+        signature: Some(item.signature.clone()),
         ..Default::default()
     }
 }
 
 /// Build markdown body for a documented item
+///
+/// The body is now simpler since metadata (kind, source, signature) is in frontmatter.
+/// The template can render those fields with custom styling.
+/// The body contains: documentation text and optionally the full source.
 pub fn build_body(item: &DocItem, language: &str) -> String {
     let mut body = String::new();
 
-    // Title
-    body.push_str(&format!("# {}\n\n", item.name));
-
-    // Kind badge and source link
-    body.push_str(&format!("**Kind:** {}\n\n", item.kind.display()));
-
-    if let Some(url) = item.location.to_url() {
-        body.push_str(&format!(
-            "**Source:** [{}]({})\n\n",
-            item.location.file.display(),
-            url
-        ));
-    } else {
-        body.push_str(&format!("**Source:** {}\n\n", item.location.file.display()));
-    }
-
-    // Signature code block
-    if !item.signature.trim().is_empty() {
-        body.push_str(&format!("```{}\n{}\n```\n\n", language, item.signature));
-    }
-
-    // Documentation text
+    // Documentation text (the human-written content from docstrings)
+    // This is the primary content - supports full markdown including wikilinks
     if let Some(ref docs) = item.docs {
         let trimmed = docs.trim();
         if !trimmed.is_empty() {
@@ -374,15 +381,12 @@ pub fn build_body(item: &DocItem, language: &str) -> String {
         }
     }
 
-    // Source code snippet
+    // Full source code in a collapsible details block
+    // This keeps the page clean but source is accessible
     if let Some(ref source) = item.source {
-        let display = item.location.display();
-        if let Some(url) = item.location.to_url() {
-            body.push_str(&format!("## Reference source: [{}]({})\n\n", display, url));
-        } else {
-            body.push_str(&format!("## Reference source: {}\n\n", display));
-        }
-        body.push_str(&format!("```{}\n{}\n```\n", language, source));
+        body.push_str("<details>\n<summary>Source</summary>\n\n");
+        body.push_str(&format!("```{}\n{}\n```\n\n", language, source));
+        body.push_str("</details>\n");
     }
 
     body
@@ -708,12 +712,11 @@ mod tests {
         };
 
         let body = build_body(&item, "rust");
-        assert!(body.contains("# slugify"));
-        assert!(body.contains("**Kind:** Function"));
-        assert!(body.contains("**Source:** [slug.rs]"));
-        assert!(body.contains("```rust\npub fn slugify(s: &str) -> String\n```"));
+        // Body now contains just the docs and collapsible source
         assert!(body.contains("Convert a string to a URL-safe slug."));
-        assert!(body.contains("## Reference source:"));
+        assert!(body.contains("<details>"));
+        assert!(body.contains("<summary>Source</summary>"));
+        assert!(body.contains("```rust\npub fn slugify"));
     }
 
     #[test]

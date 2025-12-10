@@ -21,7 +21,7 @@ use std::collections::HashMap;
 
 use crate::models::Diagnostic;
 
-pub use highlight::HighlightTransformer;
+pub use highlight::{highlight_code, HighlightTransformer};
 pub use math::MathTransformer;
 use mathjax::render_math_for_mathjax;
 pub use nota_blocks::NotaBlockTransformer;

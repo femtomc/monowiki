@@ -1,0 +1,232 @@
+/* API Documentation Styles */
+
+/* Breadcrumb navigation */
+.api-breadcrumb {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+  color: var(--text-muted, #666);
+}
+
+.api-breadcrumb a {
+  color: var(--link-color, #0066cc);
+  text-decoration: none;
+}
+
+.api-breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb-sep {
+  margin: 0 0.4em;
+  color: var(--text-muted, #999);
+}
+
+.breadcrumb-current {
+  color: var(--text-color, #333);
+}
+
+/* Header with title and kind badge */
+.api-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.api-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+/* Kind badges */
+.api-kind-badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* Kind-specific colors */
+.api-kind-struct {
+  background: #e3f2fd;
+  color: #1565c0;
+}
+
+.api-kind-enum {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.api-kind-trait {
+  background: #fff3e0;
+  color: #e65100;
+}
+
+.api-kind-function {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.api-kind-method {
+  background: #e0f7fa;
+  color: #00838f;
+}
+
+.api-kind-type {
+  background: #fce4ec;
+  color: #c2185b;
+}
+
+.api-kind-constant {
+  background: #efebe9;
+  color: #5d4037;
+}
+
+.api-kind-module {
+  background: #f5f5f5;
+  color: #616161;
+}
+
+/* Source link */
+.api-source {
+  margin-bottom: 1rem;
+}
+
+.api-source-link {
+  font-size: 0.85rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted, #666);
+  text-decoration: none;
+}
+
+.api-source-link:hover {
+  color: var(--link-color, #0066cc);
+  text-decoration: underline;
+}
+
+/* Signature block */
+.api-signature {
+  margin: 1rem 0 1.5rem 0;
+  background: var(--code-bg, #f6f8fa);
+  border: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.api-signature pre {
+  margin: 0;
+  padding: 0.875rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  background: transparent !important;
+}
+
+.api-signature code {
+  background: none;
+  padding: 0;
+}
+
+/* Remove extra wrapper from syntect output */
+.api-signature > pre {
+  background: transparent !important;
+}
+
+/* Page actions row */
+.api-doc .page-subheader {
+  margin-bottom: 1.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-color, #e1e4e8);
+}
+
+/* Documentation content */
+.api-content {
+  margin-top: 0;
+  line-height: 1.7;
+}
+
+.api-content > p:first-child {
+  margin-top: 0;
+  font-size: 1.05rem;
+}
+
+/* Collapsible source details */
+.api-content details {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px;
+}
+
+.api-content details summary {
+  padding: 0.5rem 1rem;
+  background: var(--code-bg, #f6f8fa);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+  border-radius: 6px;
+}
+
+.api-content details[open] summary {
+  border-bottom: 1px solid var(--border-color, #e1e4e8);
+  border-radius: 6px 6px 0 0;
+}
+
+.api-content details pre {
+  margin: 0;
+  border-radius: 0 0 6px 6px;
+}
+
+/* Backlinks section */
+.api-backlinks h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .api-kind-struct {
+    background: #1e3a5f;
+    color: #90caf9;
+  }
+
+  .api-kind-enum {
+    background: #4a1e5e;
+    color: #ce93d8;
+  }
+
+  .api-kind-trait {
+    background: #5d3a1a;
+    color: #ffcc80;
+  }
+
+  .api-kind-function {
+    background: #1b4332;
+    color: #a5d6a7;
+  }
+
+  .api-kind-method {
+    background: #004d4d;
+    color: #80deea;
+  }
+
+  .api-kind-type {
+    background: #4a1c2c;
+    color: #f48fb1;
+  }
+
+  .api-kind-constant {
+    background: #3e2723;
+    color: #bcaaa4;
+  }
+
+  .api-kind-module {
+    background: #424242;
+    color: #bdbdbd;
+  }
+}

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ title }} — {{ site_title }}</title>
+  <meta name="description" content="{{ description }}">
+  <meta name="author" content="{{ site_author }}">
+  <meta name="monowiki-base-url" content="{{ base_url }}">
+  <meta name="monowiki-note-slug" content="{{ slug }}">
+  <link rel="stylesheet" href="{{ css_path }}css/reset.css">
+  <link rel="stylesheet" href="{{ css_path }}css/style.css">
+  <link rel="stylesheet" href="{{ css_path }}css/previews.css">
+  <link rel="stylesheet" href="{{ css_path }}css/graph.css">
+  <link rel="stylesheet" href="{{ css_path }}css/search.css">
+  <link rel="stylesheet" href="{{ css_path }}css/api.css">
+
+  <!-- Frontend bundle -->
+  <script type="module" src="{{ css_path }}js/bundle.js"></script>
+
+  <!-- MathJax for math rendering -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\(', '\\)']],
+        displayMath: [['\\[', '\\]']],
+      },
+      options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+      },
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body class="api-doc-page">
+  <header class="header">
+    <div class="header-content">
+      <nav class="nav">
+        <a href="{{ nav_home }}">home</a>
+        {% if has_about %}<a href="{{ nav_about }}">about</a>{% endif %}
+        {% if has_github %}<a href="{{ nav_github }}">github</a>{% endif %}
+        <button id="search-trigger" class="search-trigger" aria-label="Search">
+          <span class="search-trigger-text">search</span>
+          <span class="search-trigger-hint">⌘K</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <article class="api-doc">
+      {# Breadcrumb navigation #}
+      {% match parent_item %}
+        {% when Some with (parent) %}
+        <nav class="api-breadcrumb" aria-label="Breadcrumb">
+          {% match parent_item_url %}
+            {% when Some with (url) %}
+            <a href="{{ url }}">{{ parent }}</a>
+            {% when None %}
+            <span>{{ parent }}</span>
+          {% endmatch %}
+          <span class="breadcrumb-sep" aria-hidden="true">›</span>
+          <span class="breadcrumb-current" aria-current="page">{{ title.split("::").last().unwrap_or(&title) }}</span>
+        </nav>
+        {% when None %}
+      {% endmatch %}
+
+      {# Title row with kind badge #}
+      <div class="api-header">
+        <h1 class="api-title">{{ title }}</h1>
+        <span class="api-kind-badge api-kind-{{ doc_kind }}">{{ doc_kind }}</span>
+      </div>
+
+      {# Source link #}
+      {% match source_url %}
+        {% when Some with (url) %}
+        <div class="api-source">
+          <a href="{{ url }}" target="_blank" rel="noopener" class="api-source-link">
+            {% match source_file %}{% when Some with (f) %}{{ f }}{% when None %}source{% endmatch %}{% match source_lines %}{% when Some with (lines) %} L{{ lines }}{% when None %}{% endmatch %}
+          </a>
+        </div>
+        {% when None %}
+      {% endmatch %}
+
+      {# Signature block #}
+      <div class="api-signature">
+        {{ signature_html|safe }}
+      </div>
+
+      {# Page actions #}
+      <div class="page-subheader">
+        {% match source %}
+          {% when Some with (_) %}
+          <button id="copy-page-source" class="copy-page-btn" type="button" aria-label="Copy page Markdown">Copy source</button>
+          {% when None %}
+        {% endmatch %}
+        <button id="global-graph-toggle" class="graph-btn" type="button" aria-label="Open graph">Graph</button>
+      </div>
+
+      {# Documentation content #}
+      <div class="api-content">
+        {{ content|safe }}
+      </div>
+
+      {# Backlinks #}
+      {% if backlinks.len() > 0 %}
+      <hr>
+      <section class="api-backlinks">
+        <h2>Used In</h2>
+        <ul class="backlinks-list">
+          {% for backlink in backlinks %}
+          <li><a href="{{ backlink.url }}">{{ backlink.title }}</a></li>
+          {% endfor %}
+        </ul>
+      </section>
+      {% endif %}
+    </article>
+
+    <hr>
+    <p>
+      <a href="{{ nav_home }}">← Back to home</a>
+    </p>
+  </main>
+
+  <!-- Global Graph Modal -->
+  <div class="global-graph-outer" id="global-graph-outer">
+    <div class="global-graph-container" id="global-graph-container"></div>
+  </div>
+
+  <!-- Search Modal -->
+  <div id="search-modal">
+    <div class="search-modal-wrapper">
+      <div class="search-modal-header">
+        <input
+          type="text"
+          id="search-modal-input"
+          class="search-modal-input"
+          placeholder="Search documentation..."
+          autocomplete="off"
+        />
+      </div>
+      <div class="search-modal-tabs">
+        <button class="search-tab active" data-tab="results">Results</button>
+        <button class="search-tab" data-tab="graph">Graph</button>
+      </div>
+      <div class="search-modal-content">
+        <div class="search-tab-panel active" id="search-tab-results">
+          <div class="search-modal-results" id="search-modal-results"></div>
+        </div>
+        <div class="search-tab-panel" id="search-tab-graph">
+          <div class="search-graph-container" id="search-graph-container"></div>
+        </div>
+      </div>
+      <div class="search-modal-footer">
+        <div class="search-hint">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>↵</kbd> Select</span>
+          <span><kbd>ESC</kbd> Close</span>
+        </div>
+        <div class="search-count"></div>
+      </div>
+    </div>
+  </div>
+
+  {% match source %}
+    {% when Some with (src) %}
+    <script id="page-source-data" type="application/json">{{ src|json|safe }}</script>
+    {% when None %}
+  {% endmatch %}
+
+</body>
+</html>

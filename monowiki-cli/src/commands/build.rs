@@ -7,7 +7,8 @@ use chrono::{Datelike, NaiveDate};
 use include_dir::{include_dir, Dir};
 use monowiki_core::{Config, SiteBuilder};
 use monowiki_render::{
-    BacklinkEntry, CommentRender, DirectoryNode, FileNode, NotFoundTemplate, PostTemplate,
+    ApiTemplate, BacklinkEntry, CommentRender, DirectoryNode, FileNode, NotFoundTemplate,
+    PostTemplate,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -256,15 +257,99 @@ fn render_note_page(
         Vec::new()
     };
 
+    // Expand {{directory_tree}} macro if present
+    let content = expand_macros(&note.content_html, site_index, base_url);
+
+    // Dispatch to appropriate template based on note type
+    // Use API template only for actual API docs (have doc_kind), not generic "doc" type pages
+    let is_api_doc = note.note_type == monowiki_core::NoteType::Doc
+        && note.frontmatter.doc_kind.is_some();
+
+    let html = if is_api_doc {
+        render_api_doc(config, note, &content, &backlinks, site_index, base_url)?
+    } else {
+        render_regular_note(config, note, &content, &backlinks, site_index, base_url)?
+    };
+
+    let output_path = config.output_dir().join(note.output_rel_path());
+    fs::write(&output_path, html).with_context(|| format!("Failed to write {:?}", output_path))?;
+
+    tracing::debug!("Rendered: {}", note.slug);
+
+    Ok(())
+}
+
+/// Render an API documentation page using ApiTemplate
+fn render_api_doc(
+    config: &Config,
+    note: &monowiki_core::Note,
+    content: &str,
+    backlinks: &[BacklinkEntry],
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<String> {
+    // Build parent item URL if we have a parent_item
+    let parent_item_url = note.frontmatter.parent_item.as_ref().and_then(|parent| {
+        site_index
+            .find_by_alias(parent)
+            .map(|parent_note| parent_note.url_with_base(base_url))
+    });
+
+    // Get the signature and highlight it
+    let signature = note.frontmatter.signature.clone().unwrap_or_default();
+    let signature_html = monowiki_core::highlight_code(&signature, "rust");
+
+    let template = ApiTemplate {
+        title: note.title.clone(),
+        description: note
+            .frontmatter
+            .summary
+            .clone()
+            .or_else(|| note.frontmatter.description.clone())
+            .unwrap_or_else(|| note.title.clone()),
+        content: content.to_string(),
+        site_title: config.site.title.clone(),
+        site_author: config.site.author.clone(),
+        year: chrono::Utc::now().year(),
+        nav_home: format!("{}index.html", base_url),
+        nav_about: format!("{}about.html", base_url),
+        nav_github: config.site.url.clone(),
+        has_about: false,
+        has_github: true,
+        css_path: base_url.to_string(),
+        backlinks: backlinks.to_vec(),
+        base_url: base_url.to_string(),
+        slug: note.slug.clone(),
+        source: note.raw_body.clone(),
+        // API-specific fields
+        doc_kind: note.frontmatter.doc_kind.clone().unwrap_or_else(|| "item".to_string()),
+        signature,
+        signature_html,
+        source_url: note.frontmatter.source_url.clone(),
+        source_file: note.frontmatter.source_file.clone(),
+        source_lines: note.frontmatter.source_lines.clone(),
+        parent_item: note.frontmatter.parent_item.clone(),
+        parent_item_url,
+    };
+
+    template.render().context("Failed to render API template")
+}
+
+/// Render a regular note/essay page using PostTemplate
+fn render_regular_note(
+    config: &Config,
+    note: &monowiki_core::Note,
+    content: &str,
+    backlinks: &[BacklinkEntry],
+    site_index: &monowiki_core::SiteIndex,
+    base_url: &str,
+) -> Result<String> {
     // Format dates
     let date = note.date.as_ref().map(|d| d.format("%Y-%m-%d").to_string());
     let updated = note
         .updated
         .as_ref()
         .map(|d| d.format("%Y-%m-%d").to_string());
-
-    // Expand {{directory_tree}} macro if present
-    let content = expand_macros(&note.content_html, site_index, base_url);
 
     // Get comments and compute unanchored flag
     let comments = render_comments_for_note(&site_index.comments, &note.slug);
@@ -280,7 +365,7 @@ fn render_note_page(
         date,
         updated,
         tags: note.tags.clone(),
-        content,
+        content: content.to_string(),
         toc_html: note.toc_html.clone(),
         site_title: config.site.title.clone(),
         site_author: config.site.author.clone(),
@@ -288,10 +373,10 @@ fn render_note_page(
         nav_home: format!("{}index.html", base_url),
         nav_about: format!("{}about.html", base_url),
         nav_github: config.site.url.clone(),
-        has_about: false, // TODO: Check if about.html exists
+        has_about: false,
         has_github: true,
-        css_path: base_url.to_string(), // Asset prefix
-        backlinks,
+        css_path: base_url.to_string(),
+        backlinks: backlinks.to_vec(),
         base_url: base_url.to_string(),
         slug: note.slug.clone(),
         source: note.raw_body.clone(),
@@ -299,16 +384,7 @@ fn render_note_page(
         has_unanchored_comments,
     };
 
-    let html = template
-        .render()
-        .context("Failed to render post template")?;
-
-    let output_path = config.output_dir().join(note.output_rel_path());
-    fs::write(&output_path, html).with_context(|| format!("Failed to write {:?}", output_path))?;
-
-    tracing::debug!("Rendered: {}", note.slug);
-
-    Ok(())
+    template.render().context("Failed to render post template")
 }
 
 fn render_comments_for_note(comments: &[monowiki_core::Comment], slug: &str) -> Vec<CommentRender> {
