@@ -1,6 +1,7 @@
 # Build outputs
 /target
 /docs/
+/vault/api/
 .papers_cache.json
 
 # User configuration (may contain personal info)

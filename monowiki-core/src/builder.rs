@@ -123,7 +123,7 @@ impl SiteBuilder {
                 &body,
                 &slug_map,
                 &base_url,
-                frontmatter.typst_preamble.as_deref(),
+                None, // typst_preamble removed - math now rendered client-side by MathJax
                 citation_ctx.as_ref(),
                 Some(&note.slug),
                 note.source_path.as_deref(),

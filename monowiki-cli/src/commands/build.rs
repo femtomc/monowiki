@@ -38,6 +38,12 @@ pub fn build_site_with_config(config: Config) -> Result<(Config, monowiki_core::
 
     tracing::info!("Building site: {}", config.site.title);
 
+    // Run documentation adapters before building (generates API docs into vault)
+    if !config.adapters.is_empty() {
+        super::adapters::run_doc_adapters(&config)
+            .context("Failed to run documentation adapters")?;
+    }
+
     // Build the site
     let builder = SiteBuilder::new(config.clone());
     let site_index = builder.build().context("Failed to build site")?;

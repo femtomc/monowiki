@@ -163,20 +163,6 @@ Content."#;
     }
 
     #[test]
-    fn test_parse_frontmatter_with_typst_preamble() {
-        let content = r#"---
-title: Math Note
-typst_preamble: |
-  #let foo = 1
----
-
-Body."#;
-
-        let (fm, _) = parse_frontmatter(content).unwrap();
-        assert_eq!(fm.typst_preamble.as_deref(), Some("#let foo = 1"));
-    }
-
-    #[test]
     fn test_invalid_yaml() {
         let content = r#"---
 title: Test

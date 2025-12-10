@@ -5,21 +5,35 @@ authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Code documentation adapters for monowiki"
+description = "Language-agnostic code documentation adapters using tree-sitter"
 
 [dependencies]
 monowiki-core = { path = "../monowiki-core" }
 
 serde.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+walkdir.workspace = true
+tracing.workspace = true
 
-# Python parsing (optional, can be feature-gated)
-# rustpython-parser = { version = "0.3", optional = true }
+# Tree-sitter for language-agnostic parsing
+tree-sitter = "0.24"
+
+# Language grammars (feature-gated)
+tree-sitter-rust = { version = "0.23", optional = true }
+tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.23", optional = true }
 
 [dev-dependencies]
 insta.workspace = true
+tempfile.workspace = true
 
 [features]
-default = []
-# python = ["dep:rustpython-parser"]
+default = ["rust"]
+rust = ["dep:tree-sitter-rust"]
+python = ["dep:tree-sitter-python"]
+typescript = ["dep:tree-sitter-typescript"]
+go = ["dep:tree-sitter-go"]
+all-languages = ["rust", "python", "typescript", "go"]

@@ -197,17 +197,6 @@ pub fn compute_changes(
     })
 }
 
-fn section_digests_from_note(
-    note: &monowiki_core::Note,
-    with_sections: bool,
-) -> Vec<SectionDigest> {
-    if with_sections {
-        search::section_digests_from_html(&note.slug, &note.title, &note.content_html)
-    } else {
-        Vec::new()
-    }
-}
-
 struct SectionSnapshot {
     digest: SectionDigest,
     content: String,

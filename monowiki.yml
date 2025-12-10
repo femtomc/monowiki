@@ -23,3 +23,14 @@ base_url: "/"
 enable_rss: true
 enable_sitemap: true
 enable_backlinks: true
+
+# Documentation adapters
+adapters:
+  - name: rust
+    source_path: monowiki-core/src
+    output_dir: vault/api/core
+    repo_url: "https://github.com/femtomc/monowiki"
+  - name: rust
+    source_path: monowiki-adapters/src
+    output_dir: vault/api/adapters
+    repo_url: "https://github.com/femtomc/monowiki"

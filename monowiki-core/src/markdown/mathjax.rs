@@ -7,8 +7,7 @@ use pulldown_cmark::{CowStr, Event};
 
 /// Render math events into MathJax-compatible HTML.
 ///
-/// Unlike the Typst renderer which produces SVG at build time,
-/// this simply wraps the LaTeX in delimiters that MathJax will process.
+/// Wraps LaTeX in delimiters that MathJax will process client-side.
 pub fn render_math_for_mathjax(events: Vec<Event<'static>>) -> (Vec<Event<'static>>, Vec<Diagnostic>) {
     let events = events
         .into_iter()

@@ -75,9 +75,6 @@ pub struct Frontmatter {
     pub aliases: Vec<String>,
 
     #[serde(default)]
-    pub typst_preamble: Option<String>,
-
-    #[serde(default)]
     pub bibliography: Vec<String>,
 
     #[serde(default)]
