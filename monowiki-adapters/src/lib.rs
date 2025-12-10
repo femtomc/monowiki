@@ -34,6 +34,12 @@ use walkdir::WalkDir;
 #[cfg(feature = "rust")]
 mod lang_rust;
 
+#[cfg(feature = "python")]
+mod lang_python;
+
+#[cfg(feature = "zig")]
+mod lang_zig;
+
 // ============================================================================
 // Error Types
 // ============================================================================
@@ -277,6 +283,10 @@ pub fn adapter_by_name(name: &str) -> Option<Box<dyn DocAdapter>> {
     match name {
         #[cfg(feature = "rust")]
         "rust" => Some(Box::new(lang_rust::RustAdapter::new())),
+        #[cfg(feature = "python")]
+        "python" => Some(Box::new(lang_python::PythonAdapter::new())),
+        #[cfg(feature = "zig")]
+        "zig" => Some(Box::new(lang_zig::ZigAdapter::new())),
         _ => None,
     }
 }
@@ -290,6 +300,9 @@ pub fn available_adapters() -> Vec<&'static str> {
 
     #[cfg(feature = "python")]
     adapters.push("python");
+
+    #[cfg(feature = "zig")]
+    adapters.push("zig");
 
     #[cfg(feature = "typescript")]
     adapters.push("typescript");

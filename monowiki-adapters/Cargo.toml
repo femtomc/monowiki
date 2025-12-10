@@ -23,6 +23,7 @@ tree-sitter = "0.24"
 # Language grammars (feature-gated)
 tree-sitter-rust = { version = "0.23", optional = true }
 tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-zig = { version = "1.1", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
 tree-sitter-go = { version = "0.23", optional = true }
 
@@ -31,9 +32,10 @@ insta.workspace = true
 tempfile.workspace = true
 
 [features]
-default = ["rust"]
+default = ["rust", "python", "zig"]
 rust = ["dep:tree-sitter-rust"]
 python = ["dep:tree-sitter-python"]
+zig = ["dep:tree-sitter-zig"]
 typescript = ["dep:tree-sitter-typescript"]
 go = ["dep:tree-sitter-go"]
-all-languages = ["rust", "python", "typescript", "go"]
+all-languages = ["rust", "python", "zig", "typescript", "go"]
